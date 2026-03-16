@@ -1,0 +1,21 @@
+{
+    "step_file_path": "C:/Users/PC/Documents/CAD_Files/deneme_mandrel.step",
+    "params": {
+        "num_sweeping_passes": 20,
+        "p1_p3_x_offset_from_p2": 40.0,
+        "p1_z_offset_from_p2": 50.0,
+        "p3_z_offset_from_p2": -9.765618206120763,
+        "y_rotation_degrees": -32.81249773616959,
+        "roughing_step_radial": 2.786458432833615,
+        "safety_clearance_roller_to_part": 0.5,
+        "first_pass_p2_contact_z_abs": 98.0,
+        "roller_nose_radius_param": 10.0,
+        "final_part_thickness_on_mandrel": 2.0,
+        "camera_focal_x_offset": 0.0,
+        "camera_focal_z_offset": 0.0,
+        "camera_y_distance": 600.0,
+        "show_advanced_sliders": true,
+        "flip_z_axis": false
+    },
+    "gui_pass_overrides": {}
+}

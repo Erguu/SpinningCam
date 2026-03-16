@@ -1,0 +1,53 @@
+# Recipe Format Specification
+# Version: 1.0
+# For: Metal Spinning Machine PLC (S7-1200)
+#
+# Format: CSV with header
+# X = Target X position (mm)
+# Z = Target Z position (mm)  
+# F = Feedrate (mm/min, integer 0-9999)
+# CMD = Command type (0=G0 rapid, 1=G1 linear, 10=Tool change, 99=End)
+#
+# Lines starting with # are comments (ignored)
+# First non-comment line must be column headers
+# Program ends when CMD=99 or file ends
+
+X,Z,F,CMD
+# --- Safe start position ---
+300.000,-150.000,0,0
+# --- PASO 1: ROUGHING ---
+172.858,-55.823,300,1
+172.648,-54.732,300,1
+172.440,-53.614,300,1
+172.237,-52.472,300,1
+172.037,-51.306,300,1
+171.841,-50.118,300,1
+171.651,-48.910,300,1
+171.466,-47.683,300,1
+171.287,-46.438,300,1
+171.115,-45.176,300,1
+170.949,-43.900,300,1
+170.791,-42.610,300,1
+170.641,-41.307,300,1
+170.499,-39.994,300,1
+170.367,-38.672,300,1
+170.244,-37.342,300,1
+170.130,-36.005,300,1
+170.028,-34.663,300,1
+169.936,-33.317,300,1
+169.855,-31.969,300,1
+# --- Retract ---
+273.328,-37.318,0,0
+# --- PASO 2 ---
+190.891,-29.665,0,0
+190.386,-28.675,300,1
+189.876,-27.659,300,1
+189.363,-26.618,300,1
+188.847,-25.554,300,1
+188.329,-24.467,300,1
+# --- Tool Change Example ---
+0,0,0,10
+# --- Continue after tool change ---
+190.891,-29.665,0,0
+# --- End Program ---
+0,0,0,99

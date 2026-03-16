@@ -1,0 +1,16 @@
+{
+    "slider_start_x": 0.02,
+    "slider_end_x": 0.15,
+    "vertical_gap": 0.18,
+    "header_gap": 0.1,
+    
+    "scroll_bar_x": 0.25,
+    "scroll_bar_width": 0.004,
+    
+    "checkbox_x": 0.02,
+    "multi_btn_start_x": 0.02,
+    "multi_btn_spacing": 0.06,
+    
+    "window_width": 1920,
+    "window_height": 1080
+}

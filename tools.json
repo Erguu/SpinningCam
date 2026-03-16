@@ -1,0 +1,23 @@
+[
+    {
+        "id": "T0101",
+        "name": "Standard Rough",
+        "radius": 10.0,
+        "type": "roller",
+        "color": "red"
+    },
+    {
+        "id": "T0202",
+        "name": "Standard Finish",
+        "radius": 25.0,
+        "type": "roller",
+        "color": "gold"
+    },
+    {
+        "id": "T0303",
+        "name": "Small Detail",
+        "radius": 5.0,
+        "type": "roller",
+        "color": "blue"
+    }
+]

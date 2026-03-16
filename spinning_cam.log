@@ -1,0 +1,53 @@
+19:47:03 - SpinningCam - INFO - Logging initialized. Log file: c:\Users\PC\Documents\Python_Projects\SpinningCam\spinning_cam.log
+19:47:04 - SpinningCam - INFO - Loading settings from: c:\Users\PC\Documents\Python_Projects\SpinningCam\settings.json
+19:47:05 - SpinningCam - INFO - Settings validated successfully.
+19:47:05 - SpinningCam - INFO - Settings loaded successfully.
+19:47:10 - SpinningCam - INFO - Uniform Correction 'Roughing 1' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:47:10 - SpinningCam - INFO - Uniform Correction 'Roughing 2' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:47:10 - SpinningCam - INFO - Uniform Correction 'Roughing 3' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:47:10 - SpinningCam - INFO - Uniform Correction 'Roughing 4' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:47:10 - SpinningCam - INFO - Uniform Correction 'Roughing 5' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:47:10 - SpinningCam - INFO - Uniform Correction 'Roughing 6' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:47:10 - SpinningCam - INFO - Uniform Correction 'Roughing 7' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:47:10 - SpinningCam - INFO - Uniform Correction 'Roughing 8' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:47:10 - SpinningCam - INFO - Uniform Correction 'Roughing 9' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:47:10 - SpinningCam - INFO - Uniform Correction 'Roughing 10' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:47:10 - SpinningCam - INFO - Uniform Correction 'Roughing 11' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:47:10 - SpinningCam - INFO - Uniform Correction 'Roughing 12' Iter 0: Min Clearance 20.669mm < Target 1.0mm. Shifting ALL points by +-19.669mm
+19:47:10 - SpinningCam - INFO - Rendering 13 paths.
+19:47:11 - SpinningCam - INFO - PyVista Window Embedded successfully (HWND: 67788 -> 67812).
+19:47:41 - SpinningCam - INFO - Uniform Correction 'Roughing 1' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:47:41 - SpinningCam - INFO - Uniform Correction 'Roughing 2' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:47:41 - SpinningCam - INFO - Uniform Correction 'Roughing 3' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:47:41 - SpinningCam - INFO - Uniform Correction 'Roughing 4' Iter 0: Min Clearance 20.669mm < Target 1.0mm. Shifting ALL points by +-19.669mm
+19:47:41 - SpinningCam - INFO - Rendering 4 paths.
+19:48:06 - SpinningCam - INFO - Uniform Correction 'Roughing 1' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:48:06 - SpinningCam - INFO - Uniform Correction 'Roughing 2' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:48:06 - SpinningCam - INFO - Uniform Correction 'Roughing 3' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:48:06 - SpinningCam - INFO - Uniform Correction 'Roughing 4' Iter 0: Min Clearance 20.669mm < Target 1.0mm. Shifting ALL points by +-19.669mm
+19:48:06 - SpinningCam - INFO - Rendering 4 paths.
+19:48:24 - SpinningCam - INFO - Uniform Correction 'Roughing 1' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:48:24 - SpinningCam - INFO - Uniform Correction 'Roughing 2' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:48:24 - SpinningCam - INFO - Uniform Correction 'Roughing 3' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:48:24 - SpinningCam - INFO - Uniform Correction 'Roughing 4' Iter 0: Min Clearance 20.669mm < Target 1.0mm. Shifting ALL points by +-19.669mm
+19:48:24 - SpinningCam - INFO - Rendering 4 paths.
+19:48:37 - SpinningCam - INFO - Uniform Correction 'Roughing 1' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:48:37 - SpinningCam - INFO - Uniform Correction 'Roughing 2' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:48:37 - SpinningCam - INFO - Uniform Correction 'Roughing 3' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:48:37 - SpinningCam - INFO - Uniform Correction 'Roughing 4' Iter 0: Min Clearance 20.669mm < Target 1.0mm. Shifting ALL points by +-19.669mm
+19:48:37 - SpinningCam - INFO - Rendering 4 paths.
+19:48:53 - SpinningCam - INFO - Uniform Correction 'Roughing 1' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:48:53 - SpinningCam - INFO - Uniform Correction 'Roughing 2' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:48:53 - SpinningCam - INFO - Uniform Correction 'Roughing 3' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:48:53 - SpinningCam - INFO - Uniform Correction 'Roughing 4' Iter 0: Min Clearance 20.669mm < Target 1.0mm. Shifting ALL points by +-19.669mm
+19:48:53 - SpinningCam - INFO - Rendering 4 paths.
+19:49:02 - SpinningCam - INFO - Uniform Correction 'Roughing 1' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:49:02 - SpinningCam - INFO - Uniform Correction 'Roughing 2' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:49:02 - SpinningCam - INFO - Uniform Correction 'Roughing 3' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:49:02 - SpinningCam - INFO - Uniform Correction 'Roughing 4' Iter 0: Min Clearance 20.669mm < Target 1.0mm. Shifting ALL points by +-19.669mm
+19:49:02 - SpinningCam - INFO - Rendering 4 paths.
+19:49:24 - SpinningCam - INFO - Uniform Correction 'Roughing 1' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:49:24 - SpinningCam - INFO - Uniform Correction 'Roughing 2' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:49:24 - SpinningCam - INFO - Uniform Correction 'Roughing 3' Iter 0: Min Clearance 20.018mm < Target 1.0mm. Shifting ALL points by +-19.018mm
+19:49:24 - SpinningCam - INFO - Uniform Correction 'Roughing 4' Iter 0: Min Clearance 20.669mm < Target 1.0mm. Shifting ALL points by +-19.669mm
+19:49:24 - SpinningCam - INFO - Rendering 4 paths.

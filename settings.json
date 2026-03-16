@@ -1,0 +1,122 @@
+{
+    "num_sweeping_passes": 12.0,
+    "first_pass_p2_contact_z_abs": 10.0,
+    "y_rotation_degrees": 30.0,
+    "auto_align_rotation": 1.0,
+    "calc_active": true,
+    "cam_azimuth": 0.0,
+    "cam_elevation": 0.0,
+    "cam_roll": 90.0,
+    "mandrel_rot_x": 0.0,
+    "mandrel_rot_y": 0.0,
+    "mandrel_rot_z": 0.0,
+    "mandrel_pos_x_offset": 0.0,
+    "mandrel_pos_z_offset": 0.0,
+    "p1_p3_x_offset_from_p2": 40.0,
+    "p1_z_offset_from_p2": 50.0,
+    "p3_z_offset_from_p2": -20.0,
+    "roughing_step_radial": 20.0,
+    "last_pass_extension_z": 0.0,
+    "roller_nose_radius_param": 10.0,
+    "final_part_thickness_on_mandrel": 2.0,
+    "safety_clearance_roller_to_part": 0.5,
+    "shell_thickness": 0.0,
+    "blank_radius": 500.0,
+    "blank_z_shift": 0.0,
+    "roller_visual_radius": 25.0,
+    "roller_visual_x_offset": 300.0,
+    "roller_visual_z_offset": -200.0,
+    "show_advanced_sliders": false,
+    "show_visual_sliders": false,
+    "last_scroll_val": 100.0,
+    "machine_invert_x": false,
+    "machine_output_diameter_mode": false,
+    "machine_gcode_offset_x": 0.0,
+    "machine_gcode_offset_z": 0.0,
+    "gcode_header": "G21 G90 G18\nG54",
+    "gcode_footer": "M5\nM30",
+    "tool_change_active": 0.0,
+    "rough_tool_number": "T0101",
+    "finish_tool_number": "T0202",
+    "finish_tool_radius": 25.0,
+    "finish_p1_p3_x_offset_from_p2": 40.0,
+    "finish_p1_z_offset_from_p2": 50.0,
+    "finish_p3_z_offset_from_p2": -20.0,
+    "finish_y_rotation_degrees": 30.0,
+    "finish_step_radial": 5.0,
+    "adaptive_finish_mode": false,
+    "adaptive_resolution": 0.5,
+    "saved_camera_pos": [
+        [
+            52.543503841673825,
+            1444.8390453295217,
+            44.807641724876746
+        ],
+        [
+            52.543503841673825,
+            0.0,
+            44.807641724876746
+        ],
+        [
+            1.0,
+            0.0,
+            0.0
+        ]
+    ],
+    "num_finishing_passes": 0.0,
+    "operations": [
+        {
+            "type": "roughing",
+            "enabled": true,
+            "count": 12,
+            "tool_id": "T0101",
+            "r_tool": 25.0,
+            "start_z": 10.0,
+            "p1_x": 40.0,
+            "p1_z": 50.0,
+            "p3_z": -20.0,
+            "rot": 30.0,
+            "step": 20.0
+        },
+        {
+            "type": "finishing",
+            "enabled": true,
+            "count": 1,
+            "tool_id": "T0202",
+            "p1_x": 40.0,
+            "p1_z": 50.0,
+            "p3_z": -20.0,
+            "start_z": 10.0,
+            "step": 1.0,
+            "rot": 30.0,
+            "r_tool": 10.0
+        }
+    ],
+    "show_heatmap": 1.0,
+    "home_z": -150.0,
+    "home_x": 300.0,
+    "retract_x": 50.0,
+    "retract_z": -50.0,
+    "auto_calc_angle": 1.0,
+    "camera": {
+        "pos": [
+            24.598614387119994,
+            800.0,
+            72.84157050232534
+        ],
+        "foc": [
+            24.598614387119994,
+            0.0,
+            72.84157050232534
+        ],
+        "up": [
+            1.0,
+            0.0,
+            0.0
+        ]
+    },
+    "show_passes_live": 1.0,
+    "target_clearance": 1.0,
+    "collision_resolution": 1.0,
+    "show_analysis_lines": 1.0
+}
