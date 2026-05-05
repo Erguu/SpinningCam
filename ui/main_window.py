@@ -303,7 +303,14 @@ class SpinningCamWindow(tk.Tk):
                  except: pass
              if matched: break
              
-        msg = f"POS: X{pos[0]:.2f} Z{z_curr:.2f}"
+        p = self.app.params
+        _ox = p.get("home_x", 0.0) if p.get("origin_use_home", False) else p.get("machine_origin_x", 0.0)
+        _oz = p.get("home_z", 0.0) if p.get("origin_use_home", False) else p.get("machine_origin_z", 0.0)
+        _dx = -1.0 if p.get("machine_invert_x", False) else 1.0
+        _dz = -1.0 if p.get("machine_invert_z", False) else 1.0
+        x_disp = ((pos[0] - _ox) * _dx) + p.get("machine_gcode_offset_x", 0.0)
+        z_disp = ((pos[2] - _oz) * _dz) + p.get("machine_gcode_offset_z", 0.0)
+        msg = f"POS: X{x_disp:.2f} Z{z_disp:.2f}"
         if matched and txt_s != "--":
             msg += f"  |  S: {txt_s} ({mode_s})  |  F: {txt_f} ({mode_f})"
         else:
@@ -345,6 +352,9 @@ class SpinningCamWindow(tk.Tk):
         self.on_close()
 
     def on_close(self):
+        if hasattr(self, 'ui_machine'):
+            self.ui_machine.sync_params()
+        self.app.save_settings_json()
         try: self.app.plotter.close()
         except: pass
         self.destroy()
@@ -508,7 +518,17 @@ class SpinningCamWindow(tk.Tk):
         
         if not nc_path:
             return
-        
+
+        # Pre-parse G-code to get line count before asking user
+        try:
+            from recipe_to_scl import GCodeToSCLConverter
+            _pre_converter = GCodeToSCLConverter()
+            with open(nc_path, 'r', encoding='utf-8') as _f:
+                _pre_converter.parse_gcode(_f.read())
+            _parsed_line_count = len(_pre_converter.lines)
+        except Exception:
+            _parsed_line_count = None
+
         # Ask for Data Block name
         db_name = simpledialog.askstring(
             "Data Block Name",
@@ -530,7 +550,27 @@ class SpinningCamWindow(tk.Tk):
         
         if not program_title:
             program_title = "SpinningCam Program"
-        
+
+        # Ask user for recipe database array size
+        if _parsed_line_count is not None:
+            _default_array = max(_parsed_line_count, 1000)
+            _array_size_str = simpledialog.askstring(
+                "Reçete Database Boyutu",
+                f"G-code analiz edildi: {_parsed_line_count} satır oluşturulacak.\n\n"
+                f"PLC reçete database'i kaç elemanlı olsun?\n"
+                f"(Minimum: {_parsed_line_count}, önerilen: {_default_array})",
+                initialvalue=str(_default_array),
+                parent=self
+            )
+            if _array_size_str is None:
+                return
+            try:
+                custom_array_size = max(int(_array_size_str), _parsed_line_count)
+            except ValueError:
+                custom_array_size = _default_array
+        else:
+            custom_array_size = None
+
         # Ask for output SCL path
         default_name = db_name + ".scl"
         scl_path = filedialog.asksaveasfilename(
@@ -545,11 +585,13 @@ class SpinningCamWindow(tk.Tk):
         
         # First attempt - check for limit
         success, stats = ExportManager.export_scl(
-            nc_path, 
+            nc_path,
             scl_path,
             db_name=db_name,
             program_title=program_title,
-            force=False
+            force=False,
+            params=self.app.params,
+            custom_array_size=custom_array_size
         )
         
         # Check if limit exceeded
@@ -573,11 +615,13 @@ class SpinningCamWindow(tk.Tk):
             if should_continue:
                 # Retry with force=True
                 success, stats = ExportManager.export_scl(
-                    nc_path, 
+                    nc_path,
                     scl_path,
                     db_name=db_name,
                     program_title=program_title,
-                    force=True
+                    force=True,
+                    params=self.app.params,
+                    custom_array_size=custom_array_size
                 )
             else:
                 messagebox.showinfo("İptal", "SCL export işlemi iptal edildi.")

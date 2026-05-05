@@ -117,8 +117,8 @@ class ExportManager:
             
             # Machine Settings
             pdf.section_header("Machine Settings")
-            pdf.info_row("Home X", f"{params.get('home_x', 300):.1f} mm")
-            pdf.info_row("Home Z", f"{params.get('home_z', 150):.1f} mm")
+            pdf.info_row("Program Start X", f"{params.get('home_x', 300):.1f} mm")
+            pdf.info_row("Program Start Z", f"{params.get('home_z', 150):.1f} mm")
             pdf.info_row("Retract X", f"{params.get('retract_x', 50):.1f} mm (rel)")
             pdf.info_row("Retract Z", f"{params.get('retract_z', 50):.1f} mm (rel)")
             pdf.info_row("Invert X", "Yes" if params.get("machine_invert_x", False) else "No")
@@ -177,11 +177,13 @@ class ExportManager:
             return False, {}
 
     @staticmethod
-    def export_scl(gcode_filepath: str, 
+    def export_scl(gcode_filepath: str,
                    scl_filepath: Optional[str] = None,
                    db_name: str = "DB_RecipeProgram1",
                    program_title: str = "SpinningCam Program",
-                   force: bool = False) -> Tuple[bool, dict]:
+                   force: bool = False,
+                   params: dict = None,
+                   custom_array_size: int = None) -> Tuple[bool, dict]:
         """
         Export G-code as SCL Data Block for TIA Portal.
         
@@ -208,11 +210,13 @@ class ExportManager:
         try:
             converter = GCodeToSCLConverter()
             output_path, stats = converter.convert_file(
-                gcode_filepath, 
+                gcode_filepath,
                 scl_filepath,
                 db_name=db_name,
                 program_title=program_title,
-                force=force
+                force=force,
+                params=params,
+                custom_array_size=custom_array_size
             )
             return True, stats
         except FileNotFoundError:
