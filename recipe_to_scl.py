@@ -31,6 +31,7 @@ CMD_TOOL_CHANGE = 10    # M6 Tn - Tool change
 CMD_SPINDLE_ON = 20     # M3 Snnn - Spindle on
 CMD_SPINDLE_OFF = 21    # M5 - Spindle off
 CMD_DWELL = 30          # G4 P - Dwell/pause
+CMD_CYLINDER_GOTO = 40  # M40 Pnnn - Cylinder extend to position (Param * 10 = mm)
 CMD_PROGRAM_END = 99    # M30 - Program end
 
 # Constraints from spec
@@ -48,7 +49,7 @@ class RecipeLineData:
     cmd: int = 0        # Command type (Byte)
     param: int = 0      # Parameter (Byte) - meaning depends on CMD
     
-    def get_cmd_comment(self) -> str:
+    def get_cmd_comment(self, mcode_descriptions: dict = None) -> str:
         """Get human-readable comment for CMD type."""
         cmd_names = {
             CMD_RAPID: "G0 Rapid",
@@ -57,9 +58,16 @@ class RecipeLineData:
             CMD_SPINDLE_ON: f"Spindle ON {self.param * 10} RPM",
             CMD_SPINDLE_OFF: "Spindle OFF",
             CMD_DWELL: f"Dwell {self.param * 0.1:.1f}s",
+            CMD_CYLINDER_GOTO: f"Cylinder GOTO {self.param * 10} mm",
             CMD_PROGRAM_END: "Program END"
         }
-        return cmd_names.get(self.cmd, f"CMD={self.cmd}")
+        if self.cmd in cmd_names:
+            return cmd_names[self.cmd]
+        if mcode_descriptions:
+            desc = mcode_descriptions.get(str(self.cmd), "")
+            if desc:
+                return f"M{self.cmd} ({desc}) P{self.param}"
+        return f"M{self.cmd} P{self.param}"
 
 
 class GCodeToSCLConverter:
@@ -185,9 +193,30 @@ class GCodeToSCLConverter:
                     ))
                     continue
                     
+                # M40 - Cylinder GOTO
+                elif m_code == 40:
+                    p_match = p_pattern.search(line)
+                    pos_mm = float(p_match.group(1)) if p_match else 0.0
+                    param = min(int(round(pos_mm / 10)), 255)
+                    self.lines.append(RecipeLineData(
+                        x=current_x, z=current_z, f=0,
+                        cmd=CMD_CYLINDER_GOTO, param=param
+                    ))
+                    continue
+
                 # M30 - Program End
                 elif m_code == 30:
                     # Will be added at the end
+                    continue
+
+                # Generic fallback — any other Mxx: CMD=m_code, Param=P value
+                else:
+                    p_match = p_pattern.search(line)
+                    param = int(float(p_match.group(1))) if p_match else 0
+                    self.lines.append(RecipeLineData(
+                        x=current_x, z=current_z, f=0,
+                        cmd=m_code, param=min(param, 255)
+                    ))
                     continue
             
             # Check for G codes
@@ -401,8 +430,9 @@ class GCodeToSCLConverter:
         scl_lines.append(f"    // Recipe Lines ({line_count} total)")
         
         # Generate recipe lines
+        mcode_descriptions = (params or {}).get("mcode_descriptions", {})
         for i, line in enumerate(self.lines):
-            comment = line.get_cmd_comment()
+            comment = line.get_cmd_comment(mcode_descriptions)
             scl_lines.append(
                 f"    Lines[{i}].X := {line.x:.3f}; "
                 f"Lines[{i}].Z := {line.z:.3f}; "

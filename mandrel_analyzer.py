@@ -200,8 +200,8 @@ class MandrelManager:
             tuple[float, float]: The normal vector (nx, nz).
         """
         delta = self.scan_resolution
-        r1 = self.get_radius_fast(z_level - delta)
-        r2 = self.get_radius_fast(z_level + delta)
+        r1 = max(0.0, self.get_radius_fast(z_level - delta))  # clamp: ekstrapolasyon negatif dönebilir
+        r2 = max(0.0, self.get_radius_fast(z_level + delta))  # clamp: mandrel sınırı dışında negatif radius
         dr = r2 - r1; dz = 2 * delta
         nx = dz; nz = -dr
         length = math.sqrt(nx*nx + nz*nz)

@@ -33,6 +33,17 @@ class SpinningCamWindow(tk.Tk):
         # UI Setup
         self._setup_layout()
         
+        # Hook: refresh Pass Info panel whenever paths are recalculated
+        _orig_update_scene = self.app.update_scene
+        def _hooked_update_scene(update_type="all", force_path_calc=False):
+            _orig_update_scene(update_type, force_path_calc)
+            if update_type in ("all", "paths", "shell_and_paths", "visual"):
+                try:
+                    self.ui_program.refresh_pass_info()
+                except Exception:
+                    pass
+        self.app.update_scene = _hooked_update_scene
+
         # Load Tools
         self.tool_library = []
         self.load_tools()
@@ -104,6 +115,7 @@ class SpinningCamWindow(tk.Tk):
         # Sync all tabs first
         if hasattr(self, 'ui_machine'): self.ui_machine.sync_params()
         if hasattr(self, 'ui_process'): self.ui_process.sync_params() # If any
+        if hasattr(self, 'ui_program'): self.ui_program._flush_entries()
         
         path = filedialog.asksaveasfilename(defaultextension=".ssp", filetypes=[("Spinning Project", "*.ssp")])
         if path:
@@ -354,6 +366,8 @@ class SpinningCamWindow(tk.Tk):
     def on_close(self):
         if hasattr(self, 'ui_machine'):
             self.ui_machine.sync_params()
+        if hasattr(self, 'ui_program'):
+            self.ui_program._flush_entries()
         self.app.save_settings_json()
         try: self.app.plotter.close()
         except: pass
@@ -375,6 +389,8 @@ class SpinningCamWindow(tk.Tk):
         # Sync Params from Machine Tab first
         if hasattr(self, 'ui_machine'):
             self.ui_machine.sync_params()
+        if hasattr(self, 'ui_program'):
+            self.ui_program._flush_entries()
             
         path = filedialog.asksaveasfilename(
              defaultextension=".nc",
@@ -502,29 +518,29 @@ class SpinningCamWindow(tk.Tk):
     def export_scl_action(self):
         """
         Export G-code as SCL Data Block for TIA Portal.
-        
-        Converts G-code directly to SCL format that can be imported into
-        TIA Portal as an External Source File and generated as a Data Block.
+
+        Generates G-code in-memory from current params and converts directly
+        to SCL — no need to save a .nc file first.
         """
         from export_manager import ExportManager
         from tkinter import simpledialog
-        
-        # Ask user for the source NC file
-        nc_path = filedialog.askopenfilename(
-            title="Select G-Code File to Convert",
-            filetypes=[("G-Code Files", "*.nc"), ("All Files", "*.*")],
-            initialdir=os.path.dirname(os.path.abspath("spinning_output.nc"))
-        )
-        
-        if not nc_path:
-            return
 
-        # Pre-parse G-code to get line count before asking user
+        # Sync machine tab text fields (header/footer) before generating
+        if hasattr(self, 'ui_machine'):
+            self.ui_machine.sync_params()
+
+        # Generate G-code string in-memory
         try:
             from recipe_to_scl import GCodeToSCLConverter
+            gcode_str = self.app.path_gen.generate_gcode(params=self.app.params)
+        except Exception as e:
+            messagebox.showerror("Export Error", f"G-code generation failed:\n{e}")
+            return
+
+        # Pre-parse to get line count for the array size dialog
+        try:
             _pre_converter = GCodeToSCLConverter()
-            with open(nc_path, 'r', encoding='utf-8') as _f:
-                _pre_converter.parse_gcode(_f.read())
+            _pre_converter.parse_gcode(gcode_str)
             _parsed_line_count = len(_pre_converter.lines)
         except Exception:
             _parsed_line_count = None
@@ -585,13 +601,13 @@ class SpinningCamWindow(tk.Tk):
         
         # First attempt - check for limit
         success, stats = ExportManager.export_scl(
-            nc_path,
-            scl_path,
+            scl_filepath=scl_path,
             db_name=db_name,
             program_title=program_title,
             force=False,
             params=self.app.params,
-            custom_array_size=custom_array_size
+            custom_array_size=custom_array_size,
+            gcode_string=gcode_str
         )
         
         # Check if limit exceeded
@@ -615,13 +631,13 @@ class SpinningCamWindow(tk.Tk):
             if should_continue:
                 # Retry with force=True
                 success, stats = ExportManager.export_scl(
-                    nc_path,
-                    scl_path,
+                    scl_filepath=scl_path,
                     db_name=db_name,
                     program_title=program_title,
                     force=True,
                     params=self.app.params,
-                    custom_array_size=custom_array_size
+                    custom_array_size=custom_array_size,
+                    gcode_string=gcode_str
                 )
             else:
                 messagebox.showinfo("İptal", "SCL export işlemi iptal edildi.")

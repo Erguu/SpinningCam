@@ -177,13 +177,14 @@ class ExportManager:
             return False, {}
 
     @staticmethod
-    def export_scl(gcode_filepath: str,
+    def export_scl(gcode_filepath: Optional[str] = None,
                    scl_filepath: Optional[str] = None,
                    db_name: str = "DB_RecipeProgram1",
                    program_title: str = "SpinningCam Program",
                    force: bool = False,
                    params: dict = None,
-                   custom_array_size: int = None) -> Tuple[bool, dict]:
+                   custom_array_size: int = None,
+                   gcode_string: Optional[str] = None) -> Tuple[bool, dict]:
         """
         Export G-code as SCL Data Block for TIA Portal.
         
@@ -209,6 +210,31 @@ class ExportManager:
         """
         try:
             converter = GCodeToSCLConverter()
+            if gcode_string is not None:
+                # In-memory path: no file read needed
+                converter.parse_gcode(gcode_string)
+                scl_code = converter.generate_scl(
+                    db_name, program_title,
+                    force=force, params=params,
+                    custom_array_size=custom_array_size
+                )
+                from pathlib import Path
+                out_path = Path(scl_filepath)
+                with open(out_path, 'w', encoding='utf-8') as f:
+                    f.write(scl_code)
+                rapid_count  = sum(1 for l in converter.lines if l.cmd == 0)
+                linear_count = sum(1 for l in converter.lines if l.cmd == 1)
+                tool_count   = sum(1 for l in converter.lines if l.cmd == 10)
+                stats = {
+                    'total_lines': len(converter.lines),
+                    'rapid_moves': rapid_count,
+                    'linear_moves': linear_count,
+                    'tool_changes': tool_count,
+                    'db_name': db_name,
+                    'scl_size_bytes': len(scl_code.encode('utf-8')),
+                    'estimated_plc_bytes': len(converter.lines) * 12,
+                }
+                return True, stats
             output_path, stats = converter.convert_file(
                 gcode_filepath,
                 scl_filepath,
