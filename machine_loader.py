@@ -3,6 +3,7 @@ import os
 import glob
 
 MACHINE_PROFILE_KEYS = [
+    "kinematics",
     "machine_origin_x", "machine_origin_z",
     "machine_invert_x", "machine_invert_z",
     "machine_gcode_offset_x", "machine_gcode_offset_z",

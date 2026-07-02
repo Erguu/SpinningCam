@@ -1,7 +1,7 @@
 {
-    "machine_id": "ID111-1",
-    "machine_name": "EMS Spinning Lathe #1",
-    "kinematics": "xz",
+    "machine_id": "ID112-1",
+    "machine_name": "EMS Hot Spinning Lathe #1",
+    "kinematics": "tilt_arm",
     "machine_origin_x": 0.0,
     "machine_origin_z": 0.0,
     "machine_invert_x": false,
@@ -10,8 +10,8 @@
     "machine_gcode_offset_z": 0.0,
     "output_mode": "diameter",
     "origin_use_home": 1.0,
-    "home_x": -418.053,
-    "home_z": -175.0,
+    "home_x": -400.0,
+    "home_z": -150.0,
     "retract_x": 0.0,
     "retract_z": 0.0,
     "roller_positive_x_side": 0.0,
@@ -25,30 +25,15 @@
     "cylinder_position_mm": 80.0,
     "cylinder_x_pos": -185.0,
     "cylinder_z_base": 220.0,
-    "plc_mode": 1.0,
+    "plc_mode": 0.0,
     "plc_tolerance": 0.01,
     "plc_exit_tolerance": 1.0,
     "gcode_resolution": 0.001,
     "gcode_header": "G21 G90 G18\nG54",
     "gcode_footer": "M5\nM30",
     "max_spin_rpm": 3000.0,
-    "custom_commands": [
-        {
-            "trigger": "pass",
-            "value": 1,
-            "cmd": "M41 P1"
-        },
-        {
-            "trigger": "pass",
-            "value": 3,
-            "cmd": "M41 P2"
-        }
-    ],
-    "mcode_descriptions": {
-        "40": "Cylinder Goto",
-        "41": "Clamp On",
-        "42": "Clamp Off"
-    },
+    "custom_commands": [],
+    "mcode_descriptions": {},
     "calibration_view": {
         "flip_z": false,
         "flip_x": false

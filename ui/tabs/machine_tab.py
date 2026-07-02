@@ -575,6 +575,23 @@ class MachineTab(ScrollableTabBase):
             "G-code çıktısında: M41 P1 (Clamp On)\n"
             "M-Code alanına sadece sayı gir (örn: 41), 'M' ön eki opsiyonel.")
 
+        # ── Section gating by machine type ──────────────────────────────────
+        # Sections are built unconditionally above; the active adapter decides
+        # which ones this machine type actually shows (e.g. ID112 hot machine
+        # hides the Siemens-SCL-specific PLC / custom-cmd / M-code sections).
+        section_frames = {
+            "coords": f_coords, "output_mode": f_output_mode, "offsets": f_offsets,
+            "home": f_home, "touch": f_touch, "gcode_out": f_gcode_out,
+            "workspace": f_ws, "cylinder": f_cyl, "plc": f_plc,
+            "custom_cmds": f_cc, "mcode_desc": f_md,
+        }
+        adapter = getattr(self.app, "active_adapter", None)
+        if adapter:
+            allowed = set(adapter.get_ui_sections())
+            for name, frame in section_frames.items():
+                if name not in allowed:
+                    frame.pack_forget()
+
     def _save_machine_profile(self):
         self.sync_params()
         profile = getattr(self.app, "active_machine_profile", None)

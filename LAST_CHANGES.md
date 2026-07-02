@@ -5,6 +5,42 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-02c — Makine #2 altyapısı: ID112 hot spinning + adapter katmanı aktif
+
+### Ne değişti
+İkinci makine (sıcak sıvama, döner kollu X, CODESYS IPC) için altyapı fazı.
+Adapter katmanı artık STUB DEĞİL — UI gerçekten adapter'dan besleniyor:
+
+1. **`machine_adapter.py`** — `HotTiltArmSpinningAdapter` (tip kodu `112`),
+   `TYPE_DESCRIPTIONS["112"]`. Yeni yetenek kancaları: `get_export_formats()`,
+   `get_kinematics()` ("xz" | "tilt_arm"), `supports_heating()`.
+   112 şimdilik op tiplerini ve PathGenerator'ı 111'den miras alır (Faz 0).
+2. **`machines/ID112-1.json`** — yeni profil (`kinematics: "tilt_arm"`, plc_mode 0,
+   boş custom_commands/mcode_descriptions). ID111-1'e `kinematics: "xz"` eklendi.
+3. **`machine_loader.py`** — `MACHINE_PROFILE_KEYS` başına `"kinematics"` eklendi
+   (settings.json'a sızmaması için ŞART). `config_schema.py` → şemaya alan eklendi.
+4. **`program_tab.py`** (~224) — op ekleme düğmeleri artık
+   `active_adapter.get_available_op_types()`'tan geliyor (`_op_buttons` haritası).
+   Adapter yoksa (headless) eski dört düğme.
+5. **`machine_tab.py`** (`_create_widgets` sonu) — bölümler kurulduktan sonra
+   `section_frames` haritası + `get_ui_sections()`'ta olmayanlara `pack_forget()`.
+   112'de gizlenen: `plc`, `custom_cmds`, `mcode_desc` (Siemens'e özgü).
+6. **`main_window.py`** — `_create_menu`: SCL / Recipe CSV menü öğeleri
+   `get_export_formats()`'a bağlı (112'de yok). `_load_machine_profile`: adapter
+   farklı PathGenerator sınıfı dönerse swap (şimdilik no-op; isinstance korumalı).
+7. **`help_window.py`** — machine bölümüne "MACHINE TYPES / MAKİNE TİPLERİ" bloğu.
+
+### Yol haritası
+TODO.md #50 (tilt-arm kinematik), #51 (ısıtma/sıcak proses), #52 (CODESYS
+post-processor). Bu fazda ID112 yolları hâlâ XZ düzleminde hesaplanır.
+
+### Geri alma
+4/5/6'daki adapter tüketimini kaldırmak yeterli (adapter None korumaları eski
+davranışa döner); `machines/ID112-1.json` silinirse makine seçiciden kaybolur.
+`"kinematics"`i MACHINE_PROFILE_KEYS'ten çıkarma — settings.json'a sızar.
+
+---
+
 ## 2026-07-02b — Performans: tek render / grid cache / logging tracebacks
 
 ### 1. update_scene artık TEK render yapıyor (en büyük kazanç)

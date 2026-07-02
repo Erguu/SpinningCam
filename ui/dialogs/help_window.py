@@ -395,6 +395,26 @@ Saving machine settings
   at the top-right does the same thing on demand.
 
 
+MACHINE TYPES
+════════════════════════════════════════════════════════════════
+The machine you selected at startup (license window) decides what
+this software shows:
+
+ID111 — Spinning Lathe (cold, two-axis)
+  Full feature set including the Siemens PLC sections (PLC mode,
+  custom commands, M-code table) and SCL / Recipe CSV export.
+
+ID112 — Hot Spinning Lathe (tilt-arm)
+  Hot spinning machine with the X slide on a rotary arm and a
+  CODESYS-based controller. The Siemens-specific sections and
+  SCL export are hidden for this machine; its own tilt-arm
+  kinematics, heating control, and controller export are added
+  in upcoming versions.
+
+Each physical machine has its own profile file and settings; the
+license file controls which machines you can open.
+
+
 CALIBRATION — the most important step
 ════════════════════════════════════════════════════════════════
 Calibration defines where the roller tip is in machine
@@ -472,6 +492,26 @@ Makine ayarlarını kaydetme
   Değiştirdiğiniz anda profile otomatik kaydedilir, böylece
   düzenlemeleriniz yeniden başlatmadan sonra da korunur. Sağ
   üstteki "Makine Profilini Kaydet" düğmesi de aynı işi elle yapar.
+
+
+MAKİNE TİPLERİ
+════════════════════════════════════════════════════════════════
+Başlangıçta (lisans penceresinde) seçtiğiniz makine, yazılımın
+neleri göstereceğini belirler:
+
+ID111 — Sıvama Tezgahı (soğuk, iki eksen)
+  Siemens PLC bölümleri (PLC modu, özel komutlar, M-code tablosu)
+  ve SCL / Reçete CSV dışa aktarımı dahil tüm özellik seti.
+
+ID112 — Sıcak Sıvama Tezgahı (döner kollu)
+  X kızağı döner bir kol üzerinde olan, CODESYS tabanlı
+  denetleyicili sıcak sıvama makinesi. Bu makinede Siemens'e özgü
+  bölümler ve SCL dışa aktarımı gizlidir; kendi döner kol
+  kinematiği, ısıtma kontrolü ve denetleyici çıktısı sonraki
+  sürümlerde eklenecektir.
+
+Her fiziksel makinenin kendi profil dosyası ve ayarları vardır;
+hangi makineleri açabileceğinizi lisans dosyası belirler.
 
 
 KALİBRASYON — en önemli adım

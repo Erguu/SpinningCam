@@ -3,6 +3,48 @@
 
 ---
 
+## Machine #2 — Hot Spinning (ID112) Roadmap — 2026-07-02
+
+**Context:** Phase 0 (infrastructure) is DONE — `HotTiltArmSpinningAdapter` (type 112),
+`machines/ID112-1.json`, adapter-driven op buttons / machine-tab sections / export menu.
+Machine #2: hot spinning lathe, Z linear + X slide on a rotary (B) arm, CODESYS-based
+IPC (Delta or Inovance). See LAST_CHANGES 2026-07-02c. Phases below are NOT started.
+
+---
+
+### 50. Phase 1 — Tilt-arm kinematics (ID112)
+
+- Define profile keys: arm pivot position (X,Z), arm length/offset, B min/max/home,
+  B sign convention → add to `MACHINE_PROFILE_KEYS` + `MachineProfileSchema`.
+- Coordinate transform: CAM (x, z, tool angle) → machine (B, X-on-arm, Z); inverse for
+  calibration. Extend `transform_pt()` (path_generator.py ~670) or a kinematics module
+  selected via `adapter.get_kinematics()`.
+- Per-point roller tilt: path generator outputs tool angle per point (follow surface
+  normal, or per-op fixed tilt) — new per-op parameter.
+- 3D scene + simulation: tilt roller mesh by B; touch-calibration needs a tilt-aware variant.
+- **Open questions:** exact arm geometry drawings; does B move during a pass or only
+  between passes?
+
+### 51. Phase 2 — Hot process features (ID112)
+
+- New op types via `adapter.get_available_op_types()` (e.g. preheat, hot preform,
+  necking — define with customer). `program_tab._op_buttons` map gets new entries.
+- Per-op/pass heating params: heater on/off, temperature setpoint, wait-for-temperature
+  dwell, pyrometer tolerance band.
+- Program model: heating steps interleaved with motion (G-code comments, time estimate,
+  simulation). UI fields gated by `adapter.supports_heating()`.
+
+### 52. Phase 3 — CODESYS post-processor (Delta / Inovance IPC)
+
+- Obtain recipe/interface spec from controller side (array/struct layout, transfer
+  mechanism — file? OPC-UA?).
+- New converter module (parallel to `recipe_to_scl.py`) + `export_manager` entry;
+  enable via `get_export_formats()` for 112 (currently gcode/pdf/stl only).
+- Heating + B-axis commands in the recipe row format; new `CAM_INTERFACE_SPEC`-style
+  document for machine #2.
+
+---
+
 ## Licensing System — Review & Security Audit — 2026-07-01
 
 **Status:** REVIEW ONLY — no code changed yet. Awaiting user approval before any fix.

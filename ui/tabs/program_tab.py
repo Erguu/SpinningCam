@@ -221,26 +221,32 @@ class ProgramTab:
         f_tools = ttk.Frame(self.frame)
         f_tools.pack(fill="x", padx=5, pady=2)
 
-        # Actions
-        btn_rough = ttk.Button(f_tools, text=t("btn_add_rough"), width=7, command=lambda: self.add_op("roughing"))
-        btn_rough.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_rough, "Yeni kaba işlem (roughing) operasyonu ekle. "
-                                            "Kaba işlem, malzemeyi mandrel profiline yaklaştırmak için birden fazla pas kullanır.")
-
-        btn_finish = ttk.Button(f_tools, text=t("btn_add_finish"), width=7, command=lambda: self.add_op("finishing"))
-        btn_finish.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_finish, "Yeni bitirme (finishing) operasyonu ekle. "
-                                             "Bitirme, kaba işlemden sonra mandrel profilini takip ederek yüzey kalitesini artırır.")
-
-        btn_cut = ttk.Button(f_tools, text=t("btn_add_cut"), width=6, command=lambda: self.add_op("cutting"))
-        btn_cut.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_cut, "Yeni kesme (cutting) operasyonu ekle. "
-                                          "Mandrel ucunda bıçakla tek geçişli radyal kesim yapar.")
-
-        btn_bend = ttk.Button(f_tools, text=t("btn_add_bend"), width=6, command=lambda: self.add_op("bending"))
-        btn_bend.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_bend, "Yeni kıvırma (bending) operasyonu ekle. "
-                                           "Mandrel ucunda kenarı kıvırmak için tek geçişli radyal baskı yapar.")
+        # Actions — op-type buttons come from the active machine adapter so a
+        # machine type can offer a different operation set (TODO.md #48/#51).
+        _op_buttons = {
+            "roughing":  (t("btn_add_rough"), 7,
+                          "Yeni kaba işlem (roughing) operasyonu ekle. "
+                          "Kaba işlem, malzemeyi mandrel profiline yaklaştırmak için birden fazla pas kullanır."),
+            "finishing": (t("btn_add_finish"), 7,
+                          "Yeni bitirme (finishing) operasyonu ekle. "
+                          "Bitirme, kaba işlemden sonra mandrel profilini takip ederek yüzey kalitesini artırır."),
+            "cutting":   (t("btn_add_cut"), 6,
+                          "Yeni kesme (cutting) operasyonu ekle. "
+                          "Mandrel ucunda bıçakla tek geçişli radyal kesim yapar."),
+            "bending":   (t("btn_add_bend"), 6,
+                          "Yeni kıvırma (bending) operasyonu ekle. "
+                          "Mandrel ucunda kenarı kıvırmak için tek geçişli radyal baskı yapar."),
+        }
+        adapter = getattr(self.app, "active_adapter", None)
+        op_types = adapter.get_available_op_types() if adapter else list(_op_buttons.keys())
+        for op_type in op_types:
+            if op_type not in _op_buttons:
+                continue  # op types without UI support yet (future hot ops)
+            label, width, tip = _op_buttons[op_type]
+            btn = ttk.Button(f_tools, text=label, width=width,
+                             command=lambda ot=op_type: self.add_op(ot))
+            btn.pack(side="left", padx=1)
+            self.helper.bind_tooltip(btn, tip)
 
         btn_del = ttk.Button(f_tools, text=t("btn_del_op"), width=4, command=self.del_op)
         btn_del.pack(side="left", padx=1)

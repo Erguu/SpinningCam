@@ -94,6 +94,7 @@ class MachineProfileSchema(BaseModel):
     """Schema for machine profile files in machines/*.json."""
     machine_id: str
     machine_name: str
+    kinematics: Optional[str] = None  # "xz" (default) | "tilt_arm" (ID112)
     machine_origin_x: Optional[float] = None
     machine_origin_z: Optional[float] = None
     machine_invert_x: Optional[Any] = None

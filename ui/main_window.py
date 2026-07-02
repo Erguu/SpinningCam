@@ -74,8 +74,15 @@ class SpinningCamWindow(tk.Tk):
         self._file_menu.add_separator()
         self._file_menu.add_command(label=t("menu_load_model"), command=self.load_step_prompt)
         self._file_menu.add_separator()
-        self._file_menu.add_command(label=t("menu_export_recipe"), command=self.export_recipe_action)
-        self._file_menu.add_command(label=t("menu_export_scl"), command=self.export_scl_action)
+        # Machine-type-specific exports: the Siemens SCL / recipe pipeline only
+        # applies to machines whose adapter lists those formats (ID111). The
+        # ID112 CODESYS machine gets its own post-processor later (TODO.md #52).
+        adapter = getattr(self.app, "active_adapter", None)
+        formats = adapter.get_export_formats() if adapter else ["scl", "recipe_csv"]
+        if "recipe_csv" in formats:
+            self._file_menu.add_command(label=t("menu_export_recipe"), command=self.export_recipe_action)
+        if "scl" in formats:
+            self._file_menu.add_command(label=t("menu_export_scl"), command=self.export_scl_action)
         self._file_menu.add_separator()
         self._file_menu.add_command(label=t("menu_exit"), command=self.on_close)
 
@@ -230,6 +237,14 @@ class SpinningCamWindow(tk.Tk):
 
         self.app.active_machine_profile = profile
         self.app.active_adapter = get_adapter(profile["machine_id"])
+
+        # Machine types may use a different path generator (tilt-arm kinematics
+        # later gets its own class — TODO.md #50). Swap only when the adapter
+        # returns a different class, so machine #1 keeps the pre-built instance.
+        gen_cls = self.app.active_adapter.get_path_generator_class()
+        if gen_cls is not None and not isinstance(self.app.path_gen, gen_cls):
+            self.app.path_gen = gen_cls()
+
         self._machine_ready = True
 
     def _setup_layout(self):

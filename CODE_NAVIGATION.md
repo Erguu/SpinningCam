@@ -223,6 +223,24 @@ Language menüsü → _change_language(lang)
   → rebuild_all_tabs()          # tüm tab'ler widget'larını yeniden oluşturur
 ```
 
+### 18. Makine tipleri / adapter katmanı — 2026-07-02
+
+| Ne | Dosya | Satır/Fonksiyon |
+|----|-------|-----------------|
+| Adapter sınıfları + tip kodu → sınıf | `machine_adapter.py` | `ADAPTERS`, `TYPE_DESCRIPTIONS` |
+| Yetenek kancaları | `machine_adapter.py` | `get_available_op_types/ui_sections/export_formats/kinematics`, `supports_heating` |
+| Profil yükleme / MACHINE_PROFILE_KEYS | `machine_loader.py` | — |
+| Profil dosyaları | `machines/ID111-1.json`, `machines/ID112-1.json` | — |
+| Startup seçici (lisans + makine) | `ui/dialogs/machine_selector.py` | `MachineSelector` |
+| Adapter atama + path-gen swap | `ui/main_window.py` | `_load_machine_profile()` |
+| Op düğmeleri adapter'dan | `ui/tabs/program_tab.py` | `_op_buttons` haritası ~224 |
+| Bölüm gizleme adapter'dan | `ui/tabs/machine_tab.py` | `_create_widgets` sonundaki `section_frames` |
+| Export menü gating | `ui/main_window.py` | `_create_menu` (scl/recipe_csv) |
+
+**Makine ID formatı:** `ID{tip}-{seri}` — hane1 kategori (1=lathe), hane2 proses
+(1=spinning), hane3 varyant (1=two-axis basic, 2=hot/tilt-arm). 112 yol haritası:
+TODO.md #50–#52.
+
 ### 15. PLC mod decimation
 | Ne | Dosya | Satır/Fonksiyon |
 |----|-------|-----------------|
