@@ -9,7 +9,6 @@
         "roughing_step_radial": 2.786458432833615,
         "safety_clearance_roller_to_part": 0.5,
         "first_pass_p2_contact_z_abs": 98.0,
-        "roller_nose_radius_param": 10.0,
         "final_part_thickness_on_mandrel": 2.0,
         "camera_focal_x_offset": 0.0,
         "camera_focal_z_offset": 0.0,

@@ -142,9 +142,16 @@ class SidebarWidget(QWidget):
         box.setLayout(lay)
         
         self.add_spin_slider(lay, "blank_radius", "Sac Yarıçapı", 50, 500, 1, "all")
+        self.add_spin_slider(lay, "blank_z_shift", "Sac Z Ince Ayar", -100, 100, 0.5, "all")
         self.add_spin_slider(lay, "roller_visual_radius", "Rulo Çapı", 5, 100, 1, "visual")
         self.add_spin_slider(lay, "shell_thickness", "Kabuk Kalınlığı", 0, 20, 0.1, "shell_and_paths")
-        
+
+        chk_tip_dist = QCheckBox("Show Tip Distance (ΔX / ΔZ to mandrel)")
+        chk_tip_dist.setChecked(bool(self.params.get("show_tip_distance", False)))
+        chk_tip_dist.toggled.connect(
+            lambda v: self.param_changed.emit("show_tip_distance", float(v), "visual"))
+        lay.addWidget(chk_tip_dist)
+
         self.layout_content.addWidget(box)
 
     def add_action_buttons(self):

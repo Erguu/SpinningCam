@@ -48,6 +48,7 @@ class RecipeLineData:
     f: int = 0          # Feedrate mm/min (Int = 2 bytes)
     cmd: int = 0        # Command type (Byte)
     param: int = 0      # Parameter (Byte) - meaning depends on CMD
+    pass_label: str = ""  # e.g. "Op1 P2" — for comments only, not sent to PLC
     
     def get_cmd_comment(self, mcode_descriptions: dict = None) -> str:
         """Get human-readable comment for CMD type."""
@@ -133,13 +134,15 @@ class GCodeToSCLConverter:
         self.max_x = float('-inf')
         self.min_z = float('inf')
         self.max_z = float('-inf')
-        
+
         # Current modal state
         current_x = 0.0
         current_z = 0.0
         current_f = self.default_feedrate
         current_mode = CMD_RAPID  # G0 or G1
         spindle_started = False
+        current_pass_label = ""
+        _pass_header_re = re.compile(r'\(--- OP (\d+): \w+ - PASO (\d+) ---\)')
         
         # Regex patterns
         g_pattern = re.compile(r'G(\d+)', re.IGNORECASE)
@@ -153,7 +156,13 @@ class GCodeToSCLConverter:
         
         for line in gcode.split('\n'):
             line = line.strip()
-            
+
+            # Detect pass header comments before skipping
+            if line.startswith('(--- OP '):
+                m = _pass_header_re.match(line)
+                if m:
+                    current_pass_label = f"Op{m.group(1)} P{m.group(2)}"
+
             # Skip empty lines and comments
             if not line or line.startswith('(') or line.startswith(';') or line.startswith('%'):
                 continue
@@ -170,7 +179,8 @@ class GCodeToSCLConverter:
                     param = self._encode_spindle_speed(rpm)
                     self.lines.append(RecipeLineData(
                         x=current_x, z=current_z, f=0,
-                        cmd=CMD_SPINDLE_ON, param=param
+                        cmd=CMD_SPINDLE_ON, param=param,
+                        pass_label=current_pass_label
                     ))
                     spindle_started = True
                     continue
@@ -179,7 +189,8 @@ class GCodeToSCLConverter:
                 elif m_code == 5:
                     self.lines.append(RecipeLineData(
                         x=current_x, z=current_z, f=0,
-                        cmd=CMD_SPINDLE_OFF, param=0
+                        cmd=CMD_SPINDLE_OFF, param=0,
+                        pass_label=current_pass_label
                     ))
                     continue
                     
@@ -189,10 +200,11 @@ class GCodeToSCLConverter:
                     tool_num = int(t_match.group(1)) if t_match else 1
                     self.lines.append(RecipeLineData(
                         x=current_x, z=current_z, f=0,
-                        cmd=CMD_TOOL_CHANGE, param=min(tool_num, 255)
+                        cmd=CMD_TOOL_CHANGE, param=min(tool_num, 255),
+                        pass_label=current_pass_label
                     ))
                     continue
-                    
+
                 # M40 - Cylinder GOTO
                 elif m_code == 40:
                     p_match = p_pattern.search(line)
@@ -200,7 +212,8 @@ class GCodeToSCLConverter:
                     param = min(int(round(pos_mm / 10)), 255)
                     self.lines.append(RecipeLineData(
                         x=current_x, z=current_z, f=0,
-                        cmd=CMD_CYLINDER_GOTO, param=param
+                        cmd=CMD_CYLINDER_GOTO, param=param,
+                        pass_label=current_pass_label
                     ))
                     continue
 
@@ -215,7 +228,8 @@ class GCodeToSCLConverter:
                     param = int(float(p_match.group(1))) if p_match else 0
                     self.lines.append(RecipeLineData(
                         x=current_x, z=current_z, f=0,
-                        cmd=m_code, param=min(param, 255)
+                        cmd=m_code, param=min(param, 255),
+                        pass_label=current_pass_label
                     ))
                     continue
             
@@ -240,7 +254,8 @@ class GCodeToSCLConverter:
                         param = self._encode_dwell_time(dwell_sec)
                         self.lines.append(RecipeLineData(
                             x=current_x, z=current_z, f=0,
-                            cmd=CMD_DWELL, param=param
+                            cmd=CMD_DWELL, param=param,
+                            pass_label=current_pass_label
                         ))
                     continue
             
@@ -267,12 +282,14 @@ class GCodeToSCLConverter:
                 if current_mode == CMD_RAPID:
                     self.lines.append(RecipeLineData(
                         x=current_x, z=current_z, f=0,
-                        cmd=CMD_RAPID, param=0
+                        cmd=CMD_RAPID, param=0,
+                        pass_label=current_pass_label
                     ))
                 else:  # CMD_LINEAR
                     self.lines.append(RecipeLineData(
                         x=current_x, z=current_z, f=current_f,
-                        cmd=CMD_LINEAR, param=0
+                        cmd=CMD_LINEAR, param=0,
+                        pass_label=current_pass_label
                     ))
             
             # Handle standalone T command (tool select without M6)
@@ -282,7 +299,8 @@ class GCodeToSCLConverter:
                     tool_num = int(t_match.group(1))
                     self.lines.append(RecipeLineData(
                         x=current_x, z=current_z, f=0,
-                        cmd=CMD_TOOL_CHANGE, param=min(tool_num, 255)
+                        cmd=CMD_TOOL_CHANGE, param=min(tool_num, 255),
+                        pass_label=current_pass_label
                     ))
         
         # Add spindle ON at start if not present
@@ -375,7 +393,7 @@ class GCodeToSCLConverter:
             scl_lines.append(f"// Blank Radius    : {params.get('blank_radius', 0.0)} mm")
             scl_lines.append(f"// Blank Z Shift   : {params.get('blank_z_shift', 0.0)} mm")
             scl_lines.append(f"// Final Thickness : {params.get('final_part_thickness_on_mandrel', 2.0)} mm")
-            scl_lines.append(f"// Safety Clear.   : {params.get('safety_clearance_roller_to_part', 0.5)} mm")
+            scl_lines.append(f"// Min Safety Gap  : {params.get('min_safety_gap', params.get('target_clearance', 0.0))} mm")
             scl_lines.append("//")
             scl_lines.append("// --- MANDREL POZISYON ---")
             scl_lines.append(f"// Mandrel Offset  : X={params.get('mandrel_pos_x_offset', 0.0)}, Z={params.get('mandrel_pos_z_offset', 0.0)}")
@@ -433,13 +451,14 @@ class GCodeToSCLConverter:
         mcode_descriptions = (params or {}).get("mcode_descriptions", {})
         for i, line in enumerate(self.lines):
             comment = line.get_cmd_comment(mcode_descriptions)
+            pass_info = f" [{line.pass_label}]" if line.pass_label else ""
             scl_lines.append(
                 f"    Lines[{i}].X := {line.x:.3f}; "
                 f"Lines[{i}].Z := {line.z:.3f}; "
                 f"Lines[{i}].F := {line.f}; "
                 f"Lines[{i}].CMD := {line.cmd}; "
                 f"Lines[{i}].Param := {line.param}; "
-                f"// {comment}"
+                f"// {comment}{pass_info}"
             )
             
         scl_lines.append("END_DATA_BLOCK")

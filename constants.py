@@ -8,6 +8,7 @@ Usage:
 """
 
 
+
 class ParamKeys:
     """
     Constants for parameter dictionary keys.
@@ -43,17 +44,13 @@ class ParamKeys:
     P1_Z_OFFSET_FROM_P2 = "p1_z_offset_from_p2"
     P3_Z_OFFSET_FROM_P2 = "p3_z_offset_from_p2"
     ROUGHING_STEP_RADIAL = "roughing_step_radial"
-    LAST_PASS_EXTENSION_Z = "last_pass_extension_z"
-    
     # === Roller ===
-    ROLLER_NOSE_RADIUS_PARAM = "roller_nose_radius_param"
     ROLLER_VISUAL_RADIUS = "roller_visual_radius"
-    ROLLER_VISUAL_X_OFFSET = "roller_visual_x_offset"
-    ROLLER_VISUAL_Z_OFFSET = "roller_visual_z_offset"
     
     # === Part Geometry ===
     FINAL_PART_THICKNESS_ON_MANDREL = "final_part_thickness_on_mandrel"
     SAFETY_CLEARANCE_ROLLER_TO_PART = "safety_clearance_roller_to_part"
+    MIN_SAFETY_GAP = "min_safety_gap"  # one-way collision floor (replaces target_clearance setter)
     SHELL_THICKNESS = "shell_thickness"
     BLANK_RADIUS = "blank_radius"
     BLANK_Z_SHIFT = "blank_z_shift"
@@ -78,20 +75,12 @@ class ParamKeys:
     GCODE_HEADER = "gcode_header"
     GCODE_FOOTER = "gcode_footer"
     
-    # === Tool Change ===
-    TOOL_CHANGE_ACTIVE = "tool_change_active"
-    ROUGH_TOOL_NUMBER = "rough_tool_number"
-    FINISH_TOOL_NUMBER = "finish_tool_number"
-    FINISH_TOOL_RADIUS = "finish_tool_radius"
-    
     # === Finishing Pass ===
     FINISH_P1_P3_X_OFFSET_FROM_P2 = "finish_p1_p3_x_offset_from_p2"
     FINISH_P1_Z_OFFSET_FROM_P2 = "finish_p1_z_offset_from_p2"
     FINISH_P3_Z_OFFSET_FROM_P2 = "finish_p3_z_offset_from_p2"
     FINISH_Y_ROTATION_DEGREES = "finish_y_rotation_degrees"
     FINISH_STEP_RADIAL = "finish_step_radial"
-    NUM_FINISHING_PASSES = "num_finishing_passes"
-    
     # === Operations (List of dicts) ===
     OPERATIONS = "operations"
     
@@ -117,6 +106,7 @@ class OpKeys:
     P3_Z = "p3_z"
     ROT = "rot"
     STEP = "step"
+    CLEARANCE = "clearance"  # unified roller-to-blank gap (per op); replaces finish_allowance
 
 
 class OpTypes:

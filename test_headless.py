@@ -44,8 +44,6 @@ def test_headless_execution():
         "p1_z_offset_from_p2": 50.0, 
         "p3_z_offset_from_p2": -20.0,
         "roughing_step_radial": 1.0,
-        "last_pass_extension_z": 0.0,
-        "roller_nose_radius_param": 10.0, 
         "final_part_thickness_on_mandrel": 2.0, 
         "safety_clearance_roller_to_part": 0.5,
         "shell_thickness": 2.0,

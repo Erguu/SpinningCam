@@ -6,17 +6,20 @@ import numpy as np
 import math
 import tkinter as tk
 from tkinter import filedialog
+import threading
+import queue
+import copy
 from mandrel_analyzer import MandrelManager
 from path_generator import PathGenerator
-from gui_manager import GuiManager
 from simulation_controller import SimulationController
+from tool_step_loader import ToolStepLoader
 from logger_config import logger
 
 class SpinningApp:
     def __init__(self, plotter=None, headless=False):
-        # 1. Initialize Managers
-        self.mandrel_mgr = MandrelManager()
-        self.path_gen = PathGenerator()
+        # 1. Initialize Managers (single instantiation — second block below does the real init)
+        self.tool_library = []   # populated by SpinningCamWindow after load_tools()
+        self.tool_step_loader = ToolStepLoader(base_dir=self.get_base_path())
         
         # 2. State Variables
         self.params = self.load_settings()
@@ -25,45 +28,38 @@ class SpinningApp:
         self.apply_to_specific_pass_only = False
         self.step_file_path_global = ""
         self.headless = headless
-        
+        self.active_machine_profile = None
+        self.active_adapter = None
+
+        # Background path calculation state
+        self._calc_queue = queue.Queue()
+        self._calc_running = False
+        self._pending_paths = None   # set by worker thread, consumed by update_scene
+
         # 3. Actors Dictionary
         self.actors = {
             "mandrel": None, "blank": None, "roller": None,
             "paths": [], "projs": [], "cps": [], "labels": [], "approach": None, "shell": None,
-            "pass_dist_lines": [],
+            "pass_dist_lines": [], "analysis_lines": [],
             "dist_line": None, "dist_label": None,
             "anim_roller": None,
+            "roller_tip": None,
             "workspace": None, "workspace_wire": None,
             "cylinder_stem": None, "cylinder_head": None,
+            "ref_points": [], "ref_point_labels": [],
+            "tip_dist": [], "ref_point_dist": [],
+            "mandrel_dims": [],
         }
 
         # 4. Setup Plotter & UI
-        # 1. Plotter Setup
-        # Create a PyVista Plotter (Standard)
-        # We will embed it later.
         self.plotter = pv.Plotter(window_size=(1000, 800), title="SpinningCam3D")
         self.plotter.set_background('white')
         self._setup_scene_basics()
 
-        # 2. Managers
         self.mandrel_mgr = MandrelManager()
         self.path_gen = PathGenerator()
-        # UI Manager'i sadece headless degilse ve harici plotter (QT) yoksa varsayılan modda baslat
-        # Ancak QT modunda "GuiManager" kullanmayacagız, sidebar kullanacagız.
-        # Bu yüzden headless=True ise GuiManager'i es geçiyoruz.
-        
-        if not self.headless:
-            self.ui = GuiManager(self.plotter)
-            self.sim_controller = SimulationController(self.plotter, self.ui, lambda: self.actors)
-            self._build_ui()
-            # Initial Update
-            self.ui.update_positions(100.0, False, False)
-        else:
-            self.ui = None
-            # Headless modda sim controller UI olmadan calismali
-            # SimulationController UI'a bagimli (self.ui.root.update vs).
-            # Şimdilik headless modda sim controller devre dışı veya dummy olabilir.
-            self.sim_controller = SimulationController(self.plotter, None, lambda: self.actors)
+        self.ui = None
+        self.sim_controller = SimulationController(self.plotter, None, lambda: self.actors)
         
         # Force visibility on startup despite loaded settings
         self.params["calc_active"] = True
@@ -80,7 +76,6 @@ class SpinningApp:
             "num_sweeping_passes": 3,
             "first_pass_p2_contact_z_abs": 10.0, 
             "y_rotation_degrees": 10.0,
-            "auto_align_rotation": False,
             "calc_active": True,
             "cam_azimuth": 0.0, "cam_elevation": 0.0, "cam_roll": 90.0,
             "mandrel_rot_x": 0.0, "mandrel_rot_y": 0.0, "mandrel_rot_z": 0.0,
@@ -89,8 +84,8 @@ class SpinningApp:
             "p1_z_offset_from_p2": 50.0, 
             "p3_z_offset_from_p2": -20.0,
             "roughing_step_radial": 1.0,
-            "last_pass_extension_z": 0.0,
-            "roller_nose_radius_param": 10.0, "final_part_thickness_on_mandrel": 2.0, "safety_clearance_roller_to_part": 0.5,
+            "final_part_thickness_on_mandrel": 2.0, "safety_clearance_roller_to_part": 0.5,
+            "min_safety_gap": 0.0,  # one-way safety floor (replaces the two-way target_clearance setter)
             "shell_thickness": 2.0, "blank_radius": 120.0, "blank_z_shift": 0.0,
             "roller_visual_radius": 25.0,
             "show_advanced_sliders": False, "show_visual_sliders": False,
@@ -113,13 +108,13 @@ class SpinningApp:
             "finish_step_radial": 0.0, # Added for Finish Options
             
             # V5 Adaptive
-            "adaptive_finish_mode": False,
-            "adaptive_rough_mode": False,
-            "adaptive_resolution": 0.5,
+            "finish_trace_mandrel_profile": False,
+            "conformal_clearance_all_operations": False,
+            "finish_trace_resolution": 0.5,
             "adaptive_bow_height": 0.0,
 
             # Path Correction
-            "normal_aligned_shift": False,
+            "clearance_correction_per_point": False,
 
             # Working Area (Workspace)
             "gcode_resolution": 2.0,
@@ -148,6 +143,15 @@ class SpinningApp:
 
             # Internal: last loaded STEP path (used to avoid overwriting blank_radius on same-file reload)
             "last_step_path": "",
+
+            # Application version — change this in settings.json to update the version label
+            "app_version": "1.002",
+
+            # Operation parameter presets — saved per op type (roughing/finishing/cutting/bending)
+            "op_presets": {},
+
+            # UI Language
+            "language": "EN",
         }
         
         base_path = self.get_base_path()
@@ -176,14 +180,22 @@ class SpinningApp:
                 logger.error(f"Settings JSON incomplete or corrupt: {e}")
         else:
             logger.warning("Settings file not found! Using defaults.")
+        try:
+            from config_schema import migrate_clearance
+            migrate_clearance(default_params)
+        except Exception as e:
+            logger.warning(f"Clearance migration skipped: {e}")
         return default_params
 
     def save_settings_json(self):
         try:
+            from machine_loader import MACHINE_PROFILE_KEYS
+            _machine_keys = set(MACHINE_PROFILE_KEYS) | {"machine_id", "machine_name", "_path"}
+            data = {k: v for k, v in self.params.items() if k not in _machine_keys}
             base_path = self.get_base_path()
             json_path = os.path.join(base_path, "settings.json")
             with open(json_path, "w", encoding='utf-8') as f:
-                json.dump(self.params, f, indent=4)
+                json.dump(data, f, indent=4)
             logger.info("Settings saved to JSON.")
             return True
         except Exception as e:
@@ -227,11 +239,109 @@ class SpinningApp:
         # Pad slightly
         pad = 20
         bounds = (xmin-pad, xmax+pad, ymin-pad, ymax+pad, zmin-pad, zmax+pad)
-        
+
+        # show_grid rebuilds the whole cube-axes actor — skip when bounds are
+        # unchanged (rounded to kill float jitter from actor.GetBounds()).
+        _key = tuple(round(b, 1) for b in bounds)
+        if getattr(self, "_last_grid_bounds", None) == _key:
+            return
+        self._last_grid_bounds = _key
+
         # Update Grid
         self.plotter.show_grid(bounds=bounds, color='black')
 
-    def update_scene(self, update_type="all", force_path_calc=False):
+    def _run_calc_worker(self, params_snap, gui_overrides_snap, roller_pos):
+        """Background thread: run calculate_paths and push result to _calc_queue."""
+        try:
+            result = self.path_gen.calculate_paths(
+                params_snap, gui_overrides_snap, self.mandrel_mgr,
+                visual_roller_pos=roller_pos,
+            )
+            self._calc_queue.put(("ok", result))
+        except Exception as e:
+            self._calc_queue.put(("error", e))
+
+    def sync_operation_r_tools(self):
+        """Re-pull each operation's r_tool from the tool library so operations never keep
+        a stale private copy.
+
+        Root cause of the 2026-06-25 "finishing pass sits closer than roughing" bug:
+        roughing and finishing used the same tool_id (T0103) but two different snapshotted
+        r_tool values (79.5 vs 74.31), because r_tool is copied into the op when a tool is
+        picked and never refreshed.
+
+        tools.json is the single source of truth. Its `r_tool` is the CALIBRATED machine
+        reach (disc radius + mounting offset) and must NOT be overwritten with raw STEP disc
+        geometry. Falls back to `radius` only when r_tool is genuinely absent (explicit None
+        test — 0.0 is a valid calibrated value, so the `or` idiom must not be used here).
+        Logs drift instead of masking it.
+        """
+        lib = {tl.get("id"): tl for tl in (self.tool_library or [])}
+        if not lib:
+            return
+        for i, op in enumerate(self.params.get("operations", [])):
+            tl = lib.get(op.get("tool_id"))
+            if tl is None:
+                continue
+            r_cal = tl.get("r_tool")
+            lib_r = r_cal if r_cal is not None else tl.get("radius")
+            if lib_r is None:
+                continue
+            lib_r = float(lib_r)
+            old = op.get("r_tool")
+            if old is None or abs(float(old) - lib_r) > 1e-6:
+                logger.info("r_tool sync: operations[%d] (%s) %s -> %.3f (from tool library)",
+                            i, op.get("tool_id"), old, lib_r)
+                op["r_tool"] = lib_r
+            # Safety sanity check: the calibrated reach must never be SMALLER than the raw
+            # disc radius — that would drive the roller into the part. A negative gap smells
+            # like the calibration was overwritten with disc geometry (the original regression).
+            radius = tl.get("radius")
+            if r_cal is not None and radius is not None and (lib_r - float(radius)) < -1e-6:
+                logger.warning("Tool %s: calibrated r_tool=%.3f < disc radius=%.3f — possible "
+                               "mis-calibration, roller may gouge the part.",
+                               op.get("tool_id"), lib_r, float(radius))
+
+    def calculate_async(self, roller_pos=None):
+        """
+        Start a background path calculation. Non-reentrant — ignores call if already running.
+        The caller must poll _calc_queue (via after()) and call
+        update_scene("paths", use_cached_paths=True) when the result arrives.
+        """
+        if self._calc_running:
+            return False
+        self._calc_running = True
+        self.sync_operation_r_tools()   # ops pull r_tool from library before the snapshot
+        params_snap = copy.deepcopy(self.params)
+        gui_overrides_snap = copy.deepcopy(self.gui_pass_overrides)
+        t = threading.Thread(
+            target=self._run_calc_worker,
+            args=(params_snap, gui_overrides_snap, roller_pos),
+            daemon=True,
+        )
+        t.start()
+        return True
+
+    def update_scene(self, update_type="all", force_path_calc=False, use_cached_paths=False):
+        """Rebuild scene actors for the given update_type, rendering ONCE at the end.
+
+        Every plotter.add_mesh / remove_actor call defaults to render=True, so
+        without suppression a single "all" update triggers a full re-render per
+        actor touched (30-80 renders). Batch them and render once.
+        """
+        _was_suppressed = bool(getattr(self.plotter, "suppress_rendering", False))
+        self.plotter.suppress_rendering = True
+        try:
+            self._update_scene_impl(update_type, force_path_calc, use_cached_paths)
+        finally:
+            self.plotter.suppress_rendering = _was_suppressed
+        if not _was_suppressed:
+            try:
+                self.plotter.render()
+            except Exception:
+                pass
+
+    def _update_scene_impl(self, update_type="all", force_path_calc=False, use_cached_paths=False):
         # --- HESAPLAMALAR ---
         # Derive Roller Radius from Active Operation (or default if single-pass editing logic fails)
         r_rad = 25.0
@@ -256,12 +366,20 @@ class SpinningApp:
                  r_rad = float(ops[0].get("r_tool", 25.0))
         except: pass
         
-        # Roller idle position = Program Start (home) position
-        rx_center = self.params.get("home_x", 300.0)
-        rz_center = self.params.get("home_z", 150.0)
+        # Roller idle position = Program Start (home) position.
+        # home_x / home_z are TIP coordinates (the point that contacts the workpiece).
+        # The sphere center must be shifted outward by r_rad so the tip lands at home_x.
+        _side = 1.0 if self.params.get("roller_positive_x_side", True) else -1.0
+        rx_tip = self.params.get("home_x", 300.0)
+        rz_tip = self.params.get("home_z", 150.0)
 
-        rx_tip = rx_center - r_rad
-        rz_tip = rz_center
+        rx_center = rx_tip + _side * r_rad   # sphere center is r_rad outward from tip
+        rz_center = rz_tip
+
+        _m_min_z = self.mandrel_mgr.props.get("min_z", rz_tip)
+        _m_top_z = self.mandrel_mgr.props.get("top_z", rz_tip)
+        _clamped_z = max(_m_min_z, min(_m_top_z, rz_tip))
+        _clamped_r = self.mandrel_mgr.get_radius_fast(_clamped_z)
 
         roller_pos = np.array([rx_center, 0, rz_center])
 
@@ -283,8 +401,73 @@ class SpinningApp:
             lbl = [f"SAFE HOME\nX{home_x:.1f} Z{home_z:.1f}"]
             self.actors["home_lbl"] = self.plotter.add_point_labels(np.array([label_pos]), lbl, point_size=0, font_size=14, text_color='green', always_visible=True)
         except: pass
-        
-        mandrel_radius_at_z = self.mandrel_mgr.get_radius_fast(rz_tip)
+
+        # Reference Points
+        if update_type in ["all", "ref_points"]:
+            for a in self.actors.get("ref_points", []) + self.actors.get("ref_point_labels", []):
+                try: self.plotter.remove_actor(a)
+                except: pass
+            self.actors["ref_points"] = []
+            self.actors["ref_point_labels"] = []
+            for pt in self.params.get("reference_points", []):
+                try:
+                    z   = float(pt.get("z", 0.0))
+                    x   = float(pt.get("x", 0.0))
+                    lbl = str(pt.get("label", ""))
+                    col = str(pt.get("color", "yellow"))
+                    sphere = pv.Sphere(radius=5.0, center=(x, 0, z))
+                    self.actors["ref_points"].append(
+                        self.plotter.add_mesh(sphere, color=col, opacity=0.95)
+                    )
+                    txt = f"{lbl}  Z{z:.1f}" if lbl else f"Z{z:.1f}"
+                    self.actors["ref_point_labels"].append(
+                        self.plotter.add_point_labels(
+                            np.array([[x, 0, z + 8]]), [txt],
+                            point_size=0, font_size=11,
+                            text_color=col, always_visible=True
+                        )
+                    )
+                except Exception as _e:
+                    logger.warning(f"Reference point render failed: {_e}")
+
+        # Reference point distance indicators — measured from roller tip (0,0) origin
+        if update_type in ["all", "ref_points", "visual"]:
+            for a in self.actors.get("ref_point_dist", []):
+                try: self.plotter.remove_actor(a)
+                except: pass
+            self.actors["ref_point_dist"] = []
+            if self.params.get("show_tip_distance", False):
+                for pt in self.params.get("reference_points", []):
+                    try:
+                        pz  = float(pt.get("z", 0.0))
+                        px  = float(pt.get("x", 0.0))
+                        col = str(pt.get("color", "yellow"))
+                        # ΔX / ΔZ relative to the roller tip position
+                        dx  = px - rx_tip
+                        dz  = pz - rz_tip
+                        # L-shaped indicator: horizontal from tip → ref X (at tip Z),
+                        # then vertical from tip Z → ref Z (at ref X)
+                        self.actors["ref_point_dist"].append(
+                            self.plotter.add_lines(
+                                np.array([[rx_tip, 0., rz_tip], [px, 0., rz_tip]]),
+                                color=col, width=2))
+                        self.actors["ref_point_dist"].append(
+                            self.plotter.add_lines(
+                                np.array([[px, 0., rz_tip], [px, 0., pz]]),
+                                color=col, width=2))
+                        for _pt2, _lbl2, _tc in [
+                            ([(rx_tip + px) / 2., 0., rz_tip + 8],        f"ΔX={dx:+.1f}mm", 'orange'),
+                            ([px + _side * 12,    0., (rz_tip + pz) / 2.], f"ΔZ={dz:+.1f}mm", 'cyan'),
+                        ]:
+                            self.actors["ref_point_dist"].append(
+                                self.plotter.add_point_labels(
+                                    np.array([_pt2]), [_lbl2],
+                                    point_size=0, font_size=10,
+                                    text_color=_tc, always_visible=True, shape=None))
+                    except Exception as _e:
+                        logger.warning(f"Ref point distance display failed: {_e}")
+
+        mandrel_radius_at_z = _clamped_r
         mandrel_surface_x = self.params["mandrel_pos_x_offset"] + mandrel_radius_at_z
         gap_x = rx_tip - mandrel_surface_x
         dist_z = rz_tip - self.params["mandrel_pos_z_offset"]
@@ -306,6 +489,66 @@ class SpinningApp:
                 # m_mesh.translate([0, 0, -z_bottom])
                 # m_mesh.translate([0, 0, self.params["mandrel_pos_z_offset"]])
                 self.actors["mandrel"] = self.plotter.add_mesh(m_mesh, color='dimgray', opacity=0.6, smooth_shading=True)
+
+            # Mandrel dimension annotation
+            for _a in self.actors.get("mandrel_dims", []):
+                try: self.plotter.remove_actor(_a)
+                except: pass
+            self.actors["mandrel_dims"] = []
+            if self.mandrel_mgr.mesh_cache:
+                try:
+                    _p    = self.mandrel_mgr.props
+                    _h    = _p["h"]
+                    _top  = _p["top_z"]
+                    _bot  = _p["min_z"]
+                    _pz   = self.mandrel_mgr.profile_z
+                    _prf  = self.mandrel_mgr.profile_r
+                    _cx   = self.params.get("mandrel_pos_x_offset", 0.0)
+
+                    if len(_prf) > 0:
+                        _imin  = int(np.argmin(_prf));  _r_min = float(_prf[_imin]);  _z_rmin = float(_pz[_imin])
+                        _imax  = int(np.argmax(_prf));  _r_max = float(_prf[_imax]);  _z_rmax = float(_pz[_imax])
+                    else:
+                        _r_min, _z_rmin = _p["tr"], _top
+                        _r_max, _z_rmax = _p["br"], _bot
+
+                    # Linear fit on (z, r) → surface angle + R² linearity indicator
+                    _angle_str = "—"
+                    if len(_pz) >= 4 and _h > 1.0:
+                        _coeffs = np.polyfit(_pz, _prf, 1)          # slope, intercept
+                        _slope  = _coeffs[0]
+                        _r_pred = np.polyval(_coeffs, _pz)
+                        _ss_res = float(np.sum((_prf - _r_pred) ** 2))
+                        _ss_tot = float(np.sum((_prf - np.mean(_prf)) ** 2))
+                        _r2     = 1.0 - _ss_res / _ss_tot if _ss_tot > 1e-9 else 1.0
+                        _ang    = math.degrees(math.atan(abs(_slope)))
+                        if _r2 >= 0.99:
+                            _angle_str = f"{_ang:.1f}°  (linear)"
+                        elif _r2 >= 0.95:
+                            _angle_str = f"{_ang:.1f}°  (approx)"
+                        else:
+                            _angle_str = f"—  (curved, R²={_r2:.2f})"
+
+                    # Table label — placed to the left (negative-X) side
+                    _lx = _cx - _r_max - 25
+                    _dim_text = (
+                        f" MANDREL PROFILE \n"
+                        f"─────────────────\n"
+                        f" L       {_h:>7.1f} mm\n"
+                        f" R min   {_r_min:>7.1f} mm  @ Z={_z_rmin:.1f}\n"
+                        f" R max   {_r_max:>7.1f} mm  @ Z={_z_rmax:.1f}\n"
+                        f" Angle   {_angle_str}"
+                    )
+                    self.actors["mandrel_dims"].append(
+                        self.plotter.add_point_labels(
+                            np.array([[_lx - 10, 0.0, (_top + _bot) / 2.0]]), [_dim_text],
+                            point_size=0, font_size=11, text_color='steelblue',
+                            always_visible=True, fill_shape=True,
+                            shape_color='aliceblue', shape_opacity=0.88
+                        )
+                    )
+                except Exception as _e:
+                    logger.warning(f"Mandrel dimension annotation failed: {_e}")
 
             if self.actors["blank"]: self.plotter.remove_actor(self.actors["blank"])
             # Blank disk her zaman rotation axis'te (X=0) ortalanır.
@@ -369,27 +612,43 @@ class SpinningApp:
                 self.actors["shell"] = self.plotter.add_mesh(shell_grid, color='lime', opacity=0.3, smooth_shading=True)
 
         # 3. Paths
-        if update_type in ["all", "paths", "shell_and_paths", "visual"] and (self.params.get("auto_calculate_paths", False) or force_path_calc):
+        if update_type in ["all", "paths", "shell_and_paths", "visual"] and (self.params.get("auto_calculate_paths", False) or force_path_calc or use_cached_paths):
             # Ensure rapids key exists
             if "rapids" not in self.actors: self.actors["rapids"] = []
-            
-            for a in self.actors["paths"] + self.actors["projs"] + self.actors["cps"] + self.actors["rapids"] + self.actors["pass_dist_lines"]: self.plotter.remove_actor(a)
+            if "analysis_lines" not in self.actors: self.actors["analysis_lines"] = []
+
+            for a in self.actors["paths"] + self.actors["projs"] + self.actors["cps"] + self.actors["rapids"] + self.actors["pass_dist_lines"] + self.actors["analysis_lines"]: self.plotter.remove_actor(a)
             if self.actors["approach"]: self.plotter.remove_actor(self.actors["approach"])
-            self.actors["paths"], self.actors["projs"], self.actors["cps"], self.actors["rapids"], self.actors["pass_dist_lines"] = [], [], [], [], []
+            self.actors["paths"], self.actors["projs"], self.actors["cps"], self.actors["rapids"], self.actors["pass_dist_lines"], self.actors["analysis_lines"] = [], [], [], [], [], []
             
             if self.params["calc_active"]:
-                paths, projs, cps, devs, rapids, debug_lines = self.path_gen.calculate_paths(self.params, self.gui_pass_overrides, self.mandrel_mgr, visual_roller_pos=roller_pos)
+                if use_cached_paths and self._pending_paths is not None:
+                    paths, projs, cps, devs, rapids, debug_lines = self._pending_paths
+                    self._pending_paths = None
+                else:
+                    self.sync_operation_r_tools()   # ops pull r_tool from library before calc
+                    paths, projs, cps, devs, rapids, debug_lines = self.path_gen.calculate_paths(self.params, self.gui_pass_overrides, self.mandrel_mgr, visual_roller_pos=roller_pos)
                 
-                num_rough = int(self.params["num_sweeping_passes"]) # Critical for coloring
-                
-                # Build operation feed rate lookup for velocity coloring
+                # Build per-path feed-rate and type lists. Must mirror calculate_paths'
+                # toolpath order exactly: skip disabled ops, cutting/bending = 1 path,
+                # back_pass_enabled inserts a back entry after each forward pass.
                 ops = self.params.get("operations", [])
                 op_feeds = []
+                op_types = []   # mirrors op_feeds, one entry per toolpath
                 for op in ops:
+                    if not op.get("enabled", True):
+                        continue
+                    op_type = op.get("type", "roughing")
                     feed = float(op.get("feed", 100.0))
-                    count = int(op.get("count", 1))
+                    count = 1 if op_type in ("cutting", "bending") else int(op.get("count", 1))
+                    has_back = op_type not in ("cutting", "bending") and op.get("back_pass_enabled", False)
+                    bp_feed = float(op.get("back_pass_feed", feed))
                     for _ in range(count):
                         op_feeds.append(feed)
+                        op_types.append(op_type)
+                        if has_back:
+                            op_feeds.append(bp_feed)
+                            op_types.append("back")
                 
                 # Calculate min/max feed for normalization
                 if op_feeds:
@@ -408,9 +667,11 @@ class SpinningApp:
                         continue
                     
                     is_active = (i == self.active_editing_pass_idx)
-                    is_finish_pass = (i >= num_rough)
-                    
-                    # Colors
+                    _ptype = op_types[i] if i < len(op_types) else "roughing"
+                    is_finish_pass = (_ptype == "finishing")
+                    is_back_pass   = (_ptype == "back")
+
+                    # Colors: roughing=blue, finishing=orange, back=teal, active=magenta
                     col = 'blue' # default for roughing
                     lw = 5
                     
@@ -434,22 +695,62 @@ class SpinningApp:
                         col = 'magenta'
                         lw = 7
                     elif is_finish_pass:
-                        col = 'orange' 
+                        col = 'orange'
+                    elif is_back_pass:
+                        col = 'teal'
                     
                     if len(p) > 1:
                         try:
-                            poly = pv.lines_from_points(p)
-                            # Create tube-like lines for better visibility
+                            p_arr = np.array(p, dtype=float)
+                            n_pts = len(p_arr)
+
+                            def _seg_poly(pts, straight):
+                                if straight or len(pts) <= 2:
+                                    return pv.lines_from_points(pts)
+                                return pv.Spline(pts, n_points=max(50, min(200, len(pts) * 10)))
+
+                            # path_generator threads the exact straight-line/arc-fillet
+                            # boundary indices for linear_approach/linear_full passes — use
+                            # them directly instead of guessing where the corner is.
+                            splits = self.path_gen.last_render_split_idx.get(i)
+                            if splits is not None:
+                                line_end = min(splits[0], n_pts - 1)
+                                arc_end  = min(max(splits[1], line_end), n_pts - 1)
+                                poly = _seg_poly(p_arr[:line_end + 1], straight=True)
+                                if arc_end > line_end:
+                                    # Arc points are already geometrically exact — render as
+                                    # a polyline, no spline smoothing needed.
+                                    poly = poly.merge(_seg_poly(p_arr[line_end:arc_end + 1], straight=True))
+                                if arc_end < n_pts - 1:
+                                    poly = poly.merge(_seg_poly(p_arr[arc_end:], straight=False))
+                            else:
+                                # Fallback (e.g. back passes, spline mode): detect a sharp
+                                # corner (>90°) and split there so Spline doesn't overshoot.
+                                split_idx = None
+                                if n_pts >= 3:
+                                    dirs = np.diff(p_arr, axis=0)
+                                    lens = np.linalg.norm(dirs, axis=1, keepdims=True)
+                                    dirs_n = dirs / np.where(lens < 1e-10, 1e-10, lens)
+                                    dots = np.clip(np.einsum('ij,ij->i', dirs_n[:-1], dirs_n[1:]), -1.0, 1.0)
+                                    if dots.min() < 0.0:
+                                        split_idx = int(np.argmin(dots)) + 1
+
+                                if split_idx is not None:
+                                    poly = _seg_poly(p_arr[:split_idx + 1], straight=False).merge(
+                                        _seg_poly(p_arr[split_idx:], straight=False)
+                                    )
+                                else:
+                                    poly = _seg_poly(p_arr, straight=False)
+
                             self.actors["paths"].append(self.plotter.add_mesh(
-                                poly, 
-                                color=col, 
+                                poly,
+                                color=col,
                                 line_width=lw,
                                 render_lines_as_tubes=True
                             ))
                         except Exception as e:
                             logger.error(f"Render failed path {i}: {e}")
-                            # Fallback
-                            try: self.actors["paths"].append(self.plotter.add_lines(p, color=col, width=lw))
+                            try: self.actors["paths"].append(self.plotter.add_lines(np.array(p, dtype=float), color=col, width=lw))
                             except: pass
                     else:
                         try: self.actors["paths"].append(self.plotter.add_lines(p, color=col, width=5))
@@ -489,9 +790,11 @@ class SpinningApp:
                         # Add clearance as scalar data for heatmap
                         mesh.point_data["Clearance"] = np.array(clearance_values)
                         
-                        # Get target for clamping
-                        target = self.params.get("target_clearance", 0.5)
-                        clim = [-target, target*2]  # Range: -target to 2*target
+                        # Heatmap colour scale. min_safety_gap (the floor) can be 0, which
+                        # would collapse the range, so keep a sensible minimum span.
+                        target = float(self.params.get("min_safety_gap", self.params.get("target_clearance", 0.5)))
+                        scale = max(target, 0.5)
+                        clim = [-scale, scale*2]  # Range: -scale to 2*scale
                         
                         actor = self.plotter.add_mesh(
                             mesh, 
@@ -501,7 +804,7 @@ class SpinningApp:
                             line_width=4,
                             scalar_bar_args={"title": "Clearance (mm)", "vertical": True, "position_x": 0.85}
                         )
-                        self.actors["rapids"].append(actor)
+                        self.actors["analysis_lines"].append(actor)
                 # Render Rapids (Dashed Lines for G0)
                 if self.params.get("show_rapids", True):
                     for r_seg in rapids:
@@ -565,37 +868,66 @@ class SpinningApp:
         # 4. Roller & Measurement
         if update_type in ["all", "paths", "visual"]:
             if self.actors["roller"]: self.plotter.remove_actor(self.actors["roller"])
-            
-            # Sphere Roller
-            roller_mesh = pv.Sphere(radius=r_rad, center=roller_pos, theta_resolution=30, phi_resolution=30)
+            if self.actors.get("roller_tip"): self.plotter.remove_actor(self.actors["roller_tip"]); self.actors["roller_tip"] = None
+
+            # Try to load roller shape from tool's STEP file
+            roller_mesh = None
+            try:
+                ops = self.params.get("operations", [])
+                active_idx = getattr(self, "active_editing_pass_idx", -1)
+                total = 0
+                active_op = ops[0] if ops else None
+                for op in ops:
+                    if not op.get("enabled", True):
+                        continue
+                    cnt = int(op.get("count", 1))
+                    if active_idx >= 0 and active_idx < total + cnt:
+                        active_op = op
+                        break
+                    total += cnt
+                if active_op:
+                    tid = active_op.get("tool_id", "")
+                    tool_entry = next((t for t in self.tool_library if t.get("id") == tid), None)
+                    if tool_entry:
+                        roller_mesh = self.tool_step_loader.get_roller_mesh(
+                            tool_entry, _side, rx_tip, rz_tip)
+            except Exception as _e:
+                logger.debug(f"Tool STEP roller: {_e}")
+
+            if roller_mesh is None:
+                roller_mesh = pv.Sphere(radius=r_rad, center=roller_pos, theta_resolution=30, phi_resolution=30)
+
             r_color = 'red' if gap_x < 0 else 'darkgoldenrod'
             self.actors["roller"] = self.plotter.add_mesh(roller_mesh, color=r_color, smooth_shading=True)
-            
-            if self.actors.get("dist_line"): self.plotter.remove_actor(self.actors["dist_line"])
-            if self.actors.get("dist_label"): self.plotter.remove_actor(self.actors["dist_label"])
 
-            # Home gap indicator: mandrel edge → roller edge
-            try:
-                side = 1.0 if self.params.get("roller_positive_x_side", True) else -1.0
-                center_x = self.params.get("mandrel_pos_x_offset", 0.0)
-                m_min_z = self.mandrel_mgr.props.get("min_z", rz_tip)
-                m_top_z = self.mandrel_mgr.props.get("top_z", rz_tip)
-                clamped_z = max(m_min_z, min(m_top_z, rz_tip))
-                clamped_r = self.mandrel_mgr.get_radius_fast(clamped_z)
-                m_edge_x = center_x + side * clamped_r
-                r_edge_x = rx_center - side * r_rad
-                gap_line_pts = np.array([[m_edge_x, 0.0, rz_tip], [r_edge_x, 0.0, rz_tip]])
-                edge_gap = (r_edge_x - m_edge_x) * side
-                self.actors["dist_line"] = self.plotter.add_lines(gap_line_pts, color='red', width=3)
-                gap_lbl = f"HOME GAP\n{edge_gap:+.1f}mm" if edge_gap >= 0 else f"HOME GAP\n{edge_gap:.1f}mm COLLISION"
-                mid_x = (m_edge_x + r_edge_x) / 2.0
-                self.actors["dist_label"] = self.plotter.add_point_labels(
-                    np.array([[mid_x, 0.0, rz_tip + (r_rad + 15) / 2.0]]), [gap_lbl],
-                    point_size=0, font_size=11, text_color='red',
-                    always_visible=True, shape=None
-                )
-            except Exception as e:
-                logger.warning(f"Home gap indicator failed: {e}")
+            # Tip indicator — small bright sphere at the exact contact point
+            tip_mesh = pv.Sphere(radius=2.0, center=(rx_tip, 0.0, rz_tip))
+            self.actors["roller_tip"] = self.plotter.add_mesh(tip_mesh, color='lime', smooth_shading=True)
+
+            if self.actors.get("dist_line"): self.plotter.remove_actor(self.actors["dist_line"]); self.actors["dist_line"] = None
+            if self.actors.get("dist_label"): self.plotter.remove_actor(self.actors["dist_label"]); self.actors["dist_label"] = None
+
+            # Home gap indicator: mandrel edge → roller edge (hidden when tip distance is shown)
+            if not self.params.get("show_tip_distance", False):
+                try:
+                    side = 1.0 if self.params.get("roller_positive_x_side", True) else -1.0
+                    center_x = self.params.get("mandrel_pos_x_offset", 0.0)
+                    clamped_z = _clamped_z
+                    clamped_r = _clamped_r
+                    m_edge_x = center_x + side * clamped_r
+                    r_edge_x = rx_center - side * r_rad
+                    gap_line_pts = np.array([[m_edge_x, 0.0, rz_tip], [r_edge_x, 0.0, rz_tip]])
+                    edge_gap = (r_edge_x - m_edge_x) * side
+                    self.actors["dist_line"] = self.plotter.add_lines(gap_line_pts, color='red', width=3)
+                    gap_lbl = f"HOME GAP\n{edge_gap:+.1f}mm" if edge_gap >= 0 else f"HOME GAP\n{edge_gap:.1f}mm COLLISION"
+                    mid_x = (m_edge_x + r_edge_x) / 2.0
+                    self.actors["dist_label"] = self.plotter.add_point_labels(
+                        np.array([[mid_x, 0.0, rz_tip + (r_rad + 15) / 2.0]]), [gap_lbl],
+                        point_size=0, font_size=11, text_color='red',
+                        always_visible=True, shape=None
+                    )
+                except Exception as e:
+                    logger.warning(f"Home gap indicator failed: {e}")
             
             # [NEW] Position Labels
             if self.actors.get("pos_labels"): self.plotter.remove_actor(self.actors["pos_labels"])
@@ -619,6 +951,56 @@ class SpinningApp:
                 always_visible=True, fill_shape=True, shape_color='white', shape_opacity=0.6
             )
 
+            # Tip-distance indicator (checkbox-controlled, display only)
+            for a in self.actors.get("tip_dist", []):
+                try: self.plotter.remove_actor(a)
+                except: pass
+            self.actors["tip_dist"] = []
+
+            if self.params.get("show_tip_distance", False):
+                try:
+                    _side   = 1.0 if self.params.get("roller_positive_x_side", True) else -1.0
+                    _cx     = float(self.params.get("mandrel_pos_x_offset", 0.0))
+                    _m_minz = self.mandrel_mgr.props.get("min_z", 0.0)
+                    _m_topz = self.mandrel_mgr.props.get("top_z", rz_tip)
+                    _cz     = max(_m_minz, min(_m_topz, rz_tip))
+                    _mr     = self.mandrel_mgr.get_radius_fast(_cz)
+                    _mx     = _cx + _side * _mr          # mandrel surface X at tip Z
+
+                    dx = (rx_tip - _mx) * _side          # radial gap (+ = clear, - = collision)
+                    dz = rz_tip - _m_minz                # Z from mandrel base to tip
+
+                    # Horizontal line: tip → mandrel surface
+                    self.actors["tip_dist"].append(
+                        self.plotter.add_lines(
+                            np.array([[rx_tip, 0.0, rz_tip], [_mx, 0.0, rz_tip]]),
+                            color='orange', width=3))
+
+                    # Vertical line: mandrel base → tip
+                    self.actors["tip_dist"].append(
+                        self.plotter.add_lines(
+                            np.array([[rx_tip, 0.0, _m_minz], [rx_tip, 0.0, rz_tip]]),
+                            color='cyan', width=3))
+
+                    # Labels
+                    _lx_mid = (rx_tip + _mx) / 2.0
+                    _lz_mid = (_m_minz + rz_tip) / 2.0
+                    _lbl_offset = _side * (r_rad + 10)
+                    for _pt, _lbl, _tc in [
+                        ([_lx_mid,             0.0, rz_tip + r_rad + 8], f"ΔX = {dx:+.1f} mm", 'orange'),
+                        ([rx_tip + _lbl_offset, 0.0, _lz_mid],            f"ΔZ = {dz:.1f} mm",  'cyan'),
+                        ([rx_tip,              0.0, rz_tip - r_rad - 8], "TIP  (0, 0)",          'yellow'),
+                    ]:
+                        self.actors["tip_dist"].append(
+                            self.plotter.add_point_labels(
+                                np.array([_pt]), [_lbl],
+                                point_size=0, font_size=12,
+                                text_color=_tc, always_visible=True, shape=None
+                            )
+                        )
+                except Exception as _e:
+                    logger.warning(f"Tip distance display failed: {_e}")
+
         # 5. Camera
         if update_type in ["all", "camera"]:
             az = math.radians(self.params.get("cam_azimuth", 0.0))
@@ -635,18 +1017,59 @@ class SpinningApp:
         # Fix Visual Bug: Update Grid logic dynamically
         self._update_grid_dynamic()
 
+    def _active_fwd_pass_idx(self):
+        """Map active_editing_pass_idx (a toolpath-list index, which includes
+        interleaved back-pass entries) to the forward-pass index PathGenerator
+        keys per-pass overrides by (its global_pass_idx). A back-pass entry maps
+        to its parent forward pass, so an override edited while a back pass is
+        selected applies to the forward pass it mirrors. Mirrors the layout in
+        calculate_paths: one global_pass_idx per forward pass / cutting / bending,
+        and a stride-2 toolpath layout (forward, back) when back_pass_enabled.
+        """
+        tp_idx = self.active_editing_pass_idx
+        fwd = 0
+        entry = 0
+        for op in self.params.get("operations", []):
+            if not op.get("enabled", True):
+                continue
+            is_cb  = op.get("type", "roughing") in ("cutting", "bending")
+            count  = 1 if is_cb else int(op.get("count", 1))
+            stride = 1 if is_cb else (2 if op.get("back_pass_enabled", False) else 1)
+            for _ in range(count):
+                if entry == tp_idx:
+                    return fwd
+                entry += 1
+                if stride == 2:
+                    if entry == tp_idx:   # back-pass entry → parent forward pass
+                        return fwd
+                    entry += 1
+                fwd += 1
+        return fwd
+
     # --- WRAPPERS ---
     def on_param_change(self, key, val, mode="paths"):
         # Helper for type conversion (Fix for Phase 17 strings like "T0101")
         def convert(v):
+            if isinstance(v, bool): return v
             try: return float(v)
             except: return v
         real_val = convert(val)
 
+        # Machine-profile keys (home_x/z, offsets, workspace, gcode output, …) belong
+        # to the active machine profile, not to per-pass overrides or the paths params.
+        # They must (a) never be routed into gui_pass_overrides and (b) be auto-persisted
+        # to the profile file so edits survive a restart (settings.json excludes them).
+        from machine_loader import MACHINE_PROFILE_KEYS
+        _is_machine_key = key in MACHINE_PROFILE_KEYS
+
         # Handle Overrides (Assume only simple keys for now)
-        if self.apply_to_specific_pass_only and mode == "paths" and "[" not in key:
-            if self.active_editing_pass_idx not in self.gui_pass_overrides: self.gui_pass_overrides[self.active_editing_pass_idx] = {}
-            self.gui_pass_overrides[self.active_editing_pass_idx][key] = real_val
+        # gui_pass_overrides is keyed in PathGenerator's forward-pass index space
+        # (global_pass_idx), NOT the raw toolpath index — back-pass selections map
+        # to their parent forward pass so the override actually takes effect.
+        if self.apply_to_specific_pass_only and mode == "paths" and "[" not in key and not _is_machine_key:
+            _ovr_idx = self._active_fwd_pass_idx()
+            if _ovr_idx not in self.gui_pass_overrides: self.gui_pass_overrides[_ovr_idx] = {}
+            self.gui_pass_overrides[_ovr_idx][key] = real_val
         else:
             # Handle Nested Keys (e.g. "operations[0].tool_id")
             updated = False
@@ -672,7 +1095,12 @@ class SpinningApp:
                     # Legacy param da güncelle
                     self.params["first_pass_p2_contact_z_abs"] = self.params.get("first_pass_p2_contact_z_abs", 0.0) + delta
                 self.params[key] = real_val
-            
+
+        # Auto-persist machine-profile edits to the active profile file so the value
+        # survives a restart without the user having to click "Save Machine Profile".
+        if _is_machine_key:
+            self.autosave_machine_profile()
+
         # [PHASE 8] ULTRA-STRICT Manual Check
         # User requested zero stutter ("visual loading glitches").
         # If mode requires calculation, we SKIP update_scene entirely.
@@ -682,6 +1110,29 @@ class SpinningApp:
                  return
 
         self.update_scene(mode)
+
+    def autosave_machine_profile(self):
+        """Silently write the current machine-profile params to the active profile file.
+
+        settings.json deliberately excludes MACHINE_PROFILE_KEYS (the profile is the
+        source of truth, applied over settings on load), so without this the values are
+        only persisted when the user clicks "Save Machine Profile". Called on every
+        machine-tab edit so those changes survive a restart. No-op if no profile/path.
+        """
+        profile = getattr(self, "active_machine_profile", None)
+        if not profile:
+            return
+        path = profile.get("_path", "")
+        if not path:
+            return
+        try:
+            from machine_loader import MACHINE_PROFILE_KEYS, save_machine_profile
+            for k in MACHINE_PROFILE_KEYS:
+                if k in self.params:
+                    profile[k] = self.params[k]
+            save_machine_profile(path, profile)
+        except Exception as e:
+            logger.error(f"Machine profile autosave failed: {e}")
 
     def update_slider_and_param(self, key, val, slider_widget, mode):
         rep = slider_widget.GetRepresentation()
@@ -719,21 +1170,70 @@ class SpinningApp:
         self.apply_to_specific_pass_only = bool(v)
 
     def update_roller_visual(self, pos, current_radius):
+        """Fast update for simulation loop — called at ~50 fps from check_sim_loop.
+        pos: roller CENTER in global coords. current_radius: r_tool for the active cut.
+
+        Strategy: rebuild the actor only when tool/side/radius changes (rare).
+        Every other tick just calls actor.SetPosition() — zero allocation, no flicker.
+        Both STEP and sphere meshes are built with their tip at local (0,0,0) so the
+        same SetPosition(rx_tip, 0, rz_tip) call moves either one correctly.
         """
-        Fast update for simulation loop only.
-        pos: [x, 0, z] center of roller contact? No, pos is "roller_pos" (center of sphere).
-        current_radius: float
-        """
-        # Remove old Actor
-        if "roller" in self.actors and self.actors["roller"]:
-             self.plotter.remove_actor(self.actors["roller"])
-        
-        # Recreate Roller Mesh
+        _side = 1.0 if self.params.get("roller_positive_x_side", True) else -1.0
+        rx_tip = float(pos[0]) - _side * current_radius
+        rz_tip = float(pos[2])
+
+        tid = getattr(self.sim_controller, "current_tool_id", "")
+
+        need_rebuild = (
+            not self.actors.get("roller") or
+            getattr(self, "_sim_last_tool_id", None) != tid or
+            getattr(self, "_sim_last_side", None) != _side or
+            getattr(self, "_sim_last_radius", None) != current_radius
+        )
+
+        if need_rebuild:
+            if self.actors.get("roller"):
+                self.plotter.remove_actor(self.actors["roller"])
+            if self.actors.get("roller_tip"):
+                self.plotter.remove_actor(self.actors["roller_tip"])
+                self.actors["roller_tip"] = None
+
+            # Build mesh with tip anchored at local (0,0,0)
+            roller_mesh = None
+            try:
+                if tid:
+                    tool_entry = next((t for t in self.tool_library if t.get("id") == tid), None)
+                    if tool_entry:
+                        roller_mesh = self.tool_step_loader.get_canonical_mesh(tool_entry, _side)
+            except Exception as _e:
+                logger.debug(f"Sim STEP roller build: {_e}")
+
+            if roller_mesh is None:
+                # Sphere with center at (_side * r_rad, 0, 0) so its tip sits at (0,0,0)
+                roller_mesh = pv.Sphere(radius=current_radius,
+                                        center=(_side * current_radius, 0.0, 0.0),
+                                        theta_resolution=24, phi_resolution=24)
+
+            try:
+                self.actors["roller"] = self.plotter.add_mesh(roller_mesh, color='orange', smooth_shading=True)
+                tip_mesh = pv.Sphere(radius=2.0, center=(0.0, 0.0, 0.0))
+                self.actors["roller_tip"] = self.plotter.add_mesh(tip_mesh, color='lime', smooth_shading=True)
+            except Exception as e:
+                logger.error(f"Roller rebuild error: {e}")
+                return
+
+            self._sim_last_tool_id = tid
+            self._sim_last_side = _side
+            self._sim_last_radius = current_radius
+
+        # Fast path — just translate the existing actors; no remove/add = no flicker
         try:
-             mesh = pv.Sphere(radius=current_radius, center=pos)
-             self.actors["roller"] = self.plotter.add_mesh(mesh, color='orange', smooth_shading=True)
+            if self.actors.get("roller"):
+                self.actors["roller"].SetPosition(rx_tip, 0.0, rz_tip)
+            if self.actors.get("roller_tip"):
+                self.actors["roller_tip"].SetPosition(rx_tip, 0.0, rz_tip)
         except Exception as e:
-             logger.error(f"Roller Update Error: {e}")
+            logger.error(f"Roller move error: {e}")
 
     def recolor_paths(self):
         """Mevcut pas aktörlerinin rengini yeniden boyar — hesaplama yapmaz, anlık."""
@@ -746,12 +1246,20 @@ class SpinningApp:
         op_types = []
         for op in ops:
             if not op.get("enabled", True): continue
-            for _ in range(int(op.get("count", 1))):
-                op_types.append(op.get("type", "roughing"))
+            op_type = op.get("type", "roughing")
+            is_cb   = op_type in ("cutting", "bending")
+            count   = 1 if is_cb else int(op.get("count", 1))
+            has_back = not is_cb and op.get("back_pass_enabled", False)
+            for _ in range(count):
+                op_types.append(op_type)
+                if has_back:
+                    op_types.append("back")
 
         for i, actor in enumerate(self.actors["paths"]):
-            is_active = (i == self.active_editing_pass_idx)
-            is_finish = (i < len(op_types) and op_types[i] == "finishing")
+            is_active  = (i == self.active_editing_pass_idx)
+            _ptype     = op_types[i] if i < len(op_types) else "roughing"
+            is_finish  = (_ptype == "finishing")
+            is_back    = (_ptype == "back")
 
             prop = actor.GetProperty()
             if is_active:
@@ -759,6 +1267,9 @@ class SpinningApp:
                 prop.SetLineWidth(7)
             elif is_finish:
                 prop.SetColor(1.0, 0.65, 0.0)  # orange
+                prop.SetLineWidth(5)
+            elif is_back:
+                prop.SetColor(0.0, 0.5, 0.5)   # teal
                 prop.SetLineWidth(5)
             else:
                 prop.SetColor(0.0, 0.0, 1.0)   # blue
@@ -834,6 +1345,11 @@ class SpinningApp:
                 with open(filepath, "r") as f:
                     d = json.load(f)
                     self.params.update(d.get("params", {}))
+                    try:
+                        from config_schema import migrate_clearance
+                        migrate_clearance(self.params)
+                    except Exception:
+                        pass
                     # Check overrides format
                     ovr = d.get("overrides", {})
                     self.gui_pass_overrides = {int(k):v for k,v in ovr.items()}
@@ -851,15 +1367,11 @@ class SpinningApp:
         return False
 
     def _build_ui(self):
-        """
-        Delegates the UI construction to the GuiManager.
-        """
         self.ui.build_interface(self)
 
     def run(self):
-        # Startup Step Loading
-        default_step = "C:/Users/PC/Documents/CAD_Files/deneme_mandrel.step"
-        inp = input(f"STEP Dosyası Yolu (Varsayılan: {default_step}) > ") or default_step
+        # Startup Step Loading (CLI entry point — not used by the GUI)
+        inp = input("STEP Dosyası Yolu > ").strip()
         self.step_file_path_global = inp
         if not self.mandrel_mgr.load_step(inp): 
             self.mandrel_mgr.create_default_cone()

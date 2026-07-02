@@ -1,6 +1,7 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from ui.tabs.scrollable_tab_base import ScrollableTabBase
+from i18n import t
 
 
 class MachineTab(ScrollableTabBase):
@@ -8,31 +9,42 @@ class MachineTab(ScrollableTabBase):
         self.app = app
         self.helper = ui_helper
 
-        # Initialize scrollable area from base class
         super().__init__(parent_frame)
-
         self._create_widgets()
 
     def _create_widgets(self):
-        tk.Label(self.content, text="Machine Settings", font=("Arial", 12, "bold"), pady=10).pack()
+        tk.Label(self.content, text=t("lbl_machine_settings"), font=("Arial", 12, "bold"), pady=10).pack()
 
-        # --- Machine Coordinate System (Post-Processor) ---
-        f_coords = ttk.LabelFrame(self.content, text="Machine Coordinate System (Post-Processor)")
+        # Active machine header + save button
+        profile = getattr(self.app, "active_machine_profile", None)
+        if profile:
+            mid      = profile.get("machine_id", "")
+            mname    = profile.get("machine_name", "")
+            customer = self.app.params.get("_customer_name", "")
+            hdr_text = f"{mname}  [{mid}]"
+            if customer:
+                hdr_text += f"  ·  {customer}"
+            f_hdr = ttk.Frame(self.content)
+            f_hdr.pack(fill="x", padx=10, pady=(0, 6))
+            tk.Label(f_hdr, text=hdr_text,
+                     font=("Arial", 10, "bold"), fg="steelblue").pack(side="left", padx=4)
+            ttk.Button(f_hdr, text=t("btn_save_profile"),
+                       command=self._save_machine_profile).pack(side="right", padx=4)
+
+        # --- Machine Coordinate System ---
+        f_coords = ttk.LabelFrame(self.content, text=t("frm_coords"))
         f_coords.pack(fill="x", padx=10, pady=10)
 
-        # Info Label
-        tk.Label(f_coords, text="Dönüşüm: X_machine = (X_global - Origin_X) × direction + offset",
+        tk.Label(f_coords, text=t("lbl_coords_info"),
                  font=("Arial", 8, "italic"), fg="gray").pack(anchor="w", padx=5)
 
-        # Machine Origin (in Global Coords)
         f_origin = ttk.Frame(f_coords)
         f_origin.pack(fill="x", padx=5, pady=5)
-        tk.Label(f_origin, text="Machine Origin (Global Coords):").pack(anchor="w")
+        tk.Label(f_origin, text=t("lbl_machine_origin")).pack(anchor="w")
 
         f_origin_inputs = ttk.Frame(f_coords)
         f_origin_inputs.pack(fill="x", padx=5, pady=2)
 
-        # Origin X
         tk.Label(f_origin_inputs, text="X:").pack(side="left", padx=2)
         var_origin_x = tk.DoubleVar(value=self.app.params.get("machine_origin_x", 0.0))
         def on_origin_x_change():
@@ -43,10 +55,8 @@ class MachineTab(ScrollableTabBase):
         e_origin_x.bind("<Return>", lambda ev: on_origin_x_change())
         e_origin_x.bind("<FocusOut>", lambda ev: on_origin_x_change())
         e_origin_x.bind("<Button-1>", lambda event: event.widget.focus_force())
-        self.helper.bind_tooltip(e_origin_x, "CAM global X koordinatlarının makine X=0 noktasına karşılık gelen değeri. "
-                                              "Örn: CAM'de rulonun başlangıç X'i 50mm ise ve makine X=0'dan başlıyorsa, Origin X = 50 girilir.")
+        self.helper.bind_tooltip(e_origin_x, "CAM global X koordinatlarının makine X=0 noktasına karşılık gelen değeri.")
 
-        # Origin Z
         tk.Label(f_origin_inputs, text="Z:").pack(side="left", padx=(10, 2))
         var_origin_z = tk.DoubleVar(value=self.app.params.get("machine_origin_z", 0.0))
         def on_origin_z_change():
@@ -57,12 +67,11 @@ class MachineTab(ScrollableTabBase):
         e_origin_z.bind("<Return>", lambda ev: on_origin_z_change())
         e_origin_z.bind("<FocusOut>", lambda ev: on_origin_z_change())
         e_origin_z.bind("<Button-1>", lambda event: event.widget.focus_force())
-        self.helper.bind_tooltip(e_origin_z, "CAM global Z koordinatlarının makine Z=0 noktasına karşılık gelen değeri. "
-                                              "Örn: CAM'de home_z = -150 ise ve makine Z=0'a gitmesini istiyorsanız, Origin Z = -150 girilir.")
+        self.helper.bind_tooltip(e_origin_z, "CAM global Z koordinatlarının makine Z=0 noktasına karşılık gelen değeri.")
 
-        tk.Label(f_origin_inputs, text="mm").pack(side="left", padx=2)
+        tk.Label(f_origin_inputs, text=t("lbl_mm")).pack(side="left", padx=2)
 
-        # --- Origin = Safe Home Checkbox ---
+        # Origin = Safe Home Checkbox
         f_origin_use_home = ttk.Frame(f_coords)
         f_origin_use_home.pack(fill="x", padx=5, pady=(0, 4))
 
@@ -84,7 +93,7 @@ class MachineTab(ScrollableTabBase):
 
         cb_use_home = ttk.Checkbutton(
             f_origin_use_home,
-            text="Origin = Safe Home (Program Start X/Z)",
+            text=t("cb_origin_use_home"),
             variable=var_origin_use_home,
             command=on_origin_use_home_toggle
         )
@@ -93,11 +102,9 @@ class MachineTab(ScrollableTabBase):
             cb_use_home,
             "Aktifken makine koordinat orijini otomatik olarak 'Program Start' (Home) pozisyonuna eşitlenir. "
             "Fiziksel home = makine (0,0) olan tezgahlarda kullanın. "
-            "G-Code koordinatları home'dan itibaren mesafe olarak üretilir. "
             "Aktifken X/Z Origin alanları devre dışı kalır."
         )
 
-        # Apply initial disabled state if checkbox is already on
         if var_origin_use_home.get():
             e_origin_x.config(state="disabled")
             e_origin_z.config(state="disabled")
@@ -108,15 +115,15 @@ class MachineTab(ScrollableTabBase):
 
         var_invert_x = tk.BooleanVar(value=bool(self.app.params.get("machine_invert_x", False)))
         def on_invert_x_toggle(): self.app.on_param_change("machine_invert_x", var_invert_x.get(), "none")
-        cb_invert_x = ttk.Checkbutton(f_invert, text="Invert X Axis (+↔-)", variable=var_invert_x, command=on_invert_x_toggle)
+        cb_invert_x = ttk.Checkbutton(f_invert, text=t("cb_invert_x"), variable=var_invert_x, command=on_invert_x_toggle)
         cb_invert_x.pack(side="left", padx=5)
-        self.helper.bind_tooltip(cb_invert_x, "X eksenini tersine çevirir. Makinenin X ekseni merkeze doğru artıyorsa (dışa doğru değil) işaretleyin.")
+        self.helper.bind_tooltip(cb_invert_x, "X eksenini tersine çevirir. Makinenin X ekseni merkeze doğru artıyorsa işaretleyin.")
 
         var_invert_z = tk.BooleanVar(value=bool(self.app.params.get("machine_invert_z", False)))
         def on_invert_z_toggle(): self.app.on_param_change("machine_invert_z", var_invert_z.get(), "none")
-        cb_invert_z = ttk.Checkbutton(f_invert, text="Invert Z Axis (+↔-)", variable=var_invert_z, command=on_invert_z_toggle)
+        cb_invert_z = ttk.Checkbutton(f_invert, text=t("cb_invert_z"), variable=var_invert_z, command=on_invert_z_toggle)
         cb_invert_z.pack(side="left", padx=5)
-        self.helper.bind_tooltip(cb_invert_z, "Z eksenini tersine çevirir. Makinenin Z ekseni mandrele doğru artıyorsa (operatörden uzaklaşma değil) işaretleyin.")
+        self.helper.bind_tooltip(cb_invert_z, "Z eksenini tersine çevirir. Makinenin Z ekseni mandrele doğru artıyorsa işaretleyin.")
 
         # Roller Approach Side
         f_roller_side = ttk.Frame(f_coords)
@@ -127,35 +134,34 @@ class MachineTab(ScrollableTabBase):
             self.app.on_param_change("roller_positive_x_side", var_roller_pos_side.get(), "paths")
         cb_roller_side = ttk.Checkbutton(
             f_roller_side,
-            text="Roller Positive X Tarafında (mandrelin üstünde)",
+            text=t("cb_roller_pos_x"),
             variable=var_roller_pos_side,
             command=on_roller_side_toggle
         )
         cb_roller_side.pack(anchor="w", padx=5)
         self.helper.bind_tooltip(
             cb_roller_side,
-            "İşaretli: Rulon mandrel merkezinden +X yönünde yaklaşır (varsayılan, CAM görünümüyle örtüşür).\n"
-            "İşaretsiz: Rulon -X yönünden yaklaşır (mandrel 'alttan' işleme). "
-            "Tüm paso koordinatları otomatik olarak yansıtılır."
+            "İşaretli: Rulon mandrel merkezinden +X yönünde yaklaşır (varsayılan).\n"
+            "İşaretsiz: Rulon -X yönünden yaklaşır. Tüm paso koordinatları otomatik olarak yansıtılır."
         )
 
         # Output Mode (Radius/Diameter)
-        f_output_mode = ttk.LabelFrame(self.content, text="Output Mode")
+        f_output_mode = ttk.LabelFrame(self.content, text=t("frm_output_mode"))
         f_output_mode.pack(fill="x", padx=10, pady=10)
 
         var_output_mode = tk.StringVar(value=self.app.params.get("output_mode", "diameter"))
         def on_output_mode_change(): self.app.on_param_change("output_mode", var_output_mode.get(), "none")
 
-        rb_dia = ttk.Radiobutton(f_output_mode, text="Diameter", variable=var_output_mode, value="diameter", command=on_output_mode_change)
+        rb_dia = ttk.Radiobutton(f_output_mode, text=t("rb_diameter"), variable=var_output_mode, value="diameter", command=on_output_mode_change)
         rb_dia.pack(anchor="w", padx=5, pady=2)
         self.helper.bind_tooltip(rb_dia, "X değerlerini çap olarak yazar (X × 2). Torna tezgahlarında yaygın olan çap programlama modu.")
 
-        rb_rad = ttk.Radiobutton(f_output_mode, text="Radius", variable=var_output_mode, value="radius", command=on_output_mode_change)
+        rb_rad = ttk.Radiobutton(f_output_mode, text=t("rb_radius"), variable=var_output_mode, value="radius", command=on_output_mode_change)
         rb_rad.pack(anchor="w", padx=5, pady=2)
-        self.helper.bind_tooltip(rb_rad, "X değerlerini yarıçap olarak yazar. Makine gerçek radyal mesafeyi bekliyorsa bu modu seçin.")
+        self.helper.bind_tooltip(rb_rad, "X değerlerini yarıçap olarak yazar.")
 
         # Additional Work Offsets (G54)
-        f_offsets = ttk.LabelFrame(self.content, text="Additional Work Offsets (G54)")
+        f_offsets = ttk.LabelFrame(self.content, text=t("frm_offsets"))
         f_offsets.pack(fill="x", padx=10, pady=10)
 
         def add_offset_spinbox(p, key, title, tooltip=""):
@@ -163,12 +169,10 @@ class MachineTab(ScrollableTabBase):
             f.pack(fill="x", padx=5, pady=2)
             tk.Label(f, text=title).pack(side="left")
             val = self.app.params.get(key, 0.0)
-
             var = tk.DoubleVar(value=val)
             def on_change():
                 try: self.app.on_param_change(key, var.get(), "none")
                 except: pass
-
             e = ttk.Entry(f, textvariable=var, width=10)
             e.pack(side="right")
             e.bind("<Return>", lambda ev: on_change())
@@ -177,28 +181,20 @@ class MachineTab(ScrollableTabBase):
             self.helper.bind_tooltip(e, tooltip)
             self.helper.bind_tooltip(f, tooltip)
 
-        add_offset_spinbox(f_offsets, "machine_gcode_offset_x", "X Offset (mm)",
-                           "Origin dönüşümünden SONRA tüm X koordinatlarına eklenen sabit değer. "
-                           "Makine sıfır noktası ince ayarı için kullanılır (G54 iş ofseti gibi).")
-        add_offset_spinbox(f_offsets, "machine_gcode_offset_z", "Z Offset (mm)",
-                           "Origin dönüşümünden SONRA tüm Z koordinatlarına eklenen sabit değer. "
-                           "Makine sıfır noktası ince ayarı için kullanılır (G54 iş ofseti gibi).")
-
-        # Safety & Limits
-        f_safety = ttk.LabelFrame(self.content, text="Safety & Limits")
-        f_safety.pack(fill="x", padx=10, pady=10)
+        add_offset_spinbox(f_offsets, "machine_gcode_offset_x", t("lbl_x_offset"),
+                           "Origin dönüşümünden SONRA tüm X koordinatlarına eklenen sabit değer (G54 iş ofseti).")
+        add_offset_spinbox(f_offsets, "machine_gcode_offset_z", t("lbl_z_offset"),
+                           "Origin dönüşümünden SONRA tüm Z koordinatlarına eklenen sabit değer (G54 iş ofseti).")
 
         def add_int_entry(p, key, title, tooltip=""):
             f = ttk.Frame(p)
             f.pack(fill="x", padx=5, pady=2)
             tk.Label(f, text=title).pack(side="left")
             val = int(self.app.params.get(key, 1))
-
             var = tk.IntVar(value=val)
             def on_change():
                 try: self.app.on_param_change(key, var.get(), "none")
                 except: pass
-
             e = ttk.Entry(f, textvariable=var, width=10)
             e.pack(side="right")
             e.bind("<Return>", lambda ev: on_change())
@@ -207,56 +203,65 @@ class MachineTab(ScrollableTabBase):
             self.helper.bind_tooltip(e, tooltip)
             self.helper.bind_tooltip(f, tooltip)
 
-        add_int_entry(f_safety, "max_spin_rpm", "Max Spin (RPM):",
-                      "G-code'a yazılacak maksimum mil devri sınırı (G50 S[değer]). "
-                      "Makine bu değerin üzerinde çalışmaz. Tipik: 1500-3000 RPM.")
-
-        # --- Safety Settings ---
-        f_home = ttk.LabelFrame(self.content, text="Program Start / Retract")
+        # Program Start / Retract
+        f_home = ttk.LabelFrame(self.content, text=t("frm_home"))
         f_home.pack(fill="x", padx=10, pady=5)
 
-        tk.Label(f_home, text="Gerçek homing PLC tarafından yapılır. Bu konum programın başladığı ve paslar arası döndüğü noktadır.",
+        tk.Label(f_home, text=t("lbl_home_info"),
                  font=("Arial", 8, "italic"), fg="gray", wraplength=380, justify="left").pack(anchor="w", padx=5, pady=(2, 4))
 
         def add_home_spinbox(p, key, title, tooltip=""):
             f = ttk.Frame(p)
             f.pack(fill="x", padx=5, pady=2)
             tk.Label(f, text=title).pack(side="left")
-            # Default fallback
             if "retract" in key: val_def = 50.0
             elif "x" in key: val_def = 300.0
             else: val_def = 150.0
-
             val = self.app.params.get(key, val_def)
-
             var = tk.DoubleVar(value=val)
             def on_change():
                 try: self.app.on_param_change(key, var.get(), "paths")
                 except: pass
-
             e = ttk.Entry(f, textvariable=var, width=10)
             e.pack(side="right")
             e.bind("<Return>", lambda ev: on_change())
             e.bind("<FocusOut>", lambda ev: on_change())
             e.bind("<Button-1>", lambda event: event.widget.focus_force())
-            # Bind Tooltip
             self.helper.bind_tooltip(e, tooltip)
             self.helper.bind_tooltip(f, tooltip)
 
-        add_home_spinbox(f_home, "home_z", "Program Start Z:",
-                         "Programın başladığı ve her pas sonrası geri dönülen Z pozisyonu (CAM koordinatı, mutlak). "
-                         "PLC homing'den sonra takımın beklediği Z konumu olmalı. "
-                         "Ruloyu mandrel geometrisinden tamamen uzaklaştıracak bir değer girilmeli.")
-        add_home_spinbox(f_home, "home_x", "Program Start X:",
-                         "Programın başladığı ve her pas sonrası geri dönülen X pozisyonu (CAM koordinatı, mutlak). "
-                         "PLC homing'den sonra takımın beklediği X konumu olmalı. "
-                         "Ruloyu merkez ekseninden yeterince uzaklaştıracak bir değer girilmeli.")
-        add_home_spinbox(f_home, "retract_x", "Pass Retract X (Rel):",
-                         "Her pas sonrası rulonun X ekseninde geri çekilme miktarı (göreceli, mm). "
-                         "Pozitif değer rulоyu dışarı (merkez ekseninden uzağa) taşır.")
-        add_home_spinbox(f_home, "retract_z", "Pass Retract Z (Rel):",
-                         "Her pas sonrası rulonun Z ekseninde geri çekilme miktarı (göreceli, mm). "
-                         "Pozitif değer rulоyu operatör tarafına (mandrel yüzeyinden uzağa) taşır.")
+        add_home_spinbox(f_home, "home_z", t("lbl_home_z"),
+                         "Programın başladığı ve her pas sonrası geri dönülen Z pozisyonu (CAM koordinatı, mutlak).")
+        add_home_spinbox(f_home, "home_x", t("lbl_home_x"),
+                         "Programın başladığı ve her pas sonrası geri dönülen X pozisyonu (CAM koordinatı, mutlak).")
+
+        tk.Label(f_home, text=t("lbl_home_hint"),
+                 font=("Arial", 8, "italic"), fg="#0055aa", wraplength=380, justify="left"
+                 ).pack(anchor="w", padx=5, pady=(0, 4))
+
+        add_home_spinbox(f_home, "retract_x", t("lbl_retract_x"),
+                         "Her pas sonrası rulonun X ekseninde geri çekilme miktarı (göreceli, mm).")
+        add_home_spinbox(f_home, "retract_z", t("lbl_retract_z"),
+                         "Her pas sonrası rulonun Z ekseninde geri çekilme miktarı (göreceli, mm).")
+
+        # Touch Point Calibration
+        f_touch = ttk.LabelFrame(self.content, text=t("frm_touch"))
+        f_touch.pack(fill="x", padx=10, pady=10)
+
+        tk.Label(f_touch, text=t("lbl_touch_info"),
+                 font=("Arial", 8, "italic"), fg="#444", wraplength=460,
+                 justify="left").pack(anchor="w", padx=8, pady=(4, 2))
+
+        def _open_touch_calibration():
+            from ui.dialogs.touch_calibration import TouchCalibrationDialog
+            TouchCalibrationDialog(self.content.winfo_toplevel(), self.app)
+
+        btn_touch = tk.Button(f_touch, text=t("btn_touch_cal"),
+                              command=_open_touch_calibration,
+                              bg="lightyellow", width=24)
+        btn_touch.pack(anchor="w", padx=8, pady=(4, 8))
+        self.helper.bind_tooltip(btn_touch,
+            "Rulоyu mandrele veya blanka temas ettirin, DRO değerini okuyun ve programa aktarın.")
 
         # Helper to create label+text area
         def add_text_area(p, title, key, height=4, tooltip=""):
@@ -264,37 +269,41 @@ class MachineTab(ScrollableTabBase):
             f.pack(fill="x", padx=10, pady=5)
             lbl = tk.Label(f, text=title, font=("Arial", 9, "bold"), anchor="w")
             lbl.pack(fill="x")
-
             txt = tk.Text(f, height=height, font=("Consolas", 9))
             txt.pack(fill="x")
-            # Load initial value
             val = self.app.params.get(key, "")
             txt.insert("1.0", val)
             self.helper.bind_tooltip(txt, tooltip)
             self.helper.bind_tooltip(lbl, tooltip)
-
             return txt
 
-        self.txt_header = add_text_area(self.content, "G-Code Header", "gcode_header", height=6,
-                                        tooltip="Her G-code dosyasının BAŞINA eklenen satırlar. "
-                                                "Genellikle birim (G21=mm), düzlem (G18=XZ), mutlak mod (G90) ve iş ofseti (G54) komutları. "
-                                                "Örn: G21 G90 G18 / G54")
-        self.txt_footer = add_text_area(self.content, "G-Code Footer", "gcode_footer", height=4,
-                                        tooltip="Her G-code dosyasının SONUNA eklenen satırlar. "
-                                                "Genellikle mil durdurma (M5) ve program sonu (M30) komutları. "
-                                                "Örn: M5 / M30")
+        # G-code Output Settings
+        f_gcode_out = ttk.LabelFrame(self.content, text=t("frm_gcode_output"))
+        f_gcode_out.pack(fill="x", padx=10, pady=10)
+        add_int_entry(f_gcode_out, "max_spin_rpm", t("lbl_max_rpm"),
+                      "G-code'a yazılacak maksimum mil devri sınırı (G50 S[değer]). Tipik: 1500-3000 RPM.")
+        self.helper.add_spinbox(f_gcode_out, self.app, "gcode_resolution", t("sp_gcode_res"), 0.5, 20.0, 0.5,
+                                "G-code çıktısında ardışık noktalar arası minimum mesafe (mm). "
+                                "Büyük değer = daha az satır, daha küçük dosya. "
+                                "2–5 mm çoğu tezgah için yeterli. PLC limitine (1000 satır) dikkat edin.")
 
-        # --- Working Area (Workspace) ---
-        f_ws = ttk.LabelFrame(self.content, text="Working Area (Workspace)")
+        self.txt_header = add_text_area(self.content, t("lbl_gcode_header"), "gcode_header", height=6,
+                                        tooltip="Her G-code dosyasının BAŞINA eklenen satırlar. "
+                                                "Genellikle G21 G90 G18 G54.")
+        self.txt_footer = add_text_area(self.content, t("lbl_gcode_footer"), "gcode_footer", height=4,
+                                        tooltip="Her G-code dosyasının SONUNA eklenen satırlar. Örn: M5 / M30")
+
+        # Working Area (Workspace)
+        f_ws = ttk.LabelFrame(self.content, text=t("frm_workspace"))
         f_ws.pack(fill="x", padx=10, pady=10)
 
-        tk.Label(f_ws, text="Makinenin fiziksel hareket sınırları (CAM koordinatları)",
+        tk.Label(f_ws, text=t("lbl_workspace_info"),
                  font=("Arial", 8, "italic"), fg="gray").pack(anchor="w", padx=5)
 
         var_ws_show = tk.BooleanVar(value=bool(self.app.params.get("workspace_show", True)))
         def on_ws_show_toggle():
             self.app.on_param_change("workspace_show", var_ws_show.get(), "all")
-        cb_ws = ttk.Checkbutton(f_ws, text="3D Sahnede Göster", variable=var_ws_show, command=on_ws_show_toggle)
+        cb_ws = ttk.Checkbutton(f_ws, text=t("cb_show_in_3d"), variable=var_ws_show, command=on_ws_show_toggle)
         cb_ws.pack(anchor="w", padx=5, pady=3)
         self.helper.bind_tooltip(cb_ws, "Makine çalışma alanını 3D sahnede şeffaf kutu olarak göster/gizle.")
 
@@ -314,40 +323,33 @@ class MachineTab(ScrollableTabBase):
             self.helper.bind_tooltip(e, tooltip)
             self.helper.bind_tooltip(f, tooltip)
 
-        add_ws_entry(f_ws, "workspace_x_min", "Min X / Radius (mm):", default=0.0,
-                     tooltip="Çalışma alanının X başlangıç noktası (mm). "
-                             "Genellikle 0 (mandrel merkezi) veya rulonun en yakın konumu. "
-                             "-X tarafı seçiliyse otomatik olarak yansıtılır.")
-        add_ws_entry(f_ws, "workspace_x_max", "Max X / Radius (mm):", default=300.0,
-                     tooltip="Makinenin X ekseninde ulaşabileceği maksimum yarıçap mesafesi (mm). "
-                             "3D sahnede çalışma alanı kutusunun X sınırını belirler.")
-        add_ws_entry(f_ws, "workspace_z_min", "Min Z (mm):", default=0.0,
-                     tooltip="Makinenin Z ekseninde ulaşabileceği minimum pozisyon (mm, CAM koordinatları). "
-                             "Negatif değer girilirse mandrel gerisine uzanabilir.")
-        add_ws_entry(f_ws, "workspace_z_max", "Max Z (mm):", default=500.0,
-                     tooltip="Makinenin Z ekseninde ulaşabileceği maksimum pozisyon (mm, CAM koordinatları). "
-                             "Rulonun gittiği en ileri Z noktasından büyük olmalı.")
+        add_ws_entry(f_ws, "workspace_x_min", t("lbl_ws_x_min"), default=0.0,
+                     tooltip="Çalışma alanının X başlangıç noktası (mm).")
+        add_ws_entry(f_ws, "workspace_x_max", t("lbl_ws_x_max"), default=300.0,
+                     tooltip="Makinenin X ekseninde ulaşabileceği maksimum yarıçap mesafesi (mm).")
+        add_ws_entry(f_ws, "workspace_z_min", t("lbl_ws_z_min"), default=0.0,
+                     tooltip="Makinenin Z ekseninde ulaşabileceği minimum pozisyon (mm, CAM koordinatları).")
+        add_ws_entry(f_ws, "workspace_z_max", t("lbl_ws_z_max"), default=500.0,
+                     tooltip="Makinenin Z ekseninde ulaşabileceği maksimum pozisyon (mm, CAM koordinatları).")
 
-        # --- Cylinder Section ---
-        f_cyl = ttk.LabelFrame(self.content, text="Cylinder (CMD=40)")
+        # Cylinder Section
+        f_cyl = ttk.LabelFrame(self.content, text=t("frm_cylinder"))
         f_cyl.pack(fill="x", padx=10, pady=10)
 
-        tk.Label(f_cyl, text="Silindir eksen servoların yanında, mandrel ile paralel.\n"
-                              "Program başında, mil çalışmadan önce konuma gider. (M40 P<mm>)",
+        tk.Label(f_cyl, text=t("lbl_cyl_info"),
                  font=("Arial", 8, "italic"), fg="gray", justify="left").pack(anchor="w", padx=5, pady=(2, 4))
 
         var_cyl_enabled = tk.BooleanVar(value=bool(self.app.params.get("cylinder_enabled", True)))
         def on_cyl_enabled_toggle():
             self.app.on_param_change("cylinder_enabled", var_cyl_enabled.get(), "none")
-        cb_cyl_enabled = ttk.Checkbutton(f_cyl, text="Enable (G-code'a M40 yaz)", variable=var_cyl_enabled, command=on_cyl_enabled_toggle)
+        cb_cyl_enabled = ttk.Checkbutton(f_cyl, text=t("cb_cyl_enabled"), variable=var_cyl_enabled, command=on_cyl_enabled_toggle)
         cb_cyl_enabled.pack(anchor="w", padx=5, pady=(0, 2))
-        self.helper.bind_tooltip(cb_cyl_enabled, "İşaretliyken program başında M40 P<mm> komutu G-code'a yazılır. "
-                                                  "İşaretsizken silindir komutu tamamen atlanır.")
+        self.helper.bind_tooltip(cb_cyl_enabled, "İşaretliyken program başında M40 P<mm> komutu G-code'a yazılır.")
 
         var_cyl_show = tk.BooleanVar(value=bool(self.app.params.get("cylinder_show", True)))
         def on_cyl_show_toggle():
             self.app.on_param_change("cylinder_show", var_cyl_show.get(), "all")
-        cb_cyl_show = ttk.Checkbutton(f_cyl, text="3D Sahnede Göster", variable=var_cyl_show, command=on_cyl_show_toggle)
+        cb_cyl_show = ttk.Checkbutton(f_cyl, text=t("cb_show_in_3d"), variable=var_cyl_show, command=on_cyl_show_toggle)
         cb_cyl_show.pack(anchor="w", padx=5, pady=(0, 4))
         self.helper.bind_tooltip(cb_cyl_show, "Silindiri 3D sahnede göster/gizle. G-code/PLC çıktısını etkilemez.")
 
@@ -367,130 +369,106 @@ class MachineTab(ScrollableTabBase):
             self.helper.bind_tooltip(e, tooltip)
             return var
 
-        add_cyl_entry(f_cyl, "cylinder_position_mm", "Position (mm):", 0.0,
-            "Silindirin hedef konumu (mm). PLC'ye Param = round(mm / 10) olarak gönderilir. "
-            "0 = hareket yok (G-code'a yazılmaz). 3D sahnede T-şekli olarak görselleştirilir.")
-        add_cyl_entry(f_cyl, "cylinder_x_pos", "X Position (mm):", 0.0,
-            "Silindirin 3D sahnedeki X koordinatı (radyal konum, mm). "
-            "Mandrel merkezinden ne kadar uzakta olduğunu belirler.")
-        add_cyl_entry(f_cyl, "cylinder_z_base", "Z Base (mm):", 200.0,
-            "Silindirin monte edildiği Z konumu (mm) — gövdenin bağlı olduğu uç. "
-            "Silindir buradan mandrel/rulo yönüne doğru (daha küçük Z'ye) uzar.")
+        add_cyl_entry(f_cyl, "cylinder_position_mm", t("lbl_cyl_pos"), 0.0,
+            "Silindirin hedef konumu (mm). PLC'ye Param = round(mm / 10) olarak gönderilir.")
+        add_cyl_entry(f_cyl, "cylinder_x_pos", t("lbl_cyl_x"), 0.0,
+            "Silindirin 3D sahnedeki X koordinatı (radyal konum, mm).")
+        add_cyl_entry(f_cyl, "cylinder_z_base", t("lbl_cyl_z"), 200.0,
+            "Silindirin monte edildiği Z konumu (mm).")
 
-        # --- PLC Output Mode ---
-        f_plc = ttk.LabelFrame(self.content, text="PLC Output Mode")
+        # PLC Output Mode
+        f_plc = ttk.LabelFrame(self.content, text=t("frm_plc"))
         f_plc.pack(fill="x", padx=10, pady=10)
 
-        tk.Label(
-            f_plc,
-            text=(
-                "PLC modunda G-code her pas için çok daha az nokta içerir.\n"
-                "Nokta-nokta hareket eden PLC kontrolörler için idealdir.\n"
-                "Mandrel'e en yakın kritik temas noktası her zaman korunur.\n"
-                "CNC kontrol için normal G-code üretimini etkilemez."
-            ),
-            font=("Arial", 8, "italic"), fg="gray",
-            wraplength=380, justify="left"
-        ).pack(anchor="w", padx=5, pady=(4, 6))
+        tk.Label(f_plc, text=t("lbl_plc_info"),
+                 font=("Arial", 8, "italic"), fg="gray",
+                 wraplength=380, justify="left").pack(anchor="w", padx=5, pady=(4, 6))
 
-        # Enable checkbox
         f_plc_en = ttk.Frame(f_plc)
         f_plc_en.pack(fill="x", padx=5, pady=2)
         var_plc = tk.BooleanVar(value=bool(self.app.params.get("plc_mode", False)))
 
         def on_plc_toggle():
             self.app.on_param_change("plc_mode", var_plc.get(), "none")
-            # Enable/disable tolerance entry
             state = "normal" if var_plc.get() else "disabled"
             e_tol.config(state=state)
+            e_exit_tol.config(state=state)
 
-        cb_plc = ttk.Checkbutton(
-            f_plc_en,
-            text="Enable PLC Mode (Low-Poly G-Code Output)",
-            variable=var_plc,
-            command=on_plc_toggle
-        )
+        cb_plc = ttk.Checkbutton(f_plc_en, text=t("cb_plc_enable"), variable=var_plc, command=on_plc_toggle)
         cb_plc.pack(anchor="w")
-        self.helper.bind_tooltip(
-            cb_plc,
-            "Etkinleştirildiğinde G-code her pas için Ramer-Douglas-Peucker algoritması "
-            "ile sadeleştirilmiş nokta listesi üretir.\n"
-            "Tüm pasların mandrel'e en yakın noktası (en kritik temas yeri) korunur.\n"
-            "CNC çıktısı (normal G-code kaydetme) bundan etkilenmez — bu sadece "
-            "PLC için 'Save G-Code' çıktısında aktif olur."
-        )
+        self.helper.bind_tooltip(cb_plc,
+            "Etkinleştirildiğinde G-code her pas için RDP algoritması ile sadeleştirilmiş nokta listesi üretir.\n"
+            "CNC çıktısı (normal G-code kaydetme) bundan etkilenmez.")
 
-        # Tolerance entry
         f_tol = ttk.Frame(f_plc)
         f_tol.pack(fill="x", padx=5, pady=2)
-        tk.Label(f_tol, text="Tolerance (mm)", width=18).pack(side="left")
-
+        tk.Label(f_tol, text=t("lbl_plc_tol"), width=18).pack(side="left")
         var_tol = tk.DoubleVar(value=float(self.app.params.get("plc_tolerance", 0.5)))
-
         def on_tol_change():
-            try:
-                self.app.on_param_change("plc_tolerance", var_tol.get(), "none")
-            except Exception:
-                pass
-
+            try: self.app.on_param_change("plc_tolerance", var_tol.get(), "none")
+            except: pass
         tol_state = "normal" if var_plc.get() else "disabled"
         e_tol = ttk.Entry(f_tol, textvariable=var_tol, width=10, state=tol_state)
         e_tol.pack(side="right")
         e_tol.bind("<Return>", lambda ev: on_tol_change())
         e_tol.bind("<FocusOut>", lambda ev: on_tol_change())
         e_tol.bind("<Button-1>", lambda event: event.widget.focus_force())
-        self.helper.bind_tooltip(
-            e_tol,
-            "RDP basitleştirme toleransı (mm). Orijinal yoldan bu mesafeden daha az "
-            "sapan aradaki noktalar kaldırılır.\n"
-            "Küçük değer (ör. 0.2 mm) = daha fazla nokta, daha yüksek doğruluk.\n"
-            "Büyük değer (ör. 2.0 mm) = çok daha az nokta, PLC belleği daha az kullanır.\n"
-            "Tipik öneri: 0.3 – 1.0 mm."
-        )
+        self.helper.bind_tooltip(e_tol, "RDP basitleştirme toleransı (mm). Tipik öneri: 0.3 – 1.0 mm.")
         self.helper.bind_tooltip(f_tol, "RDP toleransı: PLC nokta sayısını ve profil doğruluğunu dengeler.")
 
-        # Info label that shows estimated point reduction live (static hint)
-        tk.Label(
-            f_plc,
-            text="💡 Yol hesaplandıktan sonra G-code kaydet → log'da nokta azaltma oranı görünür.",
-            font=("Arial", 8), fg="#555555"
-        ).pack(anchor="w", padx=5, pady=(2, 6))
+        f_exit_tol = ttk.Frame(f_plc)
+        f_exit_tol.pack(fill="x", padx=5, pady=2)
+        tk.Label(f_exit_tol, text=t("lbl_plc_exit_tol"), width=18).pack(side="left")
+        _exit_tol_default = float(self.app.params.get("plc_exit_tolerance",
+                                  self.app.params.get("plc_tolerance", 0.5)))
+        var_exit_tol = tk.DoubleVar(value=_exit_tol_default)
+        def on_exit_tol_change():
+            try: self.app.on_param_change("plc_exit_tolerance", var_exit_tol.get(), "none")
+            except: pass
+        exit_tol_state = "normal" if var_plc.get() else "disabled"
+        e_exit_tol = ttk.Entry(f_exit_tol, textvariable=var_exit_tol, width=10, state=exit_tol_state)
+        e_exit_tol.pack(side="right")
+        e_exit_tol.bind("<Return>",   lambda ev: on_exit_tol_change())
+        e_exit_tol.bind("<FocusOut>", lambda ev: on_exit_tol_change())
+        e_exit_tol.bind("<Button-1>", lambda event: event.widget.focus_force())
+        self.helper.bind_tooltip(e_exit_tol, "Çıkış eğrisi (T2→P3) için ayrı RDP toleransı.")
 
-        # --- Custom Commands ---
-        f_cc = ttk.LabelFrame(self.content, text="Custom Commands")
+        tk.Label(f_plc, text=t("lbl_plc_hint"), font=("Arial", 8), fg="#555555").pack(anchor="w", padx=5, pady=(2, 6))
+
+        # Custom Commands
+        f_cc = ttk.LabelFrame(self.content, text=t("frm_custom_cmds"))
         f_cc.pack(fill="x", padx=10, pady=10)
 
         tv_cc = ttk.Treeview(f_cc, columns=("trigger", "value", "cmd"), show="headings", height=4)
-        tv_cc.heading("trigger", text="Trigger");  tv_cc.column("trigger", width=70,  anchor="center")
-        tv_cc.heading("value",   text="Value");    tv_cc.column("value",   width=60,  anchor="center")
-        tv_cc.heading("cmd",     text="Command");  tv_cc.column("cmd",     width=180)
+        tv_cc.heading("trigger", text=t("cc_trigger_col")); tv_cc.column("trigger", width=70,  anchor="center")
+        tv_cc.heading("value",   text=t("cc_value_col"));   tv_cc.column("value",   width=60,  anchor="center")
+        tv_cc.heading("cmd",     text=t("cc_command_col")); tv_cc.column("cmd",     width=180)
         tv_cc.pack(fill="x", padx=5, pady=(5, 2))
 
         def refresh_cc_tree():
             for item in tv_cc.get_children():
                 tv_cc.delete(item)
             for entry in self.app.params.get("custom_commands", []):
-                t = "Pass" if entry.get("trigger") == "pass" else "Z"
-                tv_cc.insert("", "end", values=(t, entry.get("value", ""), entry.get("cmd", "")))
+                tri = "Pass" if entry.get("trigger") == "pass" else "Z"
+                tv_cc.insert("", "end", values=(tri, entry.get("value", ""), entry.get("cmd", "")))
 
         refresh_cc_tree()
 
-        # Add form row
         f_add = ttk.Frame(f_cc)
         f_add.pack(fill="x", padx=5, pady=2)
 
-        tk.Label(f_add, text="Trigger:").pack(side="left")
+        tk.Label(f_add, text=t("lbl_trigger")).pack(side="left")
         var_trig = tk.StringVar(value="pass")
         cb_trig = ttk.Combobox(f_add, textvariable=var_trig, values=["pass", "z"], width=5, state="readonly")
         cb_trig.pack(side="left", padx=(2, 6))
 
-        tk.Label(f_add, text="Value:").pack(side="left")
+        tk.Label(f_add, text=t("lbl_value")).pack(side="left")
         var_val = tk.StringVar(value="1")
         e_val = ttk.Entry(f_add, textvariable=var_val, width=7)
         e_val.pack(side="left", padx=(2, 6))
         e_val.bind("<Button-1>", lambda event: event.widget.focus_force())
 
-        tk.Label(f_add, text="Cmd:").pack(side="left")
+        tk.Label(f_add, text=t("lbl_cmd")).pack(side="left")
         var_cmd = tk.StringVar()
         e_cmd = ttk.Entry(f_add, textvariable=var_cmd, width=16)
         e_cmd.pack(side="left", padx=2, fill="x", expand=True)
@@ -523,24 +501,23 @@ class MachineTab(ScrollableTabBase):
 
         f_btns = ttk.Frame(f_cc)
         f_btns.pack(fill="x", padx=5, pady=(0, 5))
-        ttk.Button(f_btns, text="Add",    command=add_cc).pack(side="left", padx=2)
-        ttk.Button(f_btns, text="Delete", command=del_cc).pack(side="left", padx=2)
+        ttk.Button(f_btns, text=t("btn_add"),    command=add_cc).pack(side="left", padx=2)
+        ttk.Button(f_btns, text=t("btn_delete"), command=del_cc).pack(side="left", padx=2)
         self.helper.bind_tooltip(f_cc,
             "Trigger=pass → o global pas numarasının başında komutu ekler (1-indexed).\n"
             "Trigger=z → paso içinde Z o eşiği geçtiği anda komutu ekler.\n"
             "Örn: trigger=pass, value=1, cmd=M41 P1")
 
-        # --- M-Code Descriptions ---
-        f_md = ttk.LabelFrame(self.content, text="M-Code Descriptions")
+        # M-Code Descriptions
+        f_md = ttk.LabelFrame(self.content, text=t("frm_mcode_desc"))
         f_md.pack(fill="x", padx=10, pady=10)
 
-        tk.Label(f_md,
-                 text="Tanımlanan M-code'lar G-code ve SCL çıktısında otomatik yorum olarak eklenir.",
+        tk.Label(f_md, text=t("lbl_mcode_info"),
                  font=("Arial", 8, "italic"), fg="gray").pack(anchor="w", padx=5, pady=(4, 0))
 
         tv_md = ttk.Treeview(f_md, columns=("code", "description"), show="headings", height=4)
-        tv_md.heading("code",        text="M-Code");      tv_md.column("code",        width=80,  anchor="center")
-        tv_md.heading("description", text="Description"); tv_md.column("description", width=230)
+        tv_md.heading("code",        text=t("mc_code_col"));  tv_md.column("code",        width=80,  anchor="center")
+        tv_md.heading("description", text=t("mc_desc_col")); tv_md.column("description", width=230)
         tv_md.pack(fill="x", padx=5, pady=(5, 2))
 
         def refresh_md_tree():
@@ -554,13 +531,13 @@ class MachineTab(ScrollableTabBase):
         f_add_md = ttk.Frame(f_md)
         f_add_md.pack(fill="x", padx=5, pady=2)
 
-        tk.Label(f_add_md, text="M-Code:").pack(side="left")
+        tk.Label(f_add_md, text=t("lbl_mcode_code")).pack(side="left")
         var_mcode = tk.StringVar(value="41")
         e_mcode = ttk.Entry(f_add_md, textvariable=var_mcode, width=6)
         e_mcode.pack(side="left", padx=(2, 6))
         e_mcode.bind("<Button-1>", lambda event: event.widget.focus_force())
 
-        tk.Label(f_add_md, text="Description:").pack(side="left")
+        tk.Label(f_add_md, text=t("lbl_mcode_desc")).pack(side="left")
         var_mdesc = tk.StringVar(value="Clamp On")
         e_mdesc = ttk.Entry(f_add_md, textvariable=var_mdesc, width=22)
         e_mdesc.pack(side="left", padx=2, fill="x", expand=True)
@@ -591,33 +568,37 @@ class MachineTab(ScrollableTabBase):
 
         f_btns_md = ttk.Frame(f_md)
         f_btns_md.pack(fill="x", padx=5, pady=(0, 5))
-        ttk.Button(f_btns_md, text="Add",    command=add_md).pack(side="left", padx=2)
-        ttk.Button(f_btns_md, text="Delete", command=del_md).pack(side="left", padx=2)
+        ttk.Button(f_btns_md, text=t("btn_add"),    command=add_md).pack(side="left", padx=2)
+        ttk.Button(f_btns_md, text=t("btn_delete"), command=del_md).pack(side="left", padx=2)
         self.helper.bind_tooltip(f_md,
             "M-code numarasına açıklama tanımla.\n"
             "G-code çıktısında: M41 P1 (Clamp On)\n"
-            "SCL çıktısında:  // M41 (Clamp On) P1\n"
             "M-Code alanına sadece sayı gir (örn: 41), 'M' ön eki opsiyonel.")
 
+    def _save_machine_profile(self):
+        self.sync_params()
+        profile = getattr(self.app, "active_machine_profile", None)
+        if not profile:
+            messagebox.showwarning(t("btn_save_profile"), "No active machine profile.", parent=self.content)
+            return
+        from machine_loader import MACHINE_PROFILE_KEYS, save_machine_profile
+        for k in MACHINE_PROFILE_KEYS:
+            if k in self.app.params:
+                profile[k] = self.app.params[k]
+        path = profile.get("_path", "")
+        if not path:
+            messagebox.showerror(t("btn_save_profile"), "Profile path not set.", parent=self.content)
+            return
+        save_machine_profile(path, profile)
+        messagebox.showinfo(t("btn_save_profile"), f"Saved:\n{path}", parent=self.content)
+
     def sync_params(self):
-        # Manually sync text widgets to params
         if hasattr(self, 'txt_header'):
             self.app.params["gcode_header"] = self.txt_header.get("1.0", "end-1c")
         if hasattr(self, 'txt_footer'):
             self.app.params["gcode_footer"] = self.txt_footer.get("1.0", "end-1c")
 
-
     def refresh_ui(self):
-        # Refresh all widgets from app.params
-        # NOTE: Since we didn't store widget references in a dict, we have to rely on the closures? NO.
-        # The closures use 'var' which is local.
-        # Actually, standard Tkinter Vars (BooleanVar, etc) are objects.
-        # If we stored them, we could update them.
-        # But we didn't store most of them in 'self'.
-        # Solution: Re-create widgets? Too heavy.
-        # Better: UIHelper should store references or we should have stored them.
-        # Given current structure, simplest way is to destroy and recreate the content.
         for widget in self.content.winfo_children():
             widget.destroy()
         self._create_widgets()
-        # This is fast enough for Tabs.

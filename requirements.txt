@@ -1,5 +1,18 @@
+# SpinningCam runtime dependencies (pip-installable).
+# The app runs in a conda env (see SpinningCam.bat). Install these with pip
+# INTO that env, then install the conda-only package below.
+#
+# Entry point is main_tk.py (Tkinter, stdlib). The old Qt entry point
+# (main_qt.py) is retired, so PySide6 / pyvistaqt are intentionally NOT listed.
+
 pyvista
 numpy
-PySide6
-pyvistaqt
 scipy
+pillow          # PIL — logo/image loading in the UI
+fpdf2           # provides the `fpdf` import — PDF export
+pydantic        # settings/config schema validation
+cryptography    # Ed25519 license signing/verification
+
+# Conda-only — NOT installable via pip. Install with:
+#   conda install -c conda-forge pythonocc-core
+# Provides the `OCC` package (STEP import, geometry/meshing).

@@ -20,6 +20,13 @@ def setup_logger(name="SpinningCam"):
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s', datefmt='%H:%M:%S')
 
     # 1. Console Handler
+    # Turkish Windows consoles are cp1254 and cannot encode θ/→/° used in the
+    # PARAM_DEBUG messages; without 'replace' every such log line dumps a full
+    # UnicodeEncodeError traceback to stderr (dozens per path calculation).
+    try:
+        sys.stdout.reconfigure(errors="replace")
+    except Exception:
+        pass
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(logging.INFO) # Console sees INFO and above
     console_handler.setFormatter(formatter)

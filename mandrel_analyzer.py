@@ -112,27 +112,60 @@ class MandrelManager:
             self.props["br"] = self.get_radius_fast(fz_min + 0.1)
             self.props["tr"] = self.get_radius_fast(fz_max - 0.1)
 
+    # Fine-scan angles: 72 rays, 5° step → chord error R*(1-cos(2.5°)) ≈ 0.001*R ≈ 0.06mm at R=60.
+    _SCAN_ANGLES = np.linspace(0, 2 * math.pi, 72, endpoint=False)
+    # Coarse-scan angles: 18 rays, 20° step → chord error R*(1-cos(10°)) ≈ 0.015*R ≈ 0.9mm at R=60.
+    # Used for Pass 1; Pass 2 refines any Z slice whose coarse R is suspiciously below its neighbors.
+    _COARSE_ANGLES = np.linspace(0, 2 * math.pi, 18, endpoint=False)
+
     def _cache_mandrel_profile(self, z_min, z_max, center_x):
         resolution = self.scan_resolution
         steps = int((z_max - z_min) / resolution) + 2
         z_values = np.linspace(z_min, z_max, steps)
-        
-        r_values = []
+
+        r_values = np.zeros(len(z_values))
         if self.pv_mesh:
-            for z in z_values:
-                p1 = [center_x, 0, z]
-                p2 = [center_x + 10000.0, 0, z] 
-                points, ind = self.pv_mesh.ray_trace(p1, p2)
-                if len(points) > 0:
-                    dists = np.linalg.norm(points - np.array(p1), axis=1)
-                    r_values.append(np.max(dists))
-                else:
-                    r_values.append(0.0)
+            # Pass 1: coarse 18-ray scan — fast, acceptable for smooth regions
+            for iz, z in enumerate(z_values):
+                p1 = np.array([center_x, 0.0, z])
+                best_r = 0.0
+                for angle in self._COARSE_ANGLES:
+                    dx, dy = math.cos(angle), math.sin(angle)
+                    points, _ = self.pv_mesh.ray_trace(p1.tolist(), [center_x + 10000.0 * dx, 10000.0 * dy, z])
+                    if len(points) > 0:
+                        dists = np.linalg.norm(points - p1, axis=1)
+                        best_r = max(best_r, float(np.max(dists)))
+                r_values[iz] = best_r
+
+            # Pass 2: 72-ray refinement at Z slices where the coarse scan likely under-estimated.
+            # A Z slice below its local context max by > 0.4 mm indicates either a real surface
+            # feature (step/edge) or chord error from the coarse angular spacing — both benefit
+            # from denser ray coverage.
+            ctx_w = 4
+            r_ctx = np.array([
+                r_values[max(0, i - ctx_w): min(len(r_values), i + ctx_w + 1)].max()
+                for i in range(len(r_values))
+            ])
+            refine_mask = (r_ctx - r_values) > 0.4
+            n_refine = int(refine_mask.sum())
+            if n_refine > 0:
+                logger.debug(f"MandrelScan: refining {n_refine}/{len(z_values)} Z slices with 72-ray scan")
+                for idx in np.where(refine_mask)[0]:
+                    z = z_values[idx]
+                    p1 = np.array([center_x, 0.0, z])
+                    best_r = 0.0
+                    for angle in self._SCAN_ANGLES:
+                        dx, dy = math.cos(angle), math.sin(angle)
+                        points, _ = self.pv_mesh.ray_trace(p1.tolist(), [center_x + 10000.0 * dx, 10000.0 * dy, z])
+                        if len(points) > 0:
+                            dists = np.linalg.norm(points - p1, axis=1)
+                            best_r = max(best_r, float(np.max(dists)))
+                    r_values[idx] = best_r
         else:
-             r_values = [60.0] * len(z_values) 
+            r_values[:] = 60.0
 
         self.profile_z = z_values
-        self.profile_r = np.array(r_values)
+        self.profile_r = r_values
 
     def generate_shell_mesh(self, thickness: float, center_x: float) -> Optional[pv.StructuredGrid]:
         if self.profile_z is None or len(self.profile_z) < 2: return None
@@ -188,6 +221,33 @@ class MandrelManager:
         # 3. KALIP ÜZERİNDE (Normal)
         else:
             return float(np.interp(z_level, self.profile_z, self.profile_r))
+
+    def get_flat_start_z(self, slope_threshold: float = 0.08, min_consecutive: int = 6) -> Optional[float]:
+        """
+        Scans the mandrel profile from the bottom upward and returns the Z coordinate
+        where the surface transitions from the edge radius into a flat/straight section
+        (i.e. where dr/dz stays below slope_threshold for min_consecutive samples).
+        Returns None if no such transition is detected (e.g. purely conical mandrel).
+        """
+        if len(self.profile_z) < min_consecutive + 2:
+            return None
+
+        dz = np.diff(self.profile_z)
+        dr = np.diff(self.profile_r)
+        dz_safe = np.where(np.abs(dz) < 1e-9, 1e-9, dz)
+        slope = np.abs(dr / dz_safe)
+
+        count = 0
+        for i in range(len(slope)):
+            if slope[i] < slope_threshold:
+                count += 1
+                if count >= min_consecutive:
+                    start_i = i - min_consecutive + 1
+                    return float(self.profile_z[start_i])
+            else:
+                count = 0
+
+        return None  # No flat section detected
 
     def get_normal_at_z(self, z_level: float) -> tuple[float, float]:
         """

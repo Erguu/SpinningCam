@@ -213,7 +213,7 @@ class TestPathGeneratorEdgeCases(unittest.TestCase):
             "shell_thickness": 0.0,
             "roller_visual_radius": 25.0,
             "target_clearance": 0.5,
-            "adaptive_finish_mode": False,
+            "finish_trace_mandrel_profile": False,
         }
         
         paths, projs, cps, devs, rapids, lines = self.pg.calculate_paths(params, {}, self.mgr)

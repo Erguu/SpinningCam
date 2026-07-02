@@ -1,23 +1,62 @@
 [
     {
         "id": "T0101",
-        "name": "Standard Rough",
-        "radius": 10.0,
+        "name": "Rough",
+        "radius": 73.79,
         "type": "roller",
-        "color": "red"
+        "color": "red",
+        "r_tool": 73.79,
+        "step_file": "C:/Users/PC/Documents/CAD_Files/meksika/Spinning tool 1.STEP",
+        "shaft_axis": "Z",
+        "tip_offset": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "step_rotation": [
+            0.0,
+            45.0,
+            0.0
+        ]
     },
     {
-        "id": "T0202",
-        "name": "Standard Finish",
-        "radius": 25.0,
+        "id": "T0102",
+        "name": "Bend",
+        "radius": 77.53,
         "type": "roller",
-        "color": "gold"
+        "color": "gold",
+        "r_tool": 77.53,
+        "step_file": "C:/Users/PC/Documents/CAD_Files/meksika/Spinning tool 3.STEP",
+        "shaft_axis": "Z",
+        "tip_offset": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "step_rotation": [
+            0.0,
+            45.0,
+            0.0
+        ]
     },
     {
-        "id": "T0303",
-        "name": "Small Detail",
-        "radius": 5.0,
+        "id": "T0103",
+        "name": "Finish",
+        "radius": 74.31,
         "type": "roller",
-        "color": "blue"
+        "color": "blue",
+        "r_tool": 79.5,
+        "step_file": "C:/Users/PC/Documents/CAD_Files/meksika/Spinning tool 2.STEP",
+        "shaft_axis": "Z",
+        "tip_offset": [
+            0.0,
+            0.0,
+            0.0
+        ],
+        "step_rotation": [
+            0.0,
+            45.0,
+            0.0
+        ]
     }
 ]

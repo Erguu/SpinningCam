@@ -19,6 +19,7 @@ SpinningCamWindow (ui/main_window.py)   ← Tkinter penceresi, menü, export
 
 GCodeToSCLConverter (recipe_to_scl.py)  ← G-code → SCL dönüşümü
 ExportManager (export_manager.py)        ← PDF / STL / SCL export koordinasyonu
+i18n.py                                  ← Çok dilli metin (EN/TR/ES), t(key) fonksiyonu
 ```
 
 ---
@@ -42,6 +43,13 @@ ExportManager (export_manager.py)        ← PDF / STL / SCL export koordinasyon
 | Sweeping/ironing pas | `path_generator.py` | `_create_sweeping_pass()` satır 873 |
 | Rapid segment güvenli yol | `path_generator.py` | `_safe_rapid_segments()` satır 737 |
 | Legacy → ops dict migration | `path_generator.py` | `_ensure_ops_dict()` satır 13 |
+
+> **ÖNEMLİ — Offset yönü tutarsızlığı (2026-06-24 düzeltmesi)**
+> `total_off = r_tool + blank_thick + safety + allowance` tüm pas türleri için aynı formüldür.
+> Farkı: roughing P2 ve **straight-line finishing** bu değeri **radyal** uygular (`+total_off` sadece X'e).
+> **Sweeping finishing** ise yüzey normali yönüne uygular (`nx*total_off`, `nz*total_off`).
+> Roughing ile karşılaştırmalarda daima straight-line mi sweeping mi olduğuna bak.
+> Bkz. LAST_CHANGES.md → 2026-06-24 girişi.
 
 ### 3. G-code üretimi
 | Ne | Dosya | Satır/Fonksiyon |
@@ -144,9 +152,99 @@ ExportManager (export_manager.py)        ← PDF / STL / SCL export koordinasyon
 | Ne | Dosya | Satır/Fonksiyon |
 |----|-------|-----------------|
 | Yükleme/kayıt | `ui/main_window.py` | `load_tools()` / `save_tools()` satır 363 |
-| Takım veri dosyası | `tools.json` | — |
-| Tool manager dialog | `ui/dialogs/tool_manager.py` | — |
-| Program tab'de tool seçimi | `ui/tabs/program_tab.py` | satır 163–187 |
+| Takım veri dosyası | `tools.json` | iki ayrı alan — bkz. aşağıdaki tablo |
+| Tool manager dialog | `ui/dialogs/tool_manager.py` | `entry_r_tool` widget satır ~49 |
+| Program tab'de tool seçimi | `ui/tabs/program_tab.py` | `on_tool_change` satır ~559, ~618 |
+| STEP'ten disk yarıçapı hesabı | `tool_step_loader.py` | `get_contact_radius()` satır 162 |
+| STEP canonical mesh (3D sim) | `tool_step_loader.py` | `get_canonical_mesh()` |
+| STEP 2D profil (kalibrasyon canvas) | `tool_step_loader.py` | `get_2d_profile()` |
+| 2D profil: Rx(-alpha) neden? | `LAST_CHANGES.md` | 2026-06-20 bloğu |
+| r_tool semantics düzeltmesi | `LAST_CHANGES.md` | 2026-06-22 bloğu |
+
+**`tools.json` alanları — kritik ayrım:**
+
+| Alan | Örnek (T0103) | Kullanım | Kaynak |
+|------|--------------|----------|--------|
+| `radius` | 74.31 (≈çap/2) | Fallback; T0101/T0102 r_tool null ise operasyon r_tool'una yazar | `get_contact_radius()` / 2 (2026-06-22'den beri düzeltildi) |
+| `r_tool` | 79.5 | **Path gen + kalibrasyon için esas değer.** Operasyon dropdown'ından seçim yapılınca buradan okunur | Manuel kalibrasyon |
+
+**Kural:** `on_tool_change` önce `tools.json["r_tool"]` okur (kalibre); null ise `tools.json["radius"]`'e düşer.
+`operations[i].r_tool` = path generator'ın kullandığı efektif mesafe (makine X ref → temas noktası).
+
+### 16. Touch Point Calibration Dialog
+| Ne | Dosya | Satır/Fonksiyon |
+|----|-------|-----------------|
+| Diyalog sınıfı | `ui/dialogs/touch_calibration.py` | `TouchCalibrationDialog` |
+| UI oluşturma | `touch_calibration.py` | `_create_widgets()` satır ~100 |
+| X delta hesabı | `touch_calibration.py` | `_compute_x_delta()` satır 493 |
+| Z delta hesabı | `touch_calibration.py` | `_compute_z_delta()` satır 522 |
+| Calculate butonu | `touch_calibration.py` | `_calculate()` satır 951 |
+| Apply butonları (5 adet) | `touch_calibration.py` | `_apply_home_x/z`, `_apply_cx` vb. |
+| 2D canvas çizimi | `touch_calibration.py` | `_draw_scene()` satır ~1227 |
+| STEP 2D profil noktaları | `touch_calibration.py` | `_get_tool_profile_pts()` satır ~1207 |
+| Profil polygon çizimi | `touch_calibration.py` | `_profile_flat()` helper, satır ~1497 |
+| Tutarlılık kontrolü | `touch_calibration.py` | `_check_consistency()` satır 1175 |
+| Formül referans popup | `touch_calibration.py` | `_show_formula_reference()` |
+| Makine parametreleri | `touch_calibration.py` | `_machine_params()` |
+| CAM↔Machine dönüşümü | `touch_calibration.py` | `_cam_to_mach_x/z`, `_mach_to_cam_x/z` |
+
+**Koordinat matematiği özeti:**
+```
+cam_x_contact = cx_man + side × (mandrel_R + blank + r_tool)
+expected_mach_x = cam_x_contact × dir_x + offset_x   (home veya origin moduna göre)
+delta = actual_DRO_X - expected_mach_x
+new_home_x = home_x - delta / dir_x
+```
+`r_tool` (79.5mm T0103) = makine X referansından rulosu temas noktasına radyal mesafe.
+Disc dış yarıçapı (148.62mm) ile AYNI DEĞİLDİR.
+
+### 17. Uluslararasılaştırma (i18n) — 2026-06-21
+
+| Ne | Dosya | Satır/Fonksiyon |
+|----|-------|-----------------|
+| String sözlüğü + `t(key)` fonksiyonu | `i18n.py` | `STRINGS` dict, `t()`, `set_language()`, `get_language()` |
+| Dil değiştirme, menü, rebuild tetikleyici | `ui/main_window.py` | `_change_language()`, `rebuild_all_tabs()`, `_create_menu()` |
+| Dil kalıcılığı | `settings.json` | `"language"` alanı |
+| ProcessTab rebuild | `ui/tabs/process_tab.py` | `rebuild()` |
+| MachineTab rebuild | `ui/tabs/machine_tab.py` | `refresh_ui()` (zaten vardı) |
+| ProgramTab rebuild + `t` çakışma düzeltmesi | `ui/tabs/program_tab.py` | `rebuild()`, tüm `t` → `tl` döngü değişkenleri |
+| ToolManager dialog çevirisi | `ui/dialogs/tool_manager.py` | Tüm `t()` çağrıları |
+
+**Yeni string ekleme kuralı:**
+Her yeni UI string için `i18n.py`'deki `STRINGS` sözlüğüne EN / TR / ES üç karşılık birden eklenmelidir.
+
+**Dil değişim akışı:**
+```
+Language menüsü → _change_language(lang)
+  → set_language(lang)          # i18n._lang güncellenir
+  → params["language"] = lang
+  → save_settings_json()        # settings.json'a yazılır
+  → _create_menu()              # menü radio button güncellenir
+  → rebuild_all_tabs()          # tüm tab'ler widget'larını yeniden oluşturur
+```
+
+### 15. PLC mod decimation
+| Ne | Dosya | Satır/Fonksiyon |
+|----|-------|-----------------|
+| Ana decimation fonksiyonu | `path_generator.py` | `_decimate_path_for_plc()` ~1518 |
+| RDP yardımcısı | `path_generator.py` | `_rdp_decimate()` ~1481 |
+| PLC modu etkinleştirme | `generate_gcode()` | satır ~1098 |
+| Yaklaşım kolu ayrımı (2026-06-17) | `path_generator.py` | `approach_end_idx` parametresi ~1518 |
+
+**Parametreler (`_decimate_path_for_plc`):**
+| Parametre | Kaynak | Açıklama |
+|-----------|--------|----------|
+| `approach_end_idx` | `last_render_split_idx[i][0]` (T1) | Yaklaşım kolunu RDP'den ayırır; 2 pt korunur |
+| `arc_end_idx` | `last_render_split_idx[i][1]` (T2) | Fileto ile exit eğrisini ayırır; exit kendi T2→P3 kirişini alır |
+| `exit_tolerance` | `params["plc_exit_tolerance"]` | Exit bölümü için bağımsız RDP toleransı |
+
+**Exit yolu şekli (`path_generator.py` ~814):**
+| Parametre | Açıklama |
+|-----------|----------|
+| `exit_arc_angle` (°) | T2→P3 dairesel yayı için tanjant-kiriş açısı. 0=düz. Pozitif=dışa (X artar), negatif=içe. R=chord/(2·sin α). `exit_bow` ve `exit_curve_tension` kaldırıldı. |
+
+Spline / geri pas: tüm parametreler `None` → orijinal critical-split davranışı.
+Bkz. `LAST_CHANGES.md` 2026-06-17 (üç ayrı entry).
 
 ---
 
@@ -179,4 +277,51 @@ export_scl_action() [main_window.py:502]
 
 ---
 
+## Parametre Davranış Rehberi
+
+### Hangi parametre ne zaman etkili olur?
+
+| Parametre | UI Adı | Roughing Spline | Roughing Linear | Finishing |
+|---|---|---|---|---|
+| `pass_angle` | Pass Angle (deg) | ✅ P3 yönünü değiştirir | ✅ | ❌ |
+| `rot` | Rotation (deg) | ✅ Spline'ı P2 etrafında döndürür | ❌ sessizce yoksayılır | ❌ |
+| `auto_calc_angle` | Auto-Calc Angle | ✅ Rotasyonu yüzey normalinden hesaplar | ❌ sessizce yoksayılır | ❌ |
+| `normal_aligned_shift` | Normal-Aligned Correction | ✅ Clearance düzeltmesini normal yönünde yapar | ✅ | ❌ |
+| `adaptive_rough_mode` / `conformal_clearance` | Conformal Path - Rough / Conformal Clr | ✅ P2'yi yüzey normali yönünde yerleştirir | ✅ | ❌ |
+| `adaptive_finish_mode` | Conformal Path - Finish | ❌ | ❌ | ✅ per-point normal offset |
+
+**Neden Rotation / Auto-Calc Angle linear'da çalışmıyor?**
+`_create_and_store_pass()` line 851: `if pass_shape in ("linear_approach", "linear_full"): final_rot = 0.0` — unconditional. Linear şekillerde yön pass_angle ile kontrol edilir, rotation kilitlidir.
+
+**Neden Normal-Aligned Correction finishing'de çalışmıyor?**
+Finishing pasları `_create_and_store_pass()`'dan geçmez (`_create_sweeping_pass` veya `_create_adaptive_pass` kullanır). `normal_aligned_shift` sadece `_create_and_store_pass` içindedir.
+
+### Hedefe Göre Doğru Parametre
+
+| Hedef | Yanlış Parametre | Doğru Parametre |
+|---|---|---|
+| Pası mandrel yüzeyine daha dik yaklaştır | Pass Angle | **Rotation (Rot)** veya **Auto-Calc Angle** (spline) |
+| P3 çıkış yönünü değiştir | Rotation | **Pass Angle** |
+| Konik mandrel'de clearance'ı doğru tut | Sadece radyal offset | **Conformal Clr** (roughing) / **Conformal Path - Finish** |
+| Clearance düzeltmesinde şekli koru | Uniform shift (varsayılan) | **Normal-Aligned Correction** |
+
+### PARAM_DEBUG Log Çıktısı
+
+`spinning_cam.log` dosyasında `[PARAM_DEBUG]` ile arama yapın. Her pas için:
+```
+[PARAM_DEBUG] 'roughing 1' (global pass 1): pass_angle=120.0° | θ_A=-51.3° θ_B=68.7° | P3 offset → X=+16.28mm Z=+41.69mm
+[PARAM_DEBUG] 'Roughing 1' control pts: P1=(148.50, Z=10.00)  P2=(120.00, Z=60.00)  P3=(136.28, Z=101.69)
+[PARAM_DEBUG] 'Roughing 1' rotation: auto_align ON | surface_angle=0.0° base_rot=0.0° | raw=0.0° → final=0.0°
+[PARAM_DEBUG] 'Roughing 1' clearance iter 1: min_clearance=-2.145mm → shifting P2 X: 120.00 → 122.65
+[PARAM_DEBUG] 'Roughing 1' RESULT: 87 pts | P2 X: 120.00 → 122.65 (shift +2.65mm) | rotation=0.00°
+```
+
+### Bilinen Sorunlar / Dead Code
+
+- `auto_align_rotation` (`path_generator.py` line 76): okunuyor ama line 208'de `auto_calc_angle` tarafından üzerine yazılıyor — hiçbir zaman kullanılmıyor.
+- `back_pass_arc_x/z`: spline pasları için **2026-06-17'de düzeltildi** (artık çalışıyor).
+
+---
+
 *Oluşturulma: 2026-05-03 — Kaynak: tüm .py dosyaları okunarak çıkarıldı*
+*Son güncelleme: 2026-06-21 — i18n sistemi (Bölüm 17), mimari şemasına i18n.py eklendi*

@@ -1,4 +1,10 @@
-# PLC Recipe Format Specification v2.0
+> **DEPRECATED** — Bu dosya güncel değildir ve kaldırılacaktır.
+> Güncel ve doğru kaynak: **[CAM_INTERFACE_SPEC.md](CAM_INTERFACE_SPEC.md)**
+> Bilinen hatalar: negatif Z örnekleri, yanlış X/Z limitleri, yanlış feedrate limiti, Header.Name → Header.sName olmalı.
+
+---
+
+# PLC Recipe Format Specification v2.0 (DEPRECATED)
 ## For SpinningCam → S7-1200 PLC Integration
 
 ---

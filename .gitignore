@@ -1,0 +1,23 @@
+# EMS license signing — NEVER commit the private key or generated licenses
+license_private_key.pem
+*.pem
+*.lic
+
+# Python
+__pycache__/
+*.pyc
+
+# Build artifacts
+build/
+dist/
+Build_exe_output.txt
+
+# Logs & dev scratch (local only)
+*.log
+backup/
+images/
+crash_output.txt
+latestchanges.txt
+
+# Claude Code local settings
+.claude/settings.local.json

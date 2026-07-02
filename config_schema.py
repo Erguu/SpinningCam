@@ -29,6 +29,7 @@ class OperationSchema(BaseModel):
     p3_z: Optional[float] = None
     rot: Optional[float] = None
     step: Optional[float] = None
+    clearance: Optional[float] = None  # unified roller-to-blank gap (mm)
     zones: Optional[List[dict]] = None
 
 
@@ -53,6 +54,8 @@ class SettingsSchema(BaseModel):
     blank_radius: Optional[float] = Field(default=500.0, ge=0)
     shell_thickness: Optional[float] = Field(default=0.0, ge=0)
     final_part_thickness_on_mandrel: Optional[float] = Field(default=2.0, ge=0)
+    min_safety_gap: Optional[float] = Field(default=0.0, ge=0)  # one-way collision floor
+    target_clearance: Optional[float] = None  # legacy (pre-unification); migrated to min_safety_gap
     
     # Mandrel
     mandrel_rot_x: Optional[float] = None
@@ -63,8 +66,6 @@ class SettingsSchema(BaseModel):
     
     # Roller
     roller_visual_radius: Optional[float] = Field(default=25.0, ge=0)
-    roller_visual_x_offset: Optional[float] = None
-    roller_visual_z_offset: Optional[float] = None
     
     # Machine
     machine_gcode_offset_x: Optional[float] = None
@@ -78,11 +79,6 @@ class SettingsSchema(BaseModel):
     gcode_header: Optional[str] = None
     gcode_footer: Optional[str] = None
     
-    # Tool Change
-    tool_change_active: Optional[Any] = None  # Can be bool or float (legacy)
-    rough_tool_number: Optional[str] = None
-    finish_tool_number: Optional[str] = None
-    
     # Operations list
     operations: Optional[List[OperationSchema]] = None
     
@@ -92,6 +88,80 @@ class SettingsSchema(BaseModel):
     
     class Config:
         extra = "allow"  # Allow unknown fields for forward compatibility
+
+
+class MachineProfileSchema(BaseModel):
+    """Schema for machine profile files in machines/*.json."""
+    machine_id: str
+    machine_name: str
+    machine_origin_x: Optional[float] = None
+    machine_origin_z: Optional[float] = None
+    machine_invert_x: Optional[Any] = None
+    machine_invert_z: Optional[Any] = None
+    machine_gcode_offset_x: Optional[float] = None
+    machine_gcode_offset_z: Optional[float] = None
+    output_mode: Optional[str] = None
+    origin_use_home: Optional[Any] = None
+    home_x: Optional[float] = None
+    home_z: Optional[float] = None
+    retract_x: Optional[float] = None
+    retract_z: Optional[float] = None
+    roller_positive_x_side: Optional[Any] = None
+    workspace_show: Optional[Any] = None
+    workspace_x_min: Optional[float] = None
+    workspace_x_max: Optional[float] = None
+    workspace_z_min: Optional[float] = None
+    workspace_z_max: Optional[float] = None
+    cylinder_enabled: Optional[Any] = None
+    cylinder_show: Optional[Any] = None
+    cylinder_position_mm: Optional[float] = None
+    cylinder_x_pos: Optional[float] = None
+    cylinder_z_base: Optional[float] = None
+    plc_mode: Optional[Any] = None
+    plc_tolerance: Optional[float] = None
+    plc_exit_tolerance: Optional[float] = None
+    gcode_resolution: Optional[float] = None
+    gcode_header: Optional[str] = None
+    gcode_footer: Optional[str] = None
+    max_spin_rpm: Optional[float] = None
+    custom_commands: Optional[List[dict]] = None
+    mcode_descriptions: Optional[dict] = None
+    calibration_view: Optional[dict] = None
+
+    class Config:
+        extra = "allow"
+
+
+def validate_machine_profile(data: dict) -> tuple[bool, str]:
+    try:
+        MachineProfileSchema(**data)
+        return True, "Machine profile validated successfully."
+    except Exception as e:
+        return False, f"Machine profile validation error: {str(e)}"
+
+
+def migrate_clearance(params: dict) -> dict:
+    """Upgrade a pre-unification recipe to the unified `clearance` model, in place.
+
+    Before unification the roller-to-blank gap came from different knobs per pass type:
+      - roughing  : target_clearance (its correction loop forced the contact there)
+      - finishing : finish_allowance + safety_clearance_roller_to_part
+    Now every operation carries one `clearance`, and `min_safety_gap` is the one-way
+    collision floor (formerly target_clearance). Idempotent — only fills missing keys.
+    """
+    if not isinstance(params, dict):
+        return params
+    if "min_safety_gap" not in params:
+        params["min_safety_gap"] = float(params.get("target_clearance") or 0.0)
+    safety = float(params.get("safety_clearance_roller_to_part") or 0.0)
+    target = float(params.get("target_clearance") or 0.0)
+    for op in (params.get("operations") or []):
+        if isinstance(op, dict) and "clearance" not in op:
+            if op.get("type") == "finishing":
+                op["clearance"] = float(op.get("finish_allowance") or 0.0) + safety
+            else:
+                op["clearance"] = target
+    return params
 
 
 def validate_settings(data: dict) -> tuple[bool, str]:
