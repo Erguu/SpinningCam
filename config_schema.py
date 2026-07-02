@@ -95,6 +95,12 @@ class MachineProfileSchema(BaseModel):
     machine_id: str
     machine_name: str
     kinematics: Optional[str] = None  # "xz" (default) | "tilt_arm" (ID112)
+    tilt_pivot_x: Optional[float] = None   # tilt-arm machines only (kinematics.py)
+    tilt_pivot_z: Optional[float] = None
+    tilt_b_min: Optional[float] = None
+    tilt_b_max: Optional[float] = None
+    tilt_b_home: Optional[float] = None
+    tilt_b_sign: Optional[float] = None
     machine_origin_x: Optional[float] = None
     machine_origin_z: Optional[float] = None
     machine_invert_x: Optional[Any] = None

@@ -41,9 +41,10 @@ class HotTiltArmSpinningAdapter(StandardTwoAxisSpinningAdapter):
 
     def get_ui_sections(self):
         # No Siemens-SCL-specific sections (plc / custom M-codes / M-code table).
+        # "tilt_arm" = B-axis geometry section (only meaningful for this type).
         return [
             "coords", "output_mode", "offsets", "home", "touch",
-            "gcode_out", "workspace", "cylinder",
+            "gcode_out", "workspace", "cylinder", "tilt_arm",
         ]
 
     def get_export_formats(self):

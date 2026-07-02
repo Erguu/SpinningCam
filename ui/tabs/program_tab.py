@@ -93,6 +93,16 @@ class ProgramTab:
 
         pass_types = self._get_pass_type_list()
 
+        # Tilt-arm (ID112): per-pass B start/end reference for the operator.
+        tilt_arrays = getattr(self.app.path_gen, "last_tilt_angles", None)
+        _tilt_kin = None
+        if tilt_arrays is not None:
+            try:
+                from kinematics import get_kinematics
+                _tilt_kin = get_kinematics(self.app.params)
+            except Exception:
+                pass
+
         txt.config(state="normal")
         txt.delete("1.0", "end")
 
@@ -186,6 +196,14 @@ class ProgramTab:
                 txt.insert("end", f"  End     →  X: {e_xm:>8.3f}   Z: {e_zm:>8.3f}\n", "data")
                 txt.insert("end", f"  Contact →  ctr X: {c_xm:>8.3f}   tip X: {tip_xm:>8.3f}"
                                    f"   Z: {c_zm:>8.3f}   (Δ: {crit_x_dist:.3f} mm)\n", "contact")
+
+                # B-axis start→end (tilt-arm machines) — operator pre-run reference
+                if tilt_arrays is not None and i < len(tilt_arrays):
+                    _ta = tilt_arrays[i]
+                    if _ta is not None and len(_ta) > 0:
+                        _b0 = _tilt_kin.tilt_to_b(float(_ta[0]))  if _tilt_kin else float(_ta[0])
+                        _b1 = _tilt_kin.tilt_to_b(float(_ta[-1])) if _tilt_kin else float(_ta[-1])
+                        txt.insert("end", f"  Tilt    →  B: {_b0:>7.2f}°  →  {_b1:>7.2f}°\n", "data")
             txt.insert("end", "\n")
 
         txt.config(state="disabled")
@@ -744,6 +762,48 @@ class ProgramTab:
             "Ters (Reverse): kesim yönü tersine çevrilir (uç→kök).\n"
             "Çok paslı işlemde sadece her pasın kesim yönü değişir; "
             "pasların oluşturulma sırası aynı kalır.")
+
+        # Tilt (B axis) — tilt-arm machines only (ID112). Per-op tilt source:
+        # normal = follow surface normal (+offset), interp = linear start→end.
+        _adapter = getattr(self.app, "active_adapter", None)
+        if _adapter is not None and _adapter.get_kinematics() == "tilt_arm":
+            f_tm = ttk.Frame(self.f_prop_editor)
+            f_tm.pack(fill="x", padx=10, pady=2)
+            ttk.Label(f_tm, text=t("lbl_tilt_mode"), width=15).pack(side="left")
+            _tm_map = {t("opt_tilt_normal"): "normal", t("opt_tilt_interp"): "interp"}
+            _tm_rev = {v: k for k, v in _tm_map.items()}
+            _tm_var = tk.StringVar(value=_tm_rev.get(op.get("tilt_mode", "normal"),
+                                                     t("opt_tilt_normal")))
+            cb_tm = ttk.Combobox(f_tm, values=list(_tm_map.keys()), textvariable=_tm_var,
+                                 state="readonly", width=16)
+            cb_tm.pack(side="right", fill="x", expand=True)
+            def _on_tm(event=None, _i=idx, _v=_tm_var, _m=_tm_map):
+                self.app.params["operations"][_i]["tilt_mode"] = _m.get(_v.get(), "normal")
+                if self.app.params.get("calc_active", False):
+                    self.app.update_scene("paths")
+                # Re-render so mode-specific fields (offset vs start/end) swap.
+                self.on_op_select(None, _flush=False)
+            cb_tm.bind("<<ComboboxSelected>>", _on_tm)
+            self.helper.bind_tooltip(cb_tm,
+                "Rulo eğim (B ekseni) kaynağı.\n"
+                "Yüzey Normali: eğim her noktada mandrel yüzey normalini izler; "
+                "Eğim Ofseti ile öne/arkaya yatırılabilir.\n"
+                "Başlangıç→Bitiş: operatör başlangıç ve bitiş açısını girer, "
+                "pas boyunca doğrusal geçiş yapılır.")
+            if op.get("tilt_mode", "normal") == "interp":
+                self._add_prop_entry(idx, "tilt_start", t("lbl_tilt_start"), op, is_float=True,
+                                     tooltip="Pas başlangıcındaki eğim açısı (°). "
+                                             "0° = radyal kızak (makine #1 ile aynı duruş), "
+                                             "pozitif değer takımı +Z yönüne eğer.")
+                self._add_prop_entry(idx, "tilt_end", t("lbl_tilt_end"), op, is_float=True,
+                                     tooltip="Pas bitişindeki eğim açısı (°). "
+                                             "Pas boyunca başlangıçtan bitişe doğrusal geçilir. "
+                                             "Geri (back) paslarda uçlar otomatik ters çevrilir.")
+            else:
+                self._add_prop_entry(idx, "tilt_offset", t("lbl_tilt_offset"), op, is_float=True,
+                                     tooltip="Yüzey normaline eklenen sabit açı (°). "
+                                             "Pozitif = takım ilerleme yönünde öne yatar (lead), "
+                                             "negatif = geriye yatar (lag). B limitlerine kırpılır.")
 
         # Zone range: Start Z to End Z  (with flat-section hint)
         try:

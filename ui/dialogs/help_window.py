@@ -153,6 +153,13 @@ Tip distance     The real-time gap between roller tip and mandrel
                  at the current roller position. Use this to verify
                  calibration looks sensible before running.
 
+Velocity Colors  Draws a faded translucent red band around the
+                 mandrel marking the contact zone — where the roller
+                 slows to its contact feed. Path segments inside the
+                 band run slow; segments outside run fast. It follows
+                 the mandrel profile and does not alter the toolpaths.
+                 Only appears for operations with a contact zone set.
+
 
 TIP
 ════════════════════════════════════════════════════════════════
@@ -210,6 +217,14 @@ Uç mesafesi        Mevcut rulo konumunda rulo ucu ile mandrel
                    arasındaki anlık boşluk. Çalıştırmadan önce
                    kalibrasyonun mantıklı göründüğünü doğrulamak
                    için kullanın.
+
+Hız Renkleri       Mandrel etrafında soluk yarı saydam kırmızı bir
+                   bant çizer — rulonun temas beslemesine (contact
+                   feed) yavaşladığı temas bölgesini işaretler. Bandın
+                   içindeki yol kısımları yavaş, dışındakiler hızlı
+                   çalışır. Mandrel profilini takip eder ve takım
+                   yollarını değiştirmez. Yalnızca temas bölgesi
+                   tanımlı operasyonlar için görünür.
 
 
 İPUCU
@@ -407,8 +422,27 @@ ID111 — Spinning Lathe (cold, two-axis)
 ID112 — Hot Spinning Lathe (tilt-arm)
   Hot spinning machine with the X slide on a rotary arm and a
   CODESYS-based controller. The Siemens-specific sections and
-  SCL export are hidden for this machine; its own tilt-arm
-  kinematics, heating control, and controller export are added
+  SCL export are hidden for this machine.
+
+  Tilt-arm (B axis) kinematics:
+  - Machine tab gains a "Tilt Arm (B Axis)" section: pivot X/Z,
+    B min/max limits, B home and B sign. These are placeholder
+    values until the machine drawings arrive.
+  - Each roughing/finishing operation gains a "Tilt Mode (B)"
+    selector: "Surface Normal" makes the roller follow the
+    mandrel surface normal (plus an optional Tilt Offset
+    lead/lag angle); "Start→End Angle" interpolates linearly
+    between an operator-entered start and end angle over the
+    pass. Tilt is clamped to the B limits; violations are
+    reported as kinematic warnings in the log.
+  - B = 0° means the slide is purely radial (same posture as
+    machine ID111); positive B leans the tool toward +Z.
+  - G-code output carries a B word on every cutting move; the
+    pass info panel and the PDF operation sheet show each
+    pass's B start → end angles as an operator reference.
+  - The 3D simulation tilts the roller live and the position
+    monitor shows the current B angle.
+  Heating control and the CODESYS controller export are added
   in upcoming versions.
 
 Each physical machine has its own profile file and settings; the
@@ -506,8 +540,27 @@ ID111 — Sıvama Tezgahı (soğuk, iki eksen)
 ID112 — Sıcak Sıvama Tezgahı (döner kollu)
   X kızağı döner bir kol üzerinde olan, CODESYS tabanlı
   denetleyicili sıcak sıvama makinesi. Bu makinede Siemens'e özgü
-  bölümler ve SCL dışa aktarımı gizlidir; kendi döner kol
-  kinematiği, ısıtma kontrolü ve denetleyici çıktısı sonraki
+  bölümler ve SCL dışa aktarımı gizlidir.
+
+  Döner kol (B ekseni) kinematiği:
+  - Makine sekmesine "Döner Kol (B Ekseni)" bölümü eklenir:
+    pivot X/Z, B min/maks limitleri, B ev konumu ve B işareti.
+    Makine çizimleri gelene kadar bunlar geçici değerlerdir.
+  - Her kaba/bitirme operasyonuna "Eğim Modu (B)" seçici gelir:
+    "Yüzey Normali" ruloyu mandrel yüzey normalini izletir
+    (istenirse Eğim Ofseti ile öne/arkaya yatırma); "Başlangıç→
+    Bitiş Açısı" operatörün girdiği başlangıç ve bitiş açısı
+    arasında pas boyunca doğrusal geçiş yapar. Eğim B
+    limitlerine kırpılır; aşımlar günlükte kinematik uyarı
+    olarak raporlanır.
+  - B = 0° kızağın tamamen radyal olduğu anlamına gelir (ID111
+    makinesiyle aynı duruş); pozitif B takımı +Z yönüne eğer.
+  - G-code çıktısında her kesme hareketi B kelimesi taşır; pas
+    bilgi paneli ve PDF operasyon sayfası her pasın B başlangıç
+    → bitiş açısını operatör referansı olarak gösterir.
+  - 3D simülasyon ruloyu canlı olarak eğer ve konum monitörü
+    anlık B açısını gösterir.
+  Isıtma kontrolü ve CODESYS denetleyici çıktısı sonraki
   sürümlerde eklenecektir.
 
 Her fiziksel makinenin kendi profil dosyası ve ayarları vardır;

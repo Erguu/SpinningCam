@@ -4,6 +4,8 @@ import glob
 
 MACHINE_PROFILE_KEYS = [
     "kinematics",
+    "tilt_pivot_x", "tilt_pivot_z",
+    "tilt_b_min", "tilt_b_max", "tilt_b_home", "tilt_b_sign",
     "machine_origin_x", "machine_origin_z",
     "machine_invert_x", "machine_invert_z",
     "machine_gcode_offset_x", "machine_gcode_offset_z",

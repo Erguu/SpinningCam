@@ -12,6 +12,7 @@ class SimulationController:
         self.is_running = False
         self.current_pos = None
         self.current_radius = 25.0
+        self.current_tilt = None   # B tilt (deg) at current point — tilt-arm machines only
         self.current_tool_id = ""
         self.thread = None
         self.cleanup_needed = False
@@ -52,7 +53,9 @@ class SimulationController:
         self._step_event.set()          # unblock any waiting step so thread can exit
         self._general_pause_event.set() # unblock any general pause so thread can exit
 
-    def run(self, v, paths, params, sequence=None):
+    def run(self, v, paths, params, sequence=None, tilts=None):
+        """tilts: optional per-path tilt arrays (path_gen.last_tilt_angles),
+        index-aligned with `paths`; None on plain XZ machines."""
         if not v: return
         if self.is_running:
             logger.warning("Simulation is already running.")
@@ -63,8 +66,8 @@ class SimulationController:
         self._general_pause_event.set()  # ensure not paused when starting
 
         # Start Thread
-        self.thread = threading.Thread(target=self._worker, args=(paths, params, sequence))
-        self.thread.daemon = True 
+        self.thread = threading.Thread(target=self._worker, args=(paths, params, sequence, tilts))
+        self.thread.daemon = True
         self.thread.start()
 
     def _wait_for_step(self):
@@ -77,10 +80,13 @@ class SimulationController:
         self._step_event.clear()   # re-arm for next item
         self.is_paused = False
 
-    def _worker(self, paths, params, sequence):
+    def _worker(self, paths, params, sequence, tilts=None):
         try:
             num_passes = len(paths)
             default_rad = params.get("roller_visual_radius", 25.0)
+            # Cut items appear in the sequence in the same order paths were
+            # appended, so cut #k maps to tilts[k].
+            cut_counter = 0
 
             # Set default radius
             self.current_radius = default_rad
@@ -121,15 +127,24 @@ class SimulationController:
                         if len(item) > 3:
                             self.current_tool_id = str(item[3])
 
+                        cut_tilts = None
+                        if tilts is not None and cut_counter < len(tilts):
+                            ct = tilts[cut_counter]
+                            if ct is not None and len(ct) == len(path):
+                                cut_tilts = ct
+                        cut_counter += 1
+
                         step_delay = 0.002
                         if len(path) < 100: step_delay = 0.005 # Slower for short paths
 
                         spd = max(0.01, self.speed_multiplier)
-                        for pt in path:
+                        for _cpi, pt in enumerate(path):
                             if not self.is_running: break
                             self._general_pause_event.wait()
                             if not self.is_running: break
                             self.current_pos = pt
+                            if cut_tilts is not None:
+                                self.current_tilt = float(cut_tilts[_cpi])
                             time.sleep(step_delay / spd)
 
                     # Step-mode pause: hold after every sequence item until Step is clicked
@@ -143,15 +158,22 @@ class SimulationController:
                     if not self.is_running: break
 
                     self.current_radius = default_rad
+                    cut_tilts = None
+                    if tilts is not None and pass_idx < len(tilts):
+                        ct = tilts[pass_idx]
+                        if ct is not None and len(ct) == len(path):
+                            cut_tilts = ct
 
                     step_delay = 0.002
                     if len(path) < 100: step_delay = 0.01
 
-                    for pt in path:
+                    for _cpi, pt in enumerate(path):
                         if not self.is_running: break
                         self._general_pause_event.wait()
                         if not self.is_running: break
                         self.current_pos = pt
+                        if cut_tilts is not None:
+                            self.current_tilt = float(cut_tilts[_cpi])
                         time.sleep(step_delay / spd)
 
                     if self.step_mode and self.is_running:
@@ -163,5 +185,6 @@ class SimulationController:
             self.is_running = False
             self.is_paused = False
             self.current_pos = None
+            self.current_tilt = None
             self.current_tool_id = ""
             logger.info("Simulation Thread Finished.")

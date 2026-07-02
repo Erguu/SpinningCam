@@ -116,11 +116,19 @@ def _build_canonical(tool_entry: dict, step_path: str, deflection: float = 0.2):
     return mesh
 
 
-def _position_mesh(canonical: pv.PolyData, side: float, rx_tip: float, rz_tip: float) -> pv.PolyData:
-    """Copy canonical mesh, apply side-flip and translate tip to machine position."""
+def _position_mesh(canonical: pv.PolyData, side: float, rx_tip: float, rz_tip: float,
+                   tilt_deg: float = 0.0) -> pv.PolyData:
+    """Copy canonical mesh, apply side-flip, optional B tilt, translate tip to position.
+
+    tilt_deg rotates the tool about the Y axis at its tip (canonical tip is at the
+    local origin). Positive tilt leans the radial tool axis toward +Z on either
+    side, matching the tilt convention in kinematics.py (ID112 tilt-arm machine).
+    """
     mesh = canonical.copy()
     if side < 0:
         mesh.points[:, 0] *= -1   # mirror X: body extends in -X for left-side roller
+    if abs(tilt_deg) > 1e-9:
+        mesh.rotate_y(-side * tilt_deg, point=(0.0, 0.0, 0.0), inplace=True)
     mesh.translate([rx_tip, 0.0, rz_tip], inplace=True)
     return mesh
 
@@ -133,7 +141,8 @@ class ToolStepLoader:
         self.base_dir = base_dir
 
     def get_roller_mesh(self, tool_entry: dict, side: float,
-                        rx_tip: float, rz_tip: float) -> "pv.PolyData | None":
+                        rx_tip: float, rz_tip: float,
+                        tilt_deg: float = 0.0) -> "pv.PolyData | None":
         """Return a positioned mesh for the tool, or None (→ caller uses sphere fallback)."""
         step_path = _resolve_step_path(tool_entry, self.base_dir)
         if not step_path:
@@ -141,7 +150,7 @@ class ToolStepLoader:
         canonical = self._get_canonical(tool_entry, step_path)
         if canonical is None:
             return None
-        return _position_mesh(canonical, side, rx_tip, rz_tip)
+        return _position_mesh(canonical, side, rx_tip, rz_tip, tilt_deg)
 
     def _get_canonical(self, tool_entry: dict, step_path: str) -> "pv.PolyData | None":
         try:

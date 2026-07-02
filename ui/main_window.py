@@ -386,12 +386,13 @@ class SpinningCamWindow(tk.Tk):
 
             pos = self.app.sim_controller.current_pos
             rad = self.app.sim_controller.current_radius
+            tilt = self.app.sim_controller.current_tilt
             if pos is not None:
-                self.app.update_roller_visual(pos, rad)
+                self.app.update_roller_visual(pos, rad, tilt_deg=tilt)
                 try:
                     self.app.plotter.render()
                 except: pass
-                self._update_live_monitor(pos)
+                self._update_live_monitor(pos, tilt)
 
             try: self.ui_program.refresh_sim_controls()
             except: pass
@@ -409,7 +410,7 @@ class SpinningCamWindow(tk.Tk):
             try: self.ui_process.refresh_sim_controls()
             except: pass
 
-    def _update_live_monitor(self, pos):
+    def _update_live_monitor(self, pos, tilt=None):
         if pos is None: return
         z_curr = pos[2]
 
@@ -445,6 +446,8 @@ class SpinningCamWindow(tk.Tk):
         x_disp = ((pos[0] - _ox) * _dx) + p.get("machine_gcode_offset_x", 0.0)
         z_disp = ((pos[2] - _oz) * _dz) + p.get("machine_gcode_offset_z", 0.0)
         msg = f"POS: X{x_disp:.2f} Z{z_disp:.2f}"
+        if tilt is not None:
+            msg += f" B{tilt:.1f}"
         if matched and txt_s != "--":
             msg += f"  |  S: {txt_s} ({mode_s})  |  F: {txt_f} ({mode_f})"
         else:
@@ -467,7 +470,9 @@ class SpinningCamWindow(tk.Tk):
 
     def run_sim(self):
         seq = getattr(self.app.path_gen, 'last_calculated_sequence', None)
-        self.app.sim_controller.run(True, self.app.path_gen.last_calculated_paths, self.app.params, sequence=seq)
+        tilts = getattr(self.app.path_gen, 'last_tilt_angles', None)  # tilt-arm machines only
+        self.app.sim_controller.run(True, self.app.path_gen.last_calculated_paths, self.app.params,
+                                    sequence=seq, tilts=tilts)
         self.check_sim_loop()
 
     def stop_sim(self):
@@ -554,7 +559,9 @@ class SpinningCamWindow(tk.Tk):
         if path:
             paths = self.app.path_gen.last_calculated_paths
             success = ExportManager.export_pdf(self.app.params, paths, path, self.tool_library,
-                                               mandrel_mgr=self.app.mandrel_mgr)
+                                               mandrel_mgr=self.app.mandrel_mgr,
+                                               tilt_angles=getattr(self.app.path_gen,
+                                                                   "last_tilt_angles", None))
             if success:
                 messagebox.showinfo(t("msg_export_complete_title"),
                                     t("msg_pdf_saved").format(os.path.basename(path)))

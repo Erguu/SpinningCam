@@ -7,10 +7,15 @@ from OCC.Core.gp import gp_Pnt, gp_Dir, gp_Ax1, gp_Trsf
 from OCC.Core.TColgp import TColgp_Array1OfPnt
 from OCC.Core.GeomAPI import GeomAPI_PointsToBSpline
 from logger_config import logger
+from kinematics import get_kinematics
 
 class PathGenerator:
     def __init__(self):
-        self.last_calculated_paths = [] 
+        self.last_calculated_paths = []
+        self.last_mandrel_mgr = None
+        self.last_tilt_angles = None       # per-path tilt arrays (tilt_arm machines) or None
+        self.last_kinematic_warnings = []  # reachability issues from last G-code generation
+        self._path_op_map = []             # toolpath index → op dict (parallel to last_calculated_paths)
 
     def _ensure_ops_dict(self, params):
         if "operations" in params and isinstance(params["operations"], list) and len(params["operations"]) > 0:
@@ -67,6 +72,7 @@ class PathGenerator:
         debug_lines = [] # Analysis Lines for Visualization
         self.last_back_pass_meta = {}  # {path_list_index: {"feed": ...}}
         self.last_render_split_idx = {}  # {path_list_index: (line_end_idx, arc_end_idx)}
+        self._path_op_map = []  # toolpath index → op dict, synced as paths are appended
         
         props = mandrel_mgr.props
         top_z = props["top_z"]
@@ -202,6 +208,8 @@ class PathGenerator:
                     sequence.append(("rapid", r_seg2))
                     current_pt = retract_pt
 
+                while len(self._path_op_map) < len(toolpaths):
+                    self._path_op_map.append(op)
                 global_pass_idx += 1
                 continue
 
@@ -468,8 +476,12 @@ class PathGenerator:
                             sequence.append(("rapid", r_seg2))
                             current_pt = retract_pt
 
+                # Keep the path→op map in sync with everything appended during
+                # this pass (forward + optional back pass), whatever the branch.
+                while len(self._path_op_map) < len(toolpaths):
+                    self._path_op_map.append(op)
                 global_pass_idx += 1
-        
+
         # [NEW] Final Return to Home
         # User requested roller to return to Safety Home Position at end.
         home_pt = np.array([home_x_can, 0, home_z])
@@ -526,9 +538,74 @@ class PathGenerator:
                     mirrored_seq.append(item)
             sequence = mirrored_seq
 
+        # ── Per-point tilt angles (tilt-arm machines only, e.g. ID112) ──────
+        # Built AFTER mirroring: tilt derives from each point's Z (normal mode)
+        # or arc length (interp mode), both mirror-invariant. Back passes run
+        # the pass in reverse, so interp endpoints are swapped for them.
+        kin = get_kinematics(params)
+        if kin is not None:
+            self.last_tilt_angles = [
+                self._compute_tilt_for_path(
+                    np.array(pth, dtype=float),
+                    self._path_op_map[idx] if idx < len(self._path_op_map) else None,
+                    mandrel_mgr, kin,
+                    reverse=(idx in self.last_back_pass_meta),
+                )
+                for idx, pth in enumerate(toolpaths)
+            ]
+        else:
+            self.last_tilt_angles = None
+
         self.last_calculated_paths = toolpaths
         self.last_calculated_sequence = sequence
+        self.last_mandrel_mgr = mandrel_mgr
         return toolpaths, projections, control_points, deviations, rapids, debug_lines
+
+    def _compute_tilt_for_path(self, pts, op, mandrel_mgr, kin, reverse=False):
+        """CANONICAL tilt source — per-point tilt (deg) for any point array.
+
+        Works on the full stored path AND on a PLC-decimated subset, so the 3D
+        view, the simulation and the emitted G-code always agree:
+          - "normal" mode derives tilt from the surface normal at each point's
+            Z (clamped into the mandrel range, same principle as
+            _correct_clearance_uniform) plus the op's lead/lag tilt_offset;
+          - "interp" mode interpolates tilt_start→tilt_end over normalized arc
+            length (arc length is what an operator perceives along the pass).
+        reverse=True swaps the interp endpoints (back passes run P3→T1).
+        All values are clamped to the machine's B travel via kin.clamp_tilt.
+        """
+        pts = np.asarray(pts, dtype=float)
+        n = len(pts)
+        if n == 0:
+            return np.zeros(0)
+        op = op or {}
+        mode = op.get("tilt_mode", "normal")
+
+        if mode == "interp":
+            t0 = float(op.get("tilt_start", 0.0))
+            t1 = float(op.get("tilt_end", 0.0))
+            if reverse:
+                t0, t1 = t1, t0
+            if n == 1:
+                raw = np.array([t0])
+            else:
+                seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+                cum = np.concatenate([[0.0], np.cumsum(seg)])
+                frac = cum / cum[-1] if cum[-1] > 1e-9 else np.linspace(0.0, 1.0, n)
+                raw = t0 + frac * (t1 - t0)
+        else:  # "normal"
+            off = float(op.get("tilt_offset", 0.0))
+            m_min_z = mandrel_mgr.props.get("min_z", float('-inf'))
+            m_top_z = mandrel_mgr.props.get("top_z", float('inf'))
+            raw = np.empty(n)
+            for i in range(n):
+                zc = min(max(pts[i][2], m_min_z), m_top_z)
+                nx, nz = mandrel_mgr.get_normal_at_z(zc)
+                # Canonical outward normal (positive-X frame): a cylinder wall
+                # (nx=1, nz=0) gives tilt 0 = radial, exactly like machine #1.
+                raw[i] = math.degrees(math.atan2(nz, nx)) + off
+
+        return np.array([kin.clamp_tilt(v) for v in raw])
 
     def _create_adaptive_pass(self, start_z, end_z, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_name, t_list, p_list, c_list, d_list, params, additional_radial_offset=0.0):
         """
@@ -1144,6 +1221,39 @@ class PathGenerator:
         devs_arr = np.array(devs)
         return proj_arr, devs_arr
 
+    def _contact_zone_mask(self, path_arr, center_x, contact_zone_mm,
+                           r_tool, blank_thick, shell_offset):
+        """
+        Per-point boolean mask marking where the roller is near the mandrel.
+
+        Uses the SAME true roller-to-blank-surface clearance the path generator
+        relies on for collision safety (see _correct_clearance_uniform):
+            dist  = sqrt((x - center_x)^2 + y^2)          # radial dist from axis
+            clear = dist - (surface_radius(z) + blank_thick + shell_offset + r_tool)
+        `clear` is 0 when the roller touches the blank and grows as it pulls away.
+        Because `dist` is a magnitude it is orientation-independent — it works no
+        matter which radial side of the axis the roller sits on — and it follows a
+        curved profile via get_radius_fast(z). A point is "in the contact zone" when
+        it is within `contact_zone_mm` of the surface:
+            clear <= contact_zone_mm
+        Applied identically to forward and back passes.
+
+        Returns a numpy bool array (len == len(path_arr)) or None when disabled /
+        unavailable (contact_zone_mm <= 0, no mandrel, or fewer than 2 points).
+        """
+        mgr = self.last_mandrel_mgr
+        if contact_zone_mm <= 0 or mgr is None or path_arr is None or len(path_arr) < 2:
+            return None
+        m_min_z = mgr.props.get("min_z", float('-inf'))
+        m_top_z = mgr.props.get("top_z", float('inf'))
+        clears = np.empty(len(path_arr))
+        for i, (x, y, z) in enumerate(path_arr[:, :3]):
+            zc = min(max(z, m_min_z), m_top_z)                 # clamp, don't skip
+            m_rad = max(0.0, mgr.get_radius_fast(zc))
+            dist = math.sqrt((x - center_x) ** 2 + y ** 2)
+            clears[i] = dist - (m_rad + blank_thick + shell_offset + r_tool)
+        return clears <= contact_zone_mm
+
     def generate_gcode(self, feed: int = 1000, speed: int = 200, max_rpm: int = 2000, params: dict = None) -> str:
         """
         Generates CNC G-Code for the calculated toolpaths.
@@ -1183,7 +1293,14 @@ class PathGenerator:
             )
         else:
             paths_to_use = self.last_calculated_paths
-        
+
+        # ── Tilt-arm machines (ID112): per-point B words + reachability check.
+        # Tilt is recomputed from the emitted point list itself (decimated or
+        # not) via _compute_tilt_for_path, so words always match the points.
+        _tilt_kin = get_kinematics(params)
+        _tilt_mgr = getattr(self, "last_mandrel_mgr", None)
+        self.last_kinematic_warnings = []
+
         invert_x = params.get("machine_invert_x", False)
         invert_z = params.get("machine_invert_z", False)  # [NEW] Z axis inversion
         dia_mode = params.get("machine_output_diameter_mode", False)
@@ -1375,10 +1492,22 @@ class PathGenerator:
                 feed_contact_ev   = float(op.get("feed_contact_end", feed_contact_sv))
                 pass_feed_contact = feed_contact_sv + t_pass * (feed_contact_ev - feed_contact_sv)
                 contact_zone_mm   = float(op.get("contact_zone_mm",  0.0))
-                contact_pt = None
-                if contact_zone_mm > 0 and len(path) > 1:
-                    pts_arr = np.array(path)
-                    contact_pt = pts_arr[int(np.argmin(np.abs(pts_arr[:, 0] - center_x)))]
+                # Per-point mask: True where the roller is within contact_zone_mm of
+                # the blank surface (same clearance measure the path generator uses).
+                cz_r_tool      = float(op.get("r_tool", 25.0))
+                cz_blank_thick = float(params.get("final_part_thickness_on_mandrel", 2.0))
+                cz_shell_off   = float(params.get("shell_thickness", 0.0))
+                contact_mask = self._contact_zone_mask(np.array(path), center_x, contact_zone_mm,
+                                                       cz_r_tool, cz_blank_thick, cz_shell_off)
+
+                # Per-point tilt for this (possibly decimated) point list.
+                pass_tilts = None
+                if _tilt_kin is not None and _tilt_mgr is not None:
+                    pass_tilts = self._compute_tilt_for_path(np.array(path), op, _tilt_mgr, _tilt_kin)
+                    _issues = _tilt_kin.check_reachable(np.array(path), pass_tilts)
+                    if _issues:
+                        self.last_kinematic_warnings.extend(
+                            f"Op{op_idx+1} P{i+1}: {s}" for s in _issues[:5])
 
                 # Pass-triggered custom commands (1-indexed)
                 pass_num = global_path_idx + 1
@@ -1400,8 +1529,14 @@ class PathGenerator:
                     if dia_mode: x_out *= 2.0
                     return x_out, z_out
 
+                def _b_word(tilts, idx):
+                    """' B<deg>' G-code word, or '' on plain-XZ machines (111 output unchanged)."""
+                    if tilts is None:
+                        return ""
+                    return f" B{_tilt_kin.tilt_to_b(float(tilts[idx])):.3f}"
+
                 s_x, s_z = transform_pt(path[0])
-                gcode.append(f"G0 X{s_x:.3f} Z{s_z:.3f} (Op{op_idx+1} P{i+1})")
+                gcode.append(f"G0 X{s_x:.3f} Z{s_z:.3f}{_b_word(pass_tilts, 0)} (Op{op_idx+1} P{i+1})")
                 
                 zones = op.get("zones", [])
                 current_s_val = val_speed
@@ -1409,7 +1544,7 @@ class PathGenerator:
                 fired_z_indices = set()
                 prev_raw_z = path[0][2] if len(path) > 0 else None
 
-                for p in path[1:]:
+                for _pi, p in enumerate(path[1:], start=1):
                     tx, tz = transform_pt(p)
                     raw_z = p[2]
 
@@ -1436,11 +1571,9 @@ class PathGenerator:
                                   break
                          except (TypeError, ValueError, KeyError): pass
 
-                    # Contact zone overrides everything — slow feed near P2
-                    if contact_pt is not None:
-                        dist_to_contact = math.sqrt((p[0] - contact_pt[0])**2 + (p[2] - contact_pt[2])**2)
-                        if dist_to_contact <= contact_zone_mm:
-                            target_f = pass_feed_contact
+                    # Contact zone overrides everything — slow feed near the mandrel
+                    if contact_mask is not None and contact_mask[_pi]:
+                        target_f = pass_feed_contact
                     
                     s_suffix = ""
                     if target_s != current_s_val:
@@ -1452,7 +1585,7 @@ class PathGenerator:
                         f_suffix = f" F{target_f:.3f}"
                         current_f_val = target_f
 
-                    gcode.append(f"G1 X{tx:.3f} Z{tz:.3f}{f_suffix}{s_suffix} (Op{op_idx+1} P{i+1})")
+                    gcode.append(f"G1 X{tx:.3f} Z{tz:.3f}{_b_word(pass_tilts, _pi)}{f_suffix}{s_suffix} (Op{op_idx+1} P{i+1})")
                 
                 # Skip the forward retract when a back pass follows — the back pass
                 # starts where the forward ended (P3), so the roller flows straight in.
@@ -1479,15 +1612,36 @@ class PathGenerator:
                     bp_path     = paths_to_use[global_path_idx]
                     bp_feed_val = float(bp_info.get("feed", val_feed))
                     gcode.append(f"(--- OP {op_idx+1}: {op_type} - BACK PASS {i+1} ---)")
+                    # Same per-point contact zone as the forward pass (shared op settings):
+                    # slow to the contact feed where the back pass nears the mandrel — the
+                    # back pass runs outer→inner, so this catches its inner end.
+                    bp_mask = self._contact_zone_mask(np.array(bp_path), center_x, contact_zone_mm,
+                                                      cz_r_tool, cz_blank_thick, cz_shell_off)
+                    # Back pass runs the stroke in reverse → interp tilt endpoints swap.
+                    bp_tilts = None
+                    if _tilt_kin is not None and _tilt_mgr is not None:
+                        bp_tilts = self._compute_tilt_for_path(np.array(bp_path), op, _tilt_mgr,
+                                                               _tilt_kin, reverse=True)
+                        _issues = _tilt_kin.check_reachable(np.array(bp_path), bp_tilts)
+                        if _issues:
+                            self.last_kinematic_warnings.extend(
+                                f"Op{op_idx+1} BP{i+1}: {s}" for s in _issues[:5])
                     # Only approach if the back pass start isn't already the forward end
                     # (bp_arc bow / clearance shift can move it); otherwise flow straight in.
                     if _fwd_last_pt is None or np.linalg.norm(np.array(_fwd_last_pt) - np.array(bp_path[0])) > 1e-3:
                         bs_x, bs_z = transform_pt(bp_path[0])
-                        gcode.append(f"G0 X{bs_x:.3f} Z{bs_z:.3f} (Op{op_idx+1} BP{i+1})")
+                        gcode.append(f"G0 X{bs_x:.3f} Z{bs_z:.3f}{_b_word(bp_tilts, 0)} (Op{op_idx+1} BP{i+1})")
+                    # Base feed line (unchanged when no contact zone -> identical output).
                     gcode.append(f"G1 F{bp_feed_val:.3f}")
-                    for bp_pt in bp_path[1:]:
+                    current_bp_f = bp_feed_val
+                    for _bpi, bp_pt in enumerate(bp_path[1:], start=1):
                         tx, tz = transform_pt(bp_pt)
-                        gcode.append(f"G1 X{tx:.3f} Z{tz:.3f} (Op{op_idx+1} BP{i+1})")
+                        target_bp_f = pass_feed_contact if (bp_mask is not None and bp_mask[_bpi]) else bp_feed_val
+                        f_suffix = ""
+                        if abs(target_bp_f - current_bp_f) > 0.001:
+                            f_suffix = f" F{target_bp_f:.3f}"
+                            current_bp_f = target_bp_f
+                        gcode.append(f"G1 X{tx:.3f} Z{tz:.3f}{_b_word(bp_tilts, _bpi)}{f_suffix} (Op{op_idx+1} BP{i+1})")
                     if len(bp_path) > 0:
                         bl = bp_path[-1]
                         rx, rz = transform_pt([bl[0] + float(params.get("retract_x", 50.0)), 0,
@@ -1495,6 +1649,10 @@ class PathGenerator:
                         gcode.append(f"G0 X{rx:.3f} Z{rz:.3f} (Retract Op{op_idx+1} BP{i+1})")
                     gcode.append("")
                     global_path_idx += 1
+
+        if self.last_kinematic_warnings:
+            logger.warning(f"[TILT] {len(self.last_kinematic_warnings)} kinematic reachability "
+                           f"issue(s) in generated G-code; first: {self.last_kinematic_warnings[0]}")
 
         # Final Safety Return (Use transformed coordinates)
         gcode.append("(--- PROGRAM SONU GUVENLI DONUS ---)")

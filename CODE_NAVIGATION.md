@@ -241,6 +241,31 @@ Language menüsü → _change_language(lang)
 (1=spinning), hane3 varyant (1=two-axis basic, 2=hot/tilt-arm). 112 yol haritası:
 TODO.md #50–#52.
 
+### 19. Döner kol (B ekseni) kinematiği — ID112, 2026-07-02
+
+| Ne | Dosya | Satır/Fonksiyon |
+|----|-------|-----------------|
+| Kinematik model (forward/inverse/clamp/reachable) | `kinematics.py` | `TiltArmKinematics`, `get_kinematics(params)` |
+| Profil anahtarları (tilt_pivot_x/z, tilt_b_min/max/home/sign) | `machine_loader.py` | `MACHINE_PROFILE_KEYS` başı |
+| Nokta başına eğim dizileri | `path_generator.py` | `last_tilt_angles`, `_compute_tilt_for_path()`, `_path_op_map` |
+| G-code B kelimesi + erişilebilirlik uyarıları | `path_generator.py` | `generate_gcode` içinde `_b_word()`, `last_kinematic_warnings` |
+| Rulo mesh eğimi | `tool_step_loader.py` | `_position_mesh(tilt_deg=)` |
+| Statik sahne + canlı rulo eğimi | `main.py` | `update_scene` `_static_tilt`, `update_roller_visual(tilt_deg=)` |
+| Simülasyonda anlık B | `simulation_controller.py` | `current_tilt`, `run(tilts=)` |
+| Canlı monitörde B | `ui/main_window.py` | `check_sim_loop`, `_update_live_monitor` |
+| Op editör eğim alanları (tilt_mode/offset/start/end) | `ui/tabs/program_tab.py` | direction combobox'tan sonra, tilt_arm-gated |
+| Pas bilgisinde "B start → end" | `ui/tabs/program_tab.py` | `refresh_pass_info` |
+| Makine sekmesi "Döner Kol" bölümü | `ui/tabs/machine_tab.py` | `f_tilt`, section_frames `"tilt_arm"` |
+| PDF pas başına B tablosu | `export_manager.py` | `export_pdf(tilt_angles=)` |
+
+**Konvansiyon:** eğim θ=0° = radyal kızak (ID111 duruşu); pozitif θ takımı +Z'ye eğer.
+`B = θ·tilt_b_sign + tilt_b_home`. Forward: `tip_x = pivot_x + side·x_arm·cos θ`,
+`tip_z = z_car + pivot_z + x_arm·sin θ` (side = roller_positive_x_side işareti).
+Eğim dizileri geometriden deterministik (normal modda Z'den, interp modda yay
+uzunluğundan) → PLC decimation alt kümesinde yeniden hesaplanınca birebir aynı.
+Per-op anahtarlar: `tilt_mode` ("normal"|"interp"), `tilt_offset`, `tilt_start`, `tilt_end`.
+Geri (back) paslarda interp uçları otomatik ters çevrilir.
+
 ### 15. PLC mod decimation
 | Ne | Dosya | Satır/Fonksiyon |
 |----|-------|-----------------|

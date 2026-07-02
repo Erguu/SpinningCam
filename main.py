@@ -611,6 +611,42 @@ class SpinningApp:
             if shell_grid:
                 self.actors["shell"] = self.plotter.add_mesh(shell_grid, color='lime', opacity=0.3, smooth_shading=True)
 
+        # 2.5 Contact-zone band (Velocity Colors overlay)
+        # A faded translucent shell wrapping the mandrel at the OUTER edge of the
+        # contact zone: radius = surface + blank + shell + r_tool + contact_zone_mm.
+        # This is exactly where the roller centre enters the contact zone and slows
+        # to the contact feed, so the band hugs the near (slow) portions of the
+        # toolpaths. Renderer-only — it does NOT touch the toolpaths or path
+        # generation. Toggled by the "velocity_color_mode" checkbox.
+        if update_type in ["all", "shell", "shell_and_paths", "visual"]:
+            for a in self.actors.get("contact_bands", []):
+                self.plotter.remove_actor(a)
+            self.actors["contact_bands"] = []
+            if self.params.get("velocity_color_mode", False):
+                center_x  = float(self.params.get("mandrel_pos_x_offset", 0.0))
+                blank_th  = float(self.params.get("final_part_thickness_on_mandrel", 2.0))
+                shell_off = float(self.params.get("shell_thickness", 0.0))
+                seen = set()
+                for op in self.params.get("operations", []):
+                    if not op.get("enabled", True):
+                        continue
+                    cz = float(op.get("contact_zone_mm", 0.0))
+                    if cz <= 0:
+                        continue
+                    r_tool = float(op.get("r_tool", 25.0))
+                    thickness = blank_th + shell_off + r_tool + cz
+                    key = round(thickness, 2)
+                    if key in seen:              # skip identical bands from other ops
+                        continue
+                    seen.add(key)
+                    try:
+                        band = self.mandrel_mgr.generate_shell_mesh(thickness, center_x)
+                        if band:
+                            self.actors["contact_bands"].append(self.plotter.add_mesh(
+                                band, color='red', opacity=0.18, smooth_shading=True))
+                    except Exception as e:
+                        logger.warning(f"Contact-zone band render failed: {e}")
+
         # 3. Paths
         if update_type in ["all", "paths", "shell_and_paths", "visual"] and (self.params.get("auto_calculate_paths", False) or force_path_calc or use_cached_paths):
             # Ensure rapids key exists
@@ -629,37 +665,22 @@ class SpinningApp:
                     self.sync_operation_r_tools()   # ops pull r_tool from library before calc
                     paths, projs, cps, devs, rapids, debug_lines = self.path_gen.calculate_paths(self.params, self.gui_pass_overrides, self.mandrel_mgr, visual_roller_pos=roller_pos)
                 
-                # Build per-path feed-rate and type lists. Must mirror calculate_paths'
-                # toolpath order exactly: skip disabled ops, cutting/bending = 1 path,
+                # Build per-path type list. Must mirror calculate_paths' toolpath
+                # order exactly: skip disabled ops, cutting/bending = 1 path,
                 # back_pass_enabled inserts a back entry after each forward pass.
                 ops = self.params.get("operations", [])
-                op_feeds = []
-                op_types = []   # mirrors op_feeds, one entry per toolpath
+                op_types = []   # one entry per toolpath, in render order
                 for op in ops:
                     if not op.get("enabled", True):
                         continue
                     op_type = op.get("type", "roughing")
-                    feed = float(op.get("feed", 100.0))
                     count = 1 if op_type in ("cutting", "bending") else int(op.get("count", 1))
                     has_back = op_type not in ("cutting", "bending") and op.get("back_pass_enabled", False)
-                    bp_feed = float(op.get("back_pass_feed", feed))
                     for _ in range(count):
-                        op_feeds.append(feed)
                         op_types.append(op_type)
                         if has_back:
-                            op_feeds.append(bp_feed)
                             op_types.append("back")
-                
-                # Calculate min/max feed for normalization
-                if op_feeds:
-                    min_feed = min(op_feeds)
-                    max_feed = max(op_feeds)
-                else:
-                    min_feed, max_feed = 100.0, 100.0
-                
-                # Check if velocity coloring mode is enabled
-                velocity_mode = self.params.get("velocity_color_mode", False)
-                
+
                 logger.info(f"Rendering {len(paths)} paths.")
                 for i, (p, pr, dev) in enumerate(zip(paths, projs, devs)):
                     if len(p) == 0: 
@@ -675,23 +696,11 @@ class SpinningApp:
                     col = 'blue' # default for roughing
                     lw = 5
                     
-                    if velocity_mode and i < len(op_feeds):
-                        # Velocity-based coloring: Green (slow) to Red (fast)
-                        feed = op_feeds[i]
-                        if max_feed > min_feed:
-                            normalized = (feed - min_feed) / (max_feed - min_feed)
-                        else:
-                            normalized = 0.5
-                        # Green (0,255,0) -> Yellow (255,255,0) -> Red (255,0,0)
-                        if normalized < 0.5:
-                            r = int(normalized * 2 * 255)
-                            g = 255
-                        else:
-                            r = 255
-                            g = int((1 - normalized) * 2 * 255)
-                        col = (r, g, 0)
-                        lw = 6
-                    elif is_active:
+                    # Velocity Colors mode no longer recolors the passes themselves
+                    # (that flat per-pass coloring ignored zones/contact feed and was
+                    # misleading). Instead a translucent contact-zone band is drawn as
+                    # an overlay (see section 2.5). Passes keep their type colors.
+                    if is_active:
                         col = 'magenta'
                         lw = 7
                     elif is_finish_pass:
@@ -889,8 +898,20 @@ class SpinningApp:
                     tid = active_op.get("tool_id", "")
                     tool_entry = next((t for t in self.tool_library if t.get("id") == tid), None)
                     if tool_entry:
+                        # Tilt-arm machines (ID112): show the roller at the tilt it
+                        # would have at this position, from the active op's tilt mode.
+                        _static_tilt = 0.0
+                        try:
+                            from kinematics import get_kinematics as _get_kin
+                            _kin = _get_kin(self.params)
+                            if _kin is not None:
+                                _static_tilt = float(self.path_gen._compute_tilt_for_path(
+                                    np.array([[rx_tip, 0.0, rz_tip]]),
+                                    active_op, self.mandrel_mgr, _kin)[0])
+                        except Exception as _te:
+                            logger.debug(f"Static roller tilt: {_te}")
                         roller_mesh = self.tool_step_loader.get_roller_mesh(
-                            tool_entry, _side, rx_tip, rz_tip)
+                            tool_entry, _side, rx_tip, rz_tip, tilt_deg=_static_tilt)
             except Exception as _e:
                 logger.debug(f"Tool STEP roller: {_e}")
 
@@ -1169,14 +1190,16 @@ class SpinningApp:
     def toggle_scope(self, v): 
         self.apply_to_specific_pass_only = bool(v)
 
-    def update_roller_visual(self, pos, current_radius):
+    def update_roller_visual(self, pos, current_radius, tilt_deg=None):
         """Fast update for simulation loop — called at ~50 fps from check_sim_loop.
         pos: roller CENTER in global coords. current_radius: r_tool for the active cut.
+        tilt_deg: B tilt for tilt-arm machines (None on plain XZ machines).
 
         Strategy: rebuild the actor only when tool/side/radius changes (rare).
         Every other tick just calls actor.SetPosition() — zero allocation, no flicker.
         Both STEP and sphere meshes are built with their tip at local (0,0,0) so the
-        same SetPosition(rx_tip, 0, rz_tip) call moves either one correctly.
+        same SetPosition(rx_tip, 0, rz_tip) call moves either one correctly; tilt is
+        applied per tick with SetOrientation (also allocation-free) about the tip.
         """
         _side = 1.0 if self.params.get("roller_positive_x_side", True) else -1.0
         rx_tip = float(pos[0]) - _side * current_radius
@@ -1230,6 +1253,10 @@ class SpinningApp:
         try:
             if self.actors.get("roller"):
                 self.actors["roller"].SetPosition(rx_tip, 0.0, rz_tip)
+                if tilt_deg is not None:
+                    # Actor origin = mesh local (0,0,0) = tool tip, so this
+                    # rotates about the tip. Sign matches _position_mesh.
+                    self.actors["roller"].SetOrientation(0.0, -_side * float(tilt_deg), 0.0)
             if self.actors.get("roller_tip"):
                 self.actors["roller_tip"].SetPosition(rx_tip, 0.0, rz_tip)
         except Exception as e:
@@ -1239,8 +1266,6 @@ class SpinningApp:
         """Mevcut pas aktörlerinin rengini yeniden boyar — hesaplama yapmaz, anlık."""
         if not self.actors.get("paths"):
             return
-        if self.params.get("velocity_color_mode", False):
-            return  # velocity modunda renklere dokunma
 
         ops = self.params.get("operations", [])
         op_types = []

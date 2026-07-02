@@ -12,18 +12,36 @@ IPC (Delta or Inovance). See LAST_CHANGES 2026-07-02c. Phases below are NOT star
 
 ---
 
-### 50. Phase 1 — Tilt-arm kinematics (ID112)
+### 50. Phase 1 — Tilt-arm kinematics (ID112) — ✅ DONE 2026-07-02
 
-- Define profile keys: arm pivot position (X,Z), arm length/offset, B min/max/home,
-  B sign convention → add to `MACHINE_PROFILE_KEYS` + `MachineProfileSchema`.
-- Coordinate transform: CAM (x, z, tool angle) → machine (B, X-on-arm, Z); inverse for
-  calibration. Extend `transform_pt()` (path_generator.py ~670) or a kinematics module
-  selected via `adapter.get_kinematics()`.
-- Per-point roller tilt: path generator outputs tool angle per point (follow surface
-  normal, or per-op fixed tilt) — new per-op parameter.
-- 3D scene + simulation: tilt roller mesh by B; touch-calibration needs a tilt-aware variant.
-- **Open questions:** exact arm geometry drawings; does B move during a pass or only
-  between passes?
+- [x] Profile keys `tilt_pivot_x/z`, `tilt_b_min/max/home/sign` → `MACHINE_PROFILE_KEYS`,
+  `MachineProfileSchema`, `machines/ID112-1.json` (placeholder values until drawings).
+- [x] New `kinematics.py`: `TiltArmKinematics` — forward/inverse tip XZ ⇄ (B, X_arm, Z_car),
+  side-aware (`roller_positive_x_side`), singularity + B-range + arm<0 checks; factory
+  `get_kinematics(params)`.
+- [x] Per-point tilt: `path_generator` builds `last_tilt_angles` (per-op `tilt_mode` =
+  `normal` yüzey normali + `tilt_offset`, veya `interp` `tilt_start`→`tilt_end`;
+  back passes reversed). Deterministic from geometry → decimation-safe.
+- [x] G-code: B word on every G1 + pass-start G0 (rapids hold last B — "both-ready core":
+  Cartesian tip + angle canonical until Phase 3 controller spec). `check_reachable` →
+  `last_kinematic_warnings`. ID111 output byte-identical (regression-verified).
+- [x] Visualization: static roller + simulation tilt (SetOrientation, zero-alloc),
+  live monitor B display.
+- [x] UI: op editor tilt fields (tilt-arm-gated), machine tab "Tilt Arm (B Axis)" section,
+  pass-info per-pass "B start → end" operator reference, PDF per-pass B table,
+  i18n EN/TR/ES, help window EN/TR.
+- **Open questions (Phase 3 / drawings needed):**
+  - Exact arm geometry (pivot position, arm zero-offset) — placeholders in profile.
+  - **Arm direction sign:** does the slide extend outboard or inboard of the pivot?
+    Current model assumes x_arm ≥ 0 outboard; if inboard, flip in `kinematics.forward/inverse`.
+  - Controller IK question for Delta/Inovance: *"Does the motion package support
+    user-defined kinematic transformations, or only synchronized multi-axis point
+    interpolation?"* → decides Phase 3 export format (machine axes vs tip+angle).
+- **Deferred refinements (noted, not scheduled):**
+  - Contact-point migration on the curved roller profile at large tilt (tip currently
+    assumed to rotate about itself).
+  - Touch calibration tilt-aware variant — for now calibrate at B=0 (ID111-equivalent).
+  - Tool-body-vs-mandrel collision check at tilt.
 
 ### 51. Phase 2 — Hot process features (ID112)
 
@@ -64,6 +82,15 @@ Not worth it at 2 machine types.
   enable via `get_export_formats()` for 112 (currently gcode/pdf/stl only).
 - Heating + B-axis commands in the recipe row format; new `CAM_INTERFACE_SPEC`-style
   document for machine #2.
+
+### 53. Operator pre-run reference / teach mode (backlog — user liked the idea 2026-07-02)
+
+Bigger version of the Phase-1 pass-info "B start → end" line. Ideas to scope with user:
+- Printable per-pass setup card: start/end XZ+B, contact zone, feed/speed, tool — beyond
+  the current PDF table (diagrams per pass, jog-to positions).
+- "Teach" flow: operator jogs machine to key positions, software captures them as
+  references (dovetails with tilt-aware calibration).
+- Dry-run mode: export a slowed/no-contact variant of the program for first-article runs.
 
 ---
 

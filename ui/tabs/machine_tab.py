@@ -376,6 +376,49 @@ class MachineTab(ScrollableTabBase):
         add_cyl_entry(f_cyl, "cylinder_z_base", t("lbl_cyl_z"), 200.0,
             "Silindirin monte edildiği Z konumu (mm).")
 
+        # Tilt Arm (B Axis) — tilt-arm machines only (ID112); gated below via
+        # section_frames like every other section.
+        f_tilt = ttk.LabelFrame(self.content, text=t("frm_tilt_arm"))
+        f_tilt.pack(fill="x", padx=10, pady=10)
+
+        tk.Label(f_tilt, text=t("lbl_tilt_arm_info"),
+                 font=("Arial", 8, "italic"), fg="gray",
+                 wraplength=380, justify="left").pack(anchor="w", padx=5, pady=(4, 6))
+
+        def add_tilt_entry(param_key, label, default, tooltip):
+            f = ttk.Frame(f_tilt)
+            f.pack(fill="x", padx=5, pady=2)
+            tk.Label(f, text=label, width=18, anchor="w").pack(side="left")
+            var = tk.DoubleVar(value=float(self.app.params.get(param_key, default)))
+            def on_change(v=var, k=param_key):
+                try: self.app.on_param_change(k, v.get(), "paths")
+                except: pass
+            e = ttk.Entry(f, textvariable=var, width=10)
+            e.pack(side="right")
+            e.bind("<Return>",   lambda ev, fn=on_change: fn())
+            e.bind("<FocusOut>", lambda ev, fn=on_change: fn())
+            e.bind("<Button-1>", lambda event: event.widget.focus_force())
+            self.helper.bind_tooltip(e, tooltip)
+            self.helper.bind_tooltip(f, tooltip)
+
+        add_tilt_entry("tilt_pivot_x", t("lbl_tilt_pivot_x"), 0.0,
+            "Döner kol pivot noktasının X koordinatı (mm, CAM global). "
+            "Makine çizimlerinden ölçülür — şimdilik geçici değer.")
+        add_tilt_entry("tilt_pivot_z", t("lbl_tilt_pivot_z"), 0.0,
+            "Pivot noktasının Z ofseti Z arabasına göre (mm). "
+            "tip_z = z_araba + pivot_z + kol·sin(B).")
+        add_tilt_entry("tilt_b_min", t("lbl_tilt_b_min"), -60.0,
+            "B ekseninin mekanik alt limiti (°). Yol üretiminde eğim bu değere kırpılır; "
+            "aşan noktalar kinematik uyarı üretir.")
+        add_tilt_entry("tilt_b_max", t("lbl_tilt_b_max"), 60.0,
+            "B ekseninin mekanik üst limiti (°).")
+        add_tilt_entry("tilt_b_home", t("lbl_tilt_b_home"), 0.0,
+            "B ekseni ev/sıfır konumu (°). Çıktıdaki B kelimesi = eğim·işaret + ev. "
+            "Eğim 0° = radyal kızak (makine #1 duruşu).")
+        add_tilt_entry("tilt_b_sign", t("lbl_tilt_b_sign"), 1.0,
+            "B ekseni yön işareti: +1 veya −1. Kontrolcünün pozitif B yönü "
+            "CAM'in +Z'ye yatma yönüyle tersse −1 girin.")
+
         # PLC Output Mode
         f_plc = ttk.LabelFrame(self.content, text=t("frm_plc"))
         f_plc.pack(fill="x", padx=10, pady=10)
@@ -582,7 +625,7 @@ class MachineTab(ScrollableTabBase):
         section_frames = {
             "coords": f_coords, "output_mode": f_output_mode, "offsets": f_offsets,
             "home": f_home, "touch": f_touch, "gcode_out": f_gcode_out,
-            "workspace": f_ws, "cylinder": f_cyl, "plc": f_plc,
+            "workspace": f_ws, "cylinder": f_cyl, "tilt_arm": f_tilt, "plc": f_plc,
             "custom_cmds": f_cc, "mcode_desc": f_md,
         }
         adapter = getattr(self.app, "active_adapter", None)

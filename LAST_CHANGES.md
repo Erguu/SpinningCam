@@ -5,6 +5,88 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-02e — "Velocity Colors" artık temas bölgesi bandı gösteriyor
+
+### Ne değişti
+Eski "Velocity Colors" özelliği her pası nominal beslemeye göre TEK düz renkle
+boyuyordu — zone/temas beslemesini yok sayıyor, üstelik hepsi tek besleme olunca
+her şey sarı oluyordu (yanıltıcı). Kullanıcı isteği: pasların rengine DOKUNMADAN,
+temas bölgesini 3D'de göstermek.
+
+1. **`main.py` §2.5 (YENİ blok)** — `velocity_color_mode` açıkken mandrel
+   etrafına soluk yarı saydam kırmızı bir "temas bölgesi bandı" çizilir.
+   Bant yarıçapı = `yüzey + blank + shell + r_tool + contact_zone_mm` (rulo
+   merkezinin temas bölgesine girdiği dış sınır). `generate_shell_mesh` yeniden
+   kullanılır. Op başına bir bant (aynı kalınlıklar dedup). Yalnızca
+   `contact_zone_mm > 0` olan etkin op'lar için. `actors["contact_bands"]`.
+   Salt-görsel: yol üretimine/G-code'a DOKUNMAZ.
+2. **`main.py` pas render** — eski düz `velocity_mode` renklendirme dalı
+   KALDIRILDI; paslar artık her zaman tür renklerini korur (mavi/turuncu/teal).
+   Ölü `op_feeds`/`min_feed`/`max_feed`/`velocity_mode` temizlendi (`op_types`
+   korundu — hâlâ tür rengi için kullanılıyor).
+3. **`main.py` `recolor_paths`** — velocity modunda erken `return` kaldırıldı
+   (artık pas renkleri velocity modundan bağımsız normal boyanıyor).
+4. **`process_tab.py`** — checkbox tooltip yeni davranışa göre güncellendi.
+5. **`help_window.py`** — GÖRSEL ANALİZ KATMANLARI'na "Velocity Colors /
+   Hız Renkleri" girişi (EN+TR).
+
+### Geri alma
+`main.py` §2.5 bloğunu ve tooltip/help girişlerini kaldır; eski velocity
+renklendirme dalını geri koy. Temas bölgesi bandı tamamen `velocity_color_mode`
+bayrağına bağlı — kapalıyken hiçbir aktör eklenmez.
+
+### Doğrulama durumu
+Kod düzenlendi; GUI smoke test bekliyor (checkbox aç/kapa → bant beliriyor/
+kayboluyor, pas renkleri değişmiyor). Commit EDİLMEDİ.
+
+---
+
+## 2026-07-02d — Faz 1: ID112 döner kol (B ekseni) kinematiği
+
+### Ne değişti
+TODO #50 tamamlandı. ID112'nin X kızağı döner kol üzerinde — nokta başına eğim
+(B) hesaplanıyor, görselleştiriliyor ve çıktıya yazılıyor. ID111 çıktısı
+bayt-bayt AYNI (regresyonla doğrulandı).
+
+1. **`kinematics.py` (YENİ)** — `TiltArmKinematics`: forward/inverse
+   (uç XZ ⇄ B, X_kol, Z_araba), yan-farkında (`roller_positive_x_side`),
+   `clamp_tilt`, `tilt_to_b`, `check_reachable` (B limit, cos≈0 tekilliği,
+   x_arm<0). Fabrika: `get_kinematics(params)` → tilt_arm değilse None.
+   Konvansiyon: θ=0° radyal kızak; `B = θ·sign + home`.
+2. **Profil anahtarları** — `tilt_pivot_x/z`, `tilt_b_min/max/home/sign` →
+   `MACHINE_PROFILE_KEYS` + `MachineProfileSchema` + `ID112-1.json`
+   (çizim gelene kadar geçici değerler).
+3. **`path_generator.py`** — `last_tilt_angles` (yol başına eğim dizisi;
+   `_path_op_map` ile op eşlemesi; back pass'larda interp uçları ters).
+   `_compute_tilt_for_path()`: `normal` modda yüzey normali + `tilt_offset`,
+   `interp` modda yay-uzunluğu oranıyla `tilt_start`→`tilt_end`. Geometriden
+   deterministik → PLC decimation alt kümesinde aynı sonuç. `generate_gcode`:
+   her G1 + pas-başı G0'a ` B{deg}` kelimesi (konumlama rapidleri son B'yi
+   tutar); `check_reachable` → `last_kinematic_warnings` + log.
+4. **Görselleştirme** — `tool_step_loader._position_mesh(tilt_deg=)` (uçta
+   rotate_y), `main.py` statik rulo eğimi + `update_roller_visual`
+   SetOrientation (sıfır-alokasyon), `simulation_controller.current_tilt`,
+   canlı monitörde ` B{deg}`.
+5. **UI** — op editörde tilt_arm makinede "Eğim Modu (B)" combobox +
+   `tilt_offset` / `tilt_start`+`tilt_end` alanları (moda göre);
+   pas bilgisinde pas başına "Tilt → B: başlangıç → bitiş" satırı (operatör
+   referansı); makine sekmesinde "Döner Kol (B Ekseni)" bölümü (`"tilt_arm"`
+   section_frames'te, 111'de gizli); PDF'te pas başına B tablosu
+   (`export_pdf(tilt_angles=)`); i18n EN/TR/ES; help window EN/TR.
+
+### Bekleyen kararlar (TODO #50 açık sorular)
+Kol yön işareti (pivotun dışına mı içine mi uzanıyor), gerçek pivot geometrisi,
+Delta/Inovance IK sorusu ("user-defined kinematic transformation var mı?").
+Ertelenen: temas noktası göçü, eğim-farkında kalibrasyon, gövde çarpışma testi.
+
+### Geri alma
+`get_kinematics()` tilt_arm dışında None döner → tüm tilt yolu atlanır; ID111
+etkilenmez. Tek dosyayı geri almak için: kinematics.py'yi silme yetmez,
+path_generator'daki `from kinematics import get_kinematics` importunu ve
+`_b_word` çağrılarını da kaldırmak gerekir.
+
+---
+
 ## 2026-07-02c — Makine #2 altyapısı: ID112 hot spinning + adapter katmanı aktif
 
 ### Ne değişti

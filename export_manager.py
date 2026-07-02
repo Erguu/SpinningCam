@@ -47,16 +47,19 @@ class ExportManager:
             return False
 
     @staticmethod
-    def export_pdf(params: dict, paths: list, filepath: str, tools: list = None, mandrel_mgr=None) -> bool:
+    def export_pdf(params: dict, paths: list, filepath: str, tools: list = None, mandrel_mgr=None,
+                   tilt_angles: list = None) -> bool:
         """
         Export an operation sheet PDF for shop floor use.
-        
+
         Args:
             params: Current parameters dictionary.
             paths: List of calculated toolpaths.
             filepath: Output PDF file path.
             tools: Optional list of tool definitions.
-            
+            tilt_angles: Optional per-path tilt arrays (path_gen.last_tilt_angles),
+                index-aligned with paths; None on plain XZ machines.
+
         Returns:
             True if export successful, False otherwise.
         """
@@ -130,6 +133,19 @@ class ExportManager:
                 pdf.info_row("Total Passes", str(actual_total))
             pdf.info_row("Total Points", str(total_points))
             pdf.ln(3)
+
+            # Tilt (B axis) per-pass reference — tilt-arm machines only
+            if tilt_angles is not None and any(t is not None and len(t) > 0 for t in tilt_angles):
+                _b_sign = float(params.get("tilt_b_sign", 1.0))
+                _b_home = float(params.get("tilt_b_home", 0.0))
+                pdf.section_header("Tilt B Axis - Per Pass (start -> end)")
+                for pi, ta in enumerate(tilt_angles):
+                    if ta is None or len(ta) == 0:
+                        continue
+                    b0 = float(ta[0]) * _b_sign + _b_home
+                    b1 = float(ta[-1]) * _b_sign + _b_home
+                    pdf.info_row(f"Pass {pi + 1}", f"B {b0:8.2f} deg  ->  {b1:8.2f} deg")
+                pdf.ln(3)
 
             # Machine Settings
             pdf.section_header("Machine Settings")
