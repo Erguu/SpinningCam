@@ -34,6 +34,28 @@ IPC (Delta or Inovance). See LAST_CHANGES 2026-07-02c. Phases below are NOT star
 - Program model: heating steps interleaved with motion (G-code comments, time estimate,
   simulation). UI fields gated by `adapter.supports_heating()`.
 
+### Packaging / release policy — machine types vs exe size (2026-07-02)
+
+**Decision:** ONE universal exe for all machine types. Exe size is dominated by
+libraries (VTK/PyVista, numpy/MKL, pythonocc, cryptography) — all adapter/machine
+code together is <1 MB, so machine types add essentially nothing. License
+(`allowed_machines`) gates what a customer can open.
+
+**Per-customer packaging rule:** when preparing a customer package, ship ONLY that
+customer's `machines/*.json` profiles. Selector + license generator list from disk,
+so absent profiles never appear, and other customers' machine names/params stay private.
+Zero code change — just a release-procedure step.
+
+**Code rule:** machine-specific heavy code stays behind lazy imports inside adapter
+methods (pattern: `get_path_generator_class()`). At runtime only the selected
+machine's modules are imported; the rest sit unused on disk.
+
+**Revisit single-exe policy only if:** (a) a machine type drags in a heavy new
+dependency (e.g. OPC-UA client for CODESYS transfer) — then decide per-build
+inclusion via PyInstaller `excludes`; or (b) a machine type's process know-how
+becomes IP-sensitive — then per-machine-type builds (same codebase, build flag).
+Not worth it at 2 machine types.
+
 ### 52. Phase 3 — CODESYS post-processor (Delta / Inovance IPC)
 
 - Obtain recipe/interface spec from controller side (array/struct layout, transfer
