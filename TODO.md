@@ -20,8 +20,16 @@ IPC (Delta or Inovance). See LAST_CHANGES 2026-07-02c. Phases below are NOT star
   side-aware (`roller_positive_x_side`), singularity + B-range + arm<0 checks; factory
   `get_kinematics(params)`.
 - [x] Per-point tilt: `path_generator` builds `last_tilt_angles` (per-op `tilt_mode` =
-  `normal` yüzey normali + `tilt_offset`, veya `interp` `tilt_start`→`tilt_end`;
-  back passes reversed). Deterministic from geometry → decimation-safe.
+  `normal` yüzey normali + `tilt_offset`, veya `interp`). Deterministic from
+  geometry → decimation-safe.
+  **2026-07-03 redesign (commit c55cc58):** interp artık Z-BAZLI — açı yüzey
+  konumunun fonksiyonu: `tilt_start` op Start Z'de, `tilt_end` op End Z'de,
+  arada Z'ye göre doğrusal, bölge dışı kırpılır. Yön-bağımsız → geri-pas
+  uç-ters-çevirme (`reverse=True`) kaldırıldı. Detay: `LAST_CHANGES.md`
+  2026-07-03 girişi + `CODE_NAVIGATION.md` §19.
+  ⚠️ Matematik headless doğrulandı; FİZİKSEL doğruluk sahada ONAYSIZ
+  (kullanıcı GUI'de hareketi gördü, doğruluğundan emin değil; makine
+  geometrisi hâlâ placeholder — çizimler bekleniyor).
 - [x] G-code: B word on every G1 + pass-start G0 (rapids hold last B — "both-ready core":
   Cartesian tip + angle canonical until Phase 3 controller spec). `check_reachable` →
   `last_kinematic_warnings`. ID111 output byte-identical (regression-verified).
