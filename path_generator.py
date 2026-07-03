@@ -539,9 +539,9 @@ class PathGenerator:
             sequence = mirrored_seq
 
         # ── Per-point tilt angles (tilt-arm machines only, e.g. ID112) ──────
-        # Built AFTER mirroring: tilt derives from each point's Z (normal mode)
-        # or arc length (interp mode), both mirror-invariant. Back passes run
-        # the pass in reverse, so interp endpoints are swapped for them.
+        # Built AFTER mirroring: tilt derives from each point's Z in both modes
+        # (mirror-invariant, direction-invariant — back passes need no special
+        # handling, the same Z always yields the same angle).
         kin = get_kinematics(params)
         if kin is not None:
             self.last_tilt_angles = [
@@ -549,7 +549,6 @@ class PathGenerator:
                     np.array(pth, dtype=float),
                     self._path_op_map[idx] if idx < len(self._path_op_map) else None,
                     mandrel_mgr, kin,
-                    reverse=(idx in self.last_back_pass_meta),
                 )
                 for idx, pth in enumerate(toolpaths)
             ]
@@ -561,7 +560,7 @@ class PathGenerator:
         self.last_mandrel_mgr = mandrel_mgr
         return toolpaths, projections, control_points, deviations, rapids, debug_lines
 
-    def _compute_tilt_for_path(self, pts, op, mandrel_mgr, kin, reverse=False):
+    def _compute_tilt_for_path(self, pts, op, mandrel_mgr, kin):
         """CANONICAL tilt source — per-point tilt (deg) for any point array.
 
         Works on the full stored path AND on a PLC-decimated subset, so the 3D
@@ -569,9 +568,11 @@ class PathGenerator:
           - "normal" mode derives tilt from the surface normal at each point's
             Z (clamped into the mandrel range, same principle as
             _correct_clearance_uniform) plus the op's lead/lag tilt_offset;
-          - "interp" mode interpolates tilt_start→tilt_end over normalized arc
-            length (arc length is what an operator perceives along the pass).
-        reverse=True swaps the interp endpoints (back passes run P3→T1).
+          - "interp" mode ties the angle to SURFACE POSITION: tilt_start at
+            the op's start_z, tilt_end at its end_z, linear in the point's Z
+            in between (clamped to the zone). The angle is a property of where
+            on the surface the roller is, not of pass progress — so every pass
+            of a multi-pass op, and back passes running in reverse, all agree.
         All values are clamped to the machine's B travel via kin.clamp_tilt.
         """
         pts = np.asarray(pts, dtype=float)
@@ -584,14 +585,13 @@ class PathGenerator:
         if mode == "interp":
             t0 = float(op.get("tilt_start", 0.0))
             t1 = float(op.get("tilt_end", 0.0))
-            if reverse:
-                t0, t1 = t1, t0
-            if n == 1:
-                raw = np.array([t0])
+            z0 = float(op.get("start_z", mandrel_mgr.props.get("min_z", 0.0)))
+            z1 = float(op.get("end_z",   mandrel_mgr.props.get("top_z", 0.0)))
+            span = z1 - z0
+            if abs(span) < 1e-9:
+                raw = np.full(n, t0)
             else:
-                seg = np.linalg.norm(np.diff(pts, axis=0), axis=1)
-                cum = np.concatenate([[0.0], np.cumsum(seg)])
-                frac = cum / cum[-1] if cum[-1] > 1e-9 else np.linspace(0.0, 1.0, n)
+                frac = np.clip((pts[:, 2] - z0) / span, 0.0, 1.0)
                 raw = t0 + frac * (t1 - t0)
         else:  # "normal"
             off = float(op.get("tilt_offset", 0.0))
@@ -1617,11 +1617,12 @@ class PathGenerator:
                     # back pass runs outer→inner, so this catches its inner end.
                     bp_mask = self._contact_zone_mask(np.array(bp_path), center_x, contact_zone_mm,
                                                       cz_r_tool, cz_blank_thick, cz_shell_off)
-                    # Back pass runs the stroke in reverse → interp tilt endpoints swap.
+                    # Tilt derives from each point's Z, so a back pass needs no
+                    # special handling — the same Z always yields the same angle.
                     bp_tilts = None
                     if _tilt_kin is not None and _tilt_mgr is not None:
                         bp_tilts = self._compute_tilt_for_path(np.array(bp_path), op, _tilt_mgr,
-                                                               _tilt_kin, reverse=True)
+                                                               _tilt_kin)
                         _issues = _tilt_kin.check_reachable(np.array(bp_path), bp_tilts)
                         if _issues:
                             self.last_kinematic_warnings.extend(

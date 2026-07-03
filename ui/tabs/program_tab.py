@@ -764,7 +764,8 @@ class ProgramTab:
             "pasların oluşturulma sırası aynı kalır.")
 
         # Tilt (B axis) — tilt-arm machines only (ID112). Per-op tilt source:
-        # normal = follow surface normal (+offset), interp = linear start→end.
+        # normal = follow surface normal (+offset), interp = linear in Z
+        # between the op's Start Z and End Z (surface-position based).
         _adapter = getattr(self.app, "active_adapter", None)
         if _adapter is not None and _adapter.get_kinematics() == "tilt_arm":
             f_tm = ttk.Frame(self.f_prop_editor)
@@ -788,17 +789,20 @@ class ProgramTab:
                 "Rulo eğim (B ekseni) kaynağı.\n"
                 "Yüzey Normali: eğim her noktada mandrel yüzey normalini izler; "
                 "Eğim Ofseti ile öne/arkaya yatırılabilir.\n"
-                "Başlangıç→Bitiş: operatör başlangıç ve bitiş açısını girer, "
-                "pas boyunca doğrusal geçiş yapılır.")
+                "Başlangıç→Bitiş: açı, noktanın Z konumuna bağlıdır — operasyonun "
+                "Başlangıç Z'sinde başlangıç açısı, Bitiş Z'sinde bitiş açısı, "
+                "arada Z'ye göre doğrusal geçiş.")
             if op.get("tilt_mode", "normal") == "interp":
                 self._add_prop_entry(idx, "tilt_start", t("lbl_tilt_start"), op, is_float=True,
-                                     tooltip="Pas başlangıcındaki eğim açısı (°). "
+                                     tooltip="Operasyonun Başlangıç Z konumundaki eğim açısı (°). "
+                                             "Açı yüzey konumuna (Z) bağlıdır, pasa değil — her pas "
+                                             "aynı Z'de aynı açıyı kullanır. "
                                              "0° = radyal kızak (makine #1 ile aynı duruş), "
                                              "pozitif değer takımı +Z yönüne eğer.")
                 self._add_prop_entry(idx, "tilt_end", t("lbl_tilt_end"), op, is_float=True,
-                                     tooltip="Pas bitişindeki eğim açısı (°). "
-                                             "Pas boyunca başlangıçtan bitişe doğrusal geçilir. "
-                                             "Geri (back) paslarda uçlar otomatik ters çevrilir.")
+                                     tooltip="Operasyonun Bitiş Z konumundaki eğim açısı (°). "
+                                             "Aradaki noktalar Z'ye göre doğrusal geçer; bölge "
+                                             "dışındaki Z değerleri uç açılara kırpılır.")
             else:
                 self._add_prop_entry(idx, "tilt_offset", t("lbl_tilt_offset"), op, is_float=True,
                                      tooltip="Yüzey normaline eklenen sabit açı (°). "

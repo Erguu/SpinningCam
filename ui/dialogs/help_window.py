@@ -431,10 +431,13 @@ ID112 — Hot Spinning Lathe (tilt-arm)
   - Each roughing/finishing operation gains a "Tilt Mode (B)"
     selector: "Surface Normal" makes the roller follow the
     mandrel surface normal (plus an optional Tilt Offset
-    lead/lag angle); "Start→End Angle" interpolates linearly
-    between an operator-entered start and end angle over the
-    pass. Tilt is clamped to the B limits; violations are
-    reported as kinematic warnings in the log.
+    lead/lag angle); "Start→End Angle" ties the angle to the
+    surface position — "Tilt @ Start Z" applies at the
+    operation's Start Z, "Tilt @ End Z" at its End Z, with a
+    linear transition in Z between them. The same Z always
+    yields the same angle, on every pass and in both travel
+    directions. Tilt is clamped to the B limits; violations
+    are reported as kinematic warnings in the log.
   - B = 0° means the slide is purely radial (same posture as
     machine ID111); positive B leans the tool toward +Z.
   - G-code output carries a B word on every cutting move; the
@@ -549,10 +552,12 @@ ID112 — Sıcak Sıvama Tezgahı (döner kollu)
   - Her kaba/bitirme operasyonuna "Eğim Modu (B)" seçici gelir:
     "Yüzey Normali" ruloyu mandrel yüzey normalini izletir
     (istenirse Eğim Ofseti ile öne/arkaya yatırma); "Başlangıç→
-    Bitiş Açısı" operatörün girdiği başlangıç ve bitiş açısı
-    arasında pas boyunca doğrusal geçiş yapar. Eğim B
-    limitlerine kırpılır; aşımlar günlükte kinematik uyarı
-    olarak raporlanır.
+    Bitiş Açısı" açıyı yüzey konumuna bağlar — "Eğim @
+    Başlangıç Z" operasyonun Başlangıç Z'sinde, "Eğim @ Bitiş
+    Z" Bitiş Z'sinde geçerlidir, arada Z'ye göre doğrusal
+    geçilir. Aynı Z her pasta ve her iki yönde de aynı açıyı
+    verir. Eğim B limitlerine kırpılır; aşımlar günlükte
+    kinematik uyarı olarak raporlanır.
   - B = 0° kızağın tamamen radyal olduğu anlamına gelir (ID111
     makinesiyle aynı duruş); pozitif B takımı +Z yönüne eğer.
   - G-code çıktısında her kesme hareketi B kelimesi taşır; pas

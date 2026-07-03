@@ -5,6 +5,40 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-03 — Interp eğim modu artık Z-bazlı (pas-bazlı değil)
+
+### Ne değişti
+"Başlangıç→Bitiş Açısı" (interp) eğim modu her pasın kendi içinde yay
+uzunluğuna göre başlangıç→bitiş açısı tarıyordu. Kullanıcı tespiti: yüzey tek
+pas içinde değişmez — açı pas ilerlemesine değil YÜZEY KONUMUNA bağlı olmalı.
+Çok paslı kaba operasyonda eski model her pasta açıyı ileri-geri salındırıyordu.
+
+1. **`path_generator.py` `_compute_tilt_for_path`** — interp artık Z-bazlı:
+   `frac = clip((z − start_z)/(end_z − start_z), 0, 1)`,
+   `tilt = tilt_start + frac·(tilt_end − tilt_start)`. `tilt_start` op'un
+   Başlangıç Z'sinde, `tilt_end` Bitiş Z'sinde geçerli; bölge dışı kırpılır.
+   `reverse` parametresi ve geri-pas uç-ters-çevirme mekanizması KALDIRILDI —
+   Z-bazlı model yön-bağımsız (aynı Z her pasta/yönde aynı açı).
+2. **`i18n.py`** — `lbl_tilt_start/end` → "Tilt @ Start Z (°)" / "Tilt @ End Z (°)"
+   (TR "Eğim @ Başlangıç Z (°)" / "Eğim @ Bitiş Z (°)", ES karşılıkları).
+3. **`program_tab.py`** — tilt mode combobox + tilt_start/end tooltip'leri
+   yeni semantiğe göre; geri-pas cümlesi silindi.
+4. **`help_window.py`** — ID112 interp maddesi EN+TR Z-bazlı anlatıma çevrildi.
+5. **`CODE_NAVIGATION.md` §19** — yay-uzunluğu ve geri-pas cümleleri güncellendi.
+
+Normal mod (yüzey normali) DEĞİŞMEDİ. ID111 etkilenmez (kin-gated).
+
+### Geri alma
+`_compute_tilt_for_path` interp dalını eski yay-uzunluğu koduna döndür +
+`reverse` parametresini ve `generate_gcode` geri-pas çağrısındaki
+`reverse=True`'yu geri koy (git: f48cd7e'deki hali).
+
+### Doğrulama durumu
+Headless doğrulandı (derleme + ID112 interp kontrol scripti + ID111 regresyon).
+GUI smoke test bekliyor.
+
+---
+
 ## 2026-07-02e — "Velocity Colors" artık temas bölgesi bandı gösteriyor
 
 ### Ne değişti

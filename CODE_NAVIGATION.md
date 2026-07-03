@@ -261,10 +261,13 @@ TODO.md #50–#52.
 **Konvansiyon:** eğim θ=0° = radyal kızak (ID111 duruşu); pozitif θ takımı +Z'ye eğer.
 `B = θ·tilt_b_sign + tilt_b_home`. Forward: `tip_x = pivot_x + side·x_arm·cos θ`,
 `tip_z = z_car + pivot_z + x_arm·sin θ` (side = roller_positive_x_side işareti).
-Eğim dizileri geometriden deterministik (normal modda Z'den, interp modda yay
-uzunluğundan) → PLC decimation alt kümesinde yeniden hesaplanınca birebir aynı.
-Per-op anahtarlar: `tilt_mode` ("normal"|"interp"), `tilt_offset`, `tilt_start`, `tilt_end`.
-Geri (back) paslarda interp uçları otomatik ters çevrilir.
+Eğim dizileri geometriden deterministik — her iki modda da noktanın Z'sinden:
+normal modda yüzey normali, interp modda op'un Start Z→End Z aralığında doğrusal
+(bölge dışı uç açılara kırpılır; 2026-07-03'te pas-bazlıdan Z-bazlıya çevrildi) →
+PLC decimation alt kümesinde yeniden hesaplanınca birebir aynı ve yön-bağımsız
+(geri paslar özel işlem gerektirmez — aynı Z aynı açıyı verir).
+Per-op anahtarlar: `tilt_mode` ("normal"|"interp"), `tilt_offset`, `tilt_start`
+(op Başlangıç Z'sindeki açı), `tilt_end` (op Bitiş Z'sindeki açı).
 
 ### 15. PLC mod decimation
 | Ne | Dosya | Satır/Fonksiyon |
