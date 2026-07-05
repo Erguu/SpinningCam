@@ -26,6 +26,7 @@ OP_PARAM_DEFAULTS = {
     "pass_angle": "off",            # empty = angle feature disabled
     "progressive_angle_end": 180,
     "progressive_reach_end": 30,
+    "reach_blank_factor": 1.0,
     "p2_z_extend": 0,
     "p2_radius": 0,
     "exit_mid_t": 0.5,
@@ -75,6 +76,7 @@ OP_PARAM_UNIVERSE = {
         "pass_shape", "p2_radius", "exit_curve_tension", "exit_mid_rotation",
         "exit_mid_t", "conformal_clearance_operation_specific",
         "approach_follow_surface", "p1_x", "p1_z", "p3_x", "p3_z", "reach",
+        "reach_follow_blank", "reach_blank_factor",
         "pass_angle", "progressive_angle_enabled", "progressive_angle_end",
         "progressive_reach_enabled", "progressive_reach_end",
         "clearance", "rot",
@@ -114,6 +116,8 @@ OP_PARAM_LABELS = {
     "approach_follow_surface": "lbl_approach_surf",
     "p1_x": "lbl_p1x", "p1_z": "lbl_p1z", "p3_x": "lbl_p3x", "p3_z": "lbl_p3z",
     "reach": "lbl_reach",
+    "reach_follow_blank": "lbl_reach_follow",
+    "reach_blank_factor": "lbl_reach_factor",
     "pass_angle": "lbl_pass_angle",
     "progressive_angle_enabled": "lbl_progressive",
     "progressive_angle_end": "lbl_progressive_end",
@@ -143,7 +147,8 @@ SECTION_KEYS = {
     "path_shape": ["pass_shape", "p2_radius", "exit_curve_tension",
                    "exit_mid_rotation", "exit_mid_t",
                    "conformal_clearance_operation_specific",
-                   "approach_follow_surface", "p1_x", "p1_z", "p3_x", "p3_z", "reach"],
+                   "approach_follow_surface", "p1_x", "p1_z", "p3_x", "p3_z", "reach",
+                   "reach_follow_blank", "reach_blank_factor"],
     "pass_angle": ["pass_angle", "progressive_angle_enabled",
                    "progressive_angle_end", "progressive_reach_enabled",
                    "progressive_reach_end", "clearance", "rot"],
@@ -386,6 +391,12 @@ class ProgramTab:
                 txt.insert("end", f"  Contact →  ctr X: {c_xm:>8.3f}   tip X: {tip_xm:>8.3f}"
                                    f"   Z: {c_zm:>8.3f}   (Δ: {crit_x_dist:.3f} mm)\n", "contact")
 
+                # Reach = realized exit stroke |P2→P3| (contact → end), the physical
+                # meaning of the 'reach' parameter, in mm.
+                _reach_mm = float(np.hypot(pts[-1][0] - pts[crit_idx][0],
+                                           pts[-1][2] - pts[crit_idx][2]))
+                txt.insert("end", f"  Reach   →  |P2→P3|: {_reach_mm:>7.2f} mm\n", "data")
+
                 # B-axis start→end (tilt-arm machines) — operator pre-run reference
                 if tilt_arrays is not None and i < len(tilt_arrays):
                     _ta = tilt_arrays[i]
@@ -627,6 +638,26 @@ class ProgramTab:
             "operasyon olur — sonra aralarına ters pas operasyonları yerleştirmek için "
             "sırala. Kesme/kıvırma bölünemez.")
 
+        btn_reach = ttk.Button(f_tools, text=t("btn_compute_reach"), width=7,
+                               command=self.compute_reach_from_blank)
+        btn_reach.pack(side="left", padx=1)
+        self.helper.bind_tooltip(btn_reach,
+            "Seçili operasyonun REACH'ini kalan sac flanşından TAHMİN ET ve alanı DOLDUR "
+            "(opt-in, sessizce uygulanmaz). Alan-eşdeğerliği modeli: kıskaç tabanından "
+            "itibaren şekillenen malzeme çıkarılır, kalan flanşın radyal boyu reach olur. "
+            "Çok-paslı + Pass Angle'lı op'ta reach tabanda büyük→tepede küçük yelpazelenir. "
+            "TAHMİNDİR — çalıştırmadan önce değeri kontrol et. Sac Yarıçapı gerekir.")
+
+        btn_angle = ttk.Button(f_tools, text=t("btn_compute_angle"), width=7,
+                               command=self.compute_angle_from_surface)
+        btn_angle.pack(side="left", padx=1)
+        self.helper.bind_tooltip(btn_angle,
+            "Seçili op'un PROGRESSIVE ANGLE BİTİŞİNİ mandrel yüzeyinden TAHMİN ET ve DOLDUR "
+            "(opt-in). Bitiş Z'deki duvar teğeti = çıkışın yüzey boyunca yattığı açı; "
+            "yaklaşım yönüne göre pass-açı çerçevesine çevrilir. Silindirde 180° verir, "
+            "konide duvar eğimini. TAHMİNDİR — şekillendirme yönünü (yukarı/aşağı) "
+            "çalıştırmadan önce doğrula. Pass Angle gerekir.")
+
         btn_toggle = ttk.Button(f_tools, text=t("btn_toggle_op"), width=8,
                                 command=self.toggle_op_enabled)
         btn_toggle.pack(side="left", padx=1)
@@ -652,6 +683,7 @@ class ProgramTab:
             "Görünümü özelleştir: operasyon tablosunda hangi parametrelerin sütun olarak "
             "gösterileceğini seç ve her operasyon tipi için parametreleri temel/gelişmiş "
             "olarak işaretle. Ayarlar programa (.ssp) kaydedilir; değerlere dokunmaz.")
+
 
         # Global Basic/Advanced view switch — hides advanced-tagged fields from
         # the property editor. View-only: hiding a field never changes its value
@@ -901,6 +933,9 @@ class ProgramTab:
         off the main thread. No-op if a calculation is already running."""
         if self.app._calc_running:
             return
+        # Opt-in #61(B): before recomputing, refresh reach for any op locked to the blank
+        # edge so a start_z/end_z change immediately re-kisses the flange (never stale).
+        self._refresh_auto_reach()
         # Compute roller_pos from current params (same logic as update_scene header)
         _side = 1.0 if self.app.params.get("roller_positive_x_side", True) else -1.0
         _r = 25.0
@@ -997,6 +1032,13 @@ class ProgramTab:
         self.app.active_editing_pass_idx = cumulative + self._within_op_idx
         self.app.recolor_paths()
 
+        # #63: refresh the faded-blue deformed-blank overlay for the now-current active pass.
+        # Cheap — rebuilds only the small overlay surface + renders; does NOT recompute paths.
+        try:
+            self.app.update_deformed_blank(render=True)
+        except Exception:
+            pass
+
         if _flush:
             self._flush_entries()
         self._active_entry_savers = []
@@ -1054,6 +1096,7 @@ class ProgramTab:
                     self.app.active_editing_pass_idx = self._op_start_pass_idx + self._within_op_idx
                     self._lbl_pass_nav.config(text=_pass_nav_text(self._within_op_idx))
                     self.app.recolor_paths()
+                    self.app.update_deformed_blank(render=True)   # #63: bend blank to this pass
 
             def go_next(n=n_entries):
                 if self._within_op_idx < n - 1:
@@ -1061,6 +1104,7 @@ class ProgramTab:
                     self.app.active_editing_pass_idx = self._op_start_pass_idx + self._within_op_idx
                     self._lbl_pass_nav.config(text=_pass_nav_text(self._within_op_idx))
                     self.app.recolor_paths()
+                    self.app.update_deformed_blank(render=True)   # #63: bend blank to this pass
 
             ttk.Button(f_nav, text="◀", width=3, command=go_prev).pack(side="left")
             self._lbl_pass_nav.pack(side="left", padx=8)
@@ -1439,6 +1483,33 @@ class ProgramTab:
                                          "Değer girilince yön KORUNUR (Pass Angle varsa ondan, yoksa p3_x/p3_z "
                                          "oranından) ve yalnızca uzunluk bu değere ölçeklenir. "
                                          "Böylece açıyı bozmadan pası uzatıp kısaltabilirsin.")
+
+            # Reach follows blank (opt-in #61 B): lock reach to the flange edge so it
+            # auto-recomputes whenever start_z/end_z change — the exit always kisses the
+            # blank rim. Overrides the manual reach above. Needs Sheet Radius.
+            f_rfb = ttk.Frame(self.f_prop_editor)
+            f_rfb._pkey = "reach_follow_blank"
+            f_rfb.pack(fill="x", padx=2, pady=1)
+            ttk.Label(f_rfb, text=t("lbl_reach_follow"), width=15).pack(side="left")
+            rfb_var = tk.BooleanVar(value=bool(op.get("reach_follow_blank", False)))
+            def toggle_rfb(i=idx, v=rfb_var):
+                self.app.params["operations"][i]["reach_follow_blank"] = v.get()
+                if v.get():
+                    self._refresh_auto_reach()   # fill reach now so the field reflects it
+                self.on_op_select(None, _flush=False)  # rebuild editor to show new reach
+                self._start_async_calc()
+            ttk.Checkbutton(f_rfb, variable=rfb_var, command=toggle_rfb).pack(side="right")
+            self.helper.bind_tooltip(f_rfb,
+                "Reach'i sac flanşına KİLİTLE (opt-in, #61 B): start_z/end_z değiştikçe reach "
+                "otomatik olarak kalan flanşa göre yeniden hesaplanır — çıkış hep sacın ucunu "
+                "'öper'. Yukarıdaki manuel reach'i geçersiz kılar. Sac Yarıçapı gerekir. TAHMİN.")
+
+            self._add_prop_entry(idx, "reach_blank_factor", t("lbl_reach_factor"), op, is_float=True,
+                                 tooltip="Sactan hesaplanan reach'i ÇARPAN ile ölçekler. Reach⟲ ve "
+                                         "'Reach sacı takip etsin' değerine uygulanır.\n"
+                                         "1.00 = tam sac ucunu öp (varsayılan), 0.90 = %90 (ucundan "
+                                         "önce dur), 1.10 = %110 (ucunu geç).\n"
+                                         "Boş = 1.00.")
 
             self._add_section_header("pass_angle", t("lbl_pass_angle_hdr"))
 
@@ -2476,6 +2547,174 @@ class ProgramTab:
         Ae = float(op.get("progressive_angle_end", 180.0)) if prog_a else As
         return [{"z": lerp(Zs, Ze, i), "angle": (lerp(As, Ae, i) if prog_a else As)}
                 for i in range(C)]
+
+    def _blank_reach_values(self, op):
+        """Flange-model reach for an op → (r_start, r_end, fanned), or None if not
+        computable (wrong type / no blank / fully consumed). Shared by the manual Reach⟲
+        button and the auto 'reach follows blank' refresh (#61 option B)."""
+        if op.get("type") in ("cutting", "bending"):
+            return None
+        R = float(self.app.params.get("blank_radius", 0.0) or 0.0)
+        if R <= 0:
+            return None
+        from process_planner import estimate_flange_reach
+        mgr = self.app.mandrel_mgr
+        top_z = float(mgr.props.get("top_z", op.get("end_z") or 0.0))
+        start_z = float(op.get("start_z", 10.0))
+        end_z = float(op["end_z"]) if op.get("end_z") is not None else top_z
+        r_start = estimate_flange_reach(mgr, R, start_z)
+        r_end = estimate_flange_reach(mgr, R, end_z)
+        if r_start <= 0 and r_end <= 0:
+            return None
+        # Optional operator modifier: scale the blank-derived reach by a factor (default 1.0
+        # = kiss the exact flange edge; 0.9 = 90% of it, stop short; 1.1 = 10% past). Applied
+        # to both base and top of the fan.
+        _fac = op.get("reach_blank_factor", 1.0)
+        try:
+            factor = float(_fac) if _fac not in (None, "") else 1.0
+        except (TypeError, ValueError):
+            factor = 1.0
+        r_start = max(r_start * factor, 0.0)
+        r_end = max(r_end * factor, 0.0)
+        fanned = int(op.get("count", 1)) > 1 and op.get("pass_angle") is not None
+        return (round(r_start, 2), round(r_end, 2), fanned)
+
+    def _apply_blank_reach(self, op, vals):
+        """Write flange-model reach into an op: reach (base flange) + progressive-reach
+        fan end (top flange) when the op is a progressive-angle multi-pass op."""
+        r_start, r_end, fanned = vals
+        op["reach"] = r_start
+        if fanned:
+            op["progressive_reach_enabled"] = True
+            op["progressive_reach_end"] = r_end
+
+    def _refresh_auto_reach(self):
+        """Opt-in #61 (option B): for every op flagged ``reach_follow_blank``, recompute
+        reach from the blank flange so the exit keeps KISSING the blank edge as start_z/
+        end_z change. Silent — called before each program-tab recalc. Returns True if any
+        op changed (so the tree can refresh)."""
+        changed = False
+        for op in self.app.params.get("operations", []):
+            if not op.get("reach_follow_blank"):
+                continue
+            vals = self._blank_reach_values(op)
+            if vals:
+                self._apply_blank_reach(op, vals)
+                changed = True
+        if changed:
+            try:
+                self.refresh_ops_tree()
+            except Exception:
+                pass
+        return changed
+
+    def compute_reach_from_blank(self):
+        """Opt-in (#61 step 4): estimate the selected op's reach from the remaining blank
+        flange and FILL the reach field(s) — never silent. Uses the area-equivalence flange
+        model (radial overhang from the clamped base). For a progressive-angle multi-pass op
+        it also fans progressive_reach_end (bigger flange at the base → smaller near the top).
+        The value is a starting estimate: the operator reviews it before running."""
+        sel = self.tree_ops.selection()
+        if not sel:
+            messagebox.showinfo(t("msg_reach_title"), t("msg_reach_noselect"))
+            return
+        try:
+            idx = int(sel[0])
+        except (ValueError, IndexError):
+            return
+        ops = self.app.params.get("operations", [])
+        if idx >= len(ops):
+            return
+        op = ops[idx]
+        if op.get("type") in ("cutting", "bending"):
+            messagebox.showinfo(t("msg_reach_title"), t("msg_reach_badtype"))
+            return
+        R = float(self.app.params.get("blank_radius", 0.0) or 0.0)
+        if R <= 0:
+            messagebox.showinfo(t("msg_reach_title"), t("msg_reach_noblank"))
+            return
+        # Guard against a DIAMETER typed into the (radius) Sheet Radius field — the classic
+        # mistake that doubles the blank and roughly triples the estimated reach. Warn if the
+        # blank radius exceeds 2.5× the mandrel base radius; still allow (operator judgement).
+        base_r = float(self.app.mandrel_mgr.props.get("br", 0.0) or 0.0)
+        if base_r > 1.0 and R > base_r * 2.5:
+            if not messagebox.askyesno(t("msg_reach_title"),
+                                       t("msg_reach_diam").format(r=R, b=base_r)):
+                return
+        vals = self._blank_reach_values(op)
+        if not vals:
+            messagebox.showinfo(t("msg_reach_title"), t("msg_reach_zero"))
+            return
+        self._apply_blank_reach(op, vals)
+        r_start, r_end, fanned = vals
+
+        self.refresh_ops_tree()
+        self.tree_ops.selection_set(str(idx))
+        self.on_op_select(None, _flush=False)
+        self._start_async_calc()
+        if fanned:
+            messagebox.showinfo(t("msg_reach_title"),
+                                t("msg_reach_done_fan").format(rs=round(r_start, 2),
+                                                               re=round(r_end, 2)))
+        else:
+            messagebox.showinfo(t("msg_reach_title"),
+                                t("msg_reach_done").format(r=round(r_start, 2)))
+
+    def compute_angle_from_surface(self):
+        """Opt-in (#61): estimate the selected op's progressive-angle fan END from the
+        mandrel surface and FILL it — never silent. The exit that lays material along the
+        wall points along the surface tangent at the op's end Z; converting that to the
+        pass-angle frame gives the fan-end angle (cylinder → 180°, cone → the wall slope).
+        The value is a starting estimate: the operator confirms the forming direction and
+        reviews it before running."""
+        sel = self.tree_ops.selection()
+        if not sel:
+            messagebox.showinfo(t("msg_angle_title"), t("msg_reach_noselect"))
+            return
+        try:
+            idx = int(sel[0])
+        except (ValueError, IndexError):
+            return
+        ops = self.app.params.get("operations", [])
+        if idx >= len(ops):
+            return
+        op = ops[idx]
+        if op.get("type") in ("cutting", "bending"):
+            messagebox.showinfo(t("msg_angle_title"), t("msg_reach_badtype"))
+            return
+        if op.get("pass_angle") in (None, ""):
+            messagebox.showinfo(t("msg_angle_title"), t("msg_angle_nopassangle"))
+            return
+
+        from process_planner import estimate_surface_angle
+        mgr = self.app.mandrel_mgr
+        start_z = float(op.get("start_z", 0.0))
+        end_z = float(op["end_z"]) if op.get("end_z") is not None else start_z
+        forming_up = end_z >= start_z  # tangent points the way the passes travel in Z
+        theta_end = estimate_surface_angle(mgr, end_z, forming_up)  # deg from +X
+
+        # Approach direction θ_A (same convention as the path engine): linear approach is a
+        # pure -Z entry (-90°); a spline entry follows the P1 offset direction.
+        shape = op.get("pass_shape", "spline")
+        if shape in ("linear_approach", "linear_full"):
+            theta_a = -90.0
+        else:
+            px, pz = abs(float(op.get("p1_x", 0.0))), abs(float(op.get("p1_z", 0.0)))
+            theta_a = math.degrees(math.atan2(-pz, px)) if px > 0.001 else -90.0
+
+        ang_end = round(theta_end - theta_a, 1)
+        op["progressive_angle_end"] = ang_end
+        if int(op.get("count", 1)) > 1:
+            op["progressive_angle_enabled"] = True  # fan only takes effect with >1 pass
+
+        self.refresh_ops_tree()
+        self.tree_ops.selection_set(str(idx))
+        self.on_op_select(None, _flush=False)
+        self._start_async_calc()
+        messagebox.showinfo(t("msg_angle_title"),
+                            t("msg_angle_done").format(a=ang_end,
+                                                       s=round(theta_end, 1),
+                                                       p=round(theta_a, 1)))
 
     def open_split_op(self):
         """Split the selected multi-pass op into contiguous chunk-ops (#64). Opens the

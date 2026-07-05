@@ -15,6 +15,7 @@ from ui.tabs.machine_tab import MachineTab
 from ui.dialogs.tool_manager import ToolManager
 import i18n
 from i18n import t, set_language, get_language, LANGUAGES, LANGUAGE_NAMES
+from version import APP_VERSION
 
 logger = logging.getLogger("SpinningCam")
 
@@ -28,7 +29,7 @@ class SpinningCamWindow(tk.Tk):
         except: pass
 
         self.app = SpinningApp(headless=True)
-        self.title(f"EMS SoftSpinner V{self.app.params.get('app_version', '?')}")
+        self.title(f"EMS SoftSpinner V{APP_VERSION}")
 
         # Load saved language before building UI
         saved_lang = self.app.params.get("language", "EN")
@@ -59,7 +60,7 @@ class SpinningCamWindow(tk.Tk):
 
         self.app.plotter.show(auto_close=False, interactive_update=True)
 
-        self.after(600, self.load_step_prompt)
+        self.after(600, self._startup_tasks)
         self.check_sim_loop()
         self._create_menu()
 
@@ -281,7 +282,8 @@ class SpinningCamWindow(tk.Tk):
         # Optional customer settings applied first; machine profile overrides last
         if settings:
             from machine_loader import MACHINE_PROFILE_KEYS
-            _mkeys = set(MACHINE_PROFILE_KEYS) | {"machine_id", "machine_name"}
+            # app_version is a BUILD constant (version.py), never carried from a saved file.
+            _mkeys = set(MACHINE_PROFILE_KEYS) | {"machine_id", "machine_name", "app_version"}
             # Exclude underscore-prefixed keys — those are internal session state and
             # must not be carried over from a customer settings file (they would
             # overwrite _last_license_path / _last_settings_path with stale paths).
@@ -317,7 +319,7 @@ class SpinningCamWindow(tk.Tk):
         frame_header.pack_propagate(False)
         tk.Label(frame_header, text="EMS SoftSpinner", bg="#222222", fg="#aaaaaa",
                  font=("Arial", 9)).pack(side="left", padx=10)
-        tk.Label(frame_header, text=f"v{self.app.params.get('app_version', '?')}", bg="#222222", fg="#ffffff",
+        tk.Label(frame_header, text=f"v{APP_VERSION}", bg="#222222", fg="#ffffff",
                  font=("Arial", 10, "bold")).pack(side="right", padx=12)
 
         # Status bar packed BEFORE the paned area so the pane gets the rest.
@@ -460,7 +462,7 @@ class SpinningCamWindow(tk.Tk):
                 lbl_logo = tk.Label(self.sidebar, image=self.logo_img)
                 lbl_logo.pack(side="top", pady=5)
 
-                tk.Label(self.sidebar, text=f"V{self.app.params.get('app_version', '?')}", font=("Arial", 9, "bold"), fg="#555").place(relx=0.98, rely=0.01, anchor="ne")
+                tk.Label(self.sidebar, text=f"V{APP_VERSION}", font=("Arial", 9, "bold"), fg="#555").place(relx=0.98, rely=0.01, anchor="ne")
         except: pass
 
     def _set_sim_lines_visibility(self, visible: bool):
@@ -479,6 +481,16 @@ class SpinningCamWindow(tk.Tk):
             pos = self.app.sim_controller.current_pos
             rad = self.app.sim_controller.current_radius
             tilt = self.app.sim_controller.current_tilt
+
+            # #63: as the sim advances pass-by-pass, bend the deformed blank to the current
+            # pass (only when it changes; the render below shows it).
+            sp = self.app.sim_controller.current_pass_idx
+            if sp >= 0 and sp != getattr(self, "_sim_last_blank_pass", -2):
+                self._sim_last_blank_pass = sp
+                self.app.active_editing_pass_idx = sp
+                try: self.app.update_deformed_blank(render=False)
+                except Exception: pass
+
             if pos is not None:
                 self.app.update_roller_visual(pos, rad, tilt_deg=tilt)
                 try:
@@ -493,6 +505,7 @@ class SpinningCamWindow(tk.Tk):
 
             self.after(20, self.check_sim_loop)
         else:
+            self._sim_last_blank_pass = -2   # #63: reset so the next sim run redraws fresh
             if getattr(self, "_sim_lines_hidden", False):
                 self._set_sim_lines_visibility(True)
                 try: self.app.plotter.render()
@@ -546,6 +559,49 @@ class SpinningCamWindow(tk.Tk):
             msg += f"  |  {t('status_transit')}"
 
         self.lbl_monitor.config(text=msg)
+
+    def _startup_tasks(self):
+        """Auto-load the last STEP (no prompt), then show the changelog if it's a new version."""
+        self._auto_load_step()
+        self._maybe_show_changelog()
+
+    def _auto_load_step(self):
+        """Load the last-used STEP automatically if it still exists; only prompt if it's
+        missing or none was ever set. Avoids asking for the file on every launch."""
+        last = self.app.params.get("last_step_path", "")
+        if last and os.path.isfile(last):
+            try:
+                self.app.load_step_file(last)
+                logger.info(f"Auto-loaded last STEP: {last}")
+                return
+            except Exception as e:
+                logger.warning(f"Auto-load of last STEP failed ({e}); prompting.")
+        self.load_step_prompt()
+
+    def _maybe_show_changelog(self):
+        """Show the 'What's New' dialog once when the app version is newer than the last
+        one the user acknowledged with 'Don't show again'."""
+        try:
+            from version import APP_VERSION
+            import changelog
+            sections = changelog.entries_since(
+                self.app.params.get("changelog_seen_version", ""), APP_VERSION)
+            if not sections:
+                return
+            from ui.dialogs.changelog_window import ChangelogWindow
+            ChangelogWindow(self, APP_VERSION, sections, self._on_changelog_confirm)
+        except Exception as e:
+            logger.warning(f"Changelog window skipped: {e}")
+
+    def _on_changelog_confirm(self, dont_show):
+        """Persist the seen version only if the user ticked 'Don't show again'."""
+        if dont_show:
+            from version import APP_VERSION
+            self.app.params["changelog_seen_version"] = APP_VERSION
+            try:
+                self.app.save_settings_json()
+            except Exception as e:
+                logger.warning(f"Could not save changelog_seen_version: {e}")
 
     def load_step_prompt(self):
         path = filedialog.askopenfilename(

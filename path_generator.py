@@ -373,8 +373,17 @@ class PathGenerator:
                 if not is_finish and i == count - 1:
                     _fr = math.sqrt(p3_x ** 2 + p3_z ** 2)
                     self.last_op_reach[op_index] = _fr
-                    self.last_op_end_angle[op_index] = (
-                        math.degrees(math.atan2(p3_z, p3_x)) if _fr > 1e-6 else 0.0)
+                    # Report the end angle in the SAME frame the operator authors in.
+                    # In pass-angle mode that is _eff_angle (the last pass's pass_angle,
+                    # incl. the progressive fan end) measured relative to the approach
+                    # direction θ_A — directly comparable to the Pass Angle field.
+                    # In raw exit mode there is no pass-angle frame, so fall back to the
+                    # absolute exit direction from +X.
+                    if _pa_deg is not None:
+                        self.last_op_end_angle[op_index] = _eff_angle
+                    else:
+                        self.last_op_end_angle[op_index] = (
+                            math.degrees(math.atan2(p3_z, p3_x)) if _fr > 1e-6 else 0.0)
 
                 if count <= 1:
                     target_z = start_h
@@ -405,11 +414,24 @@ class PathGenerator:
                 # / rotation off); auto-rotated splines rotate P3 about P2, so it is
                 # approximate there (documented; verify per case).
                 if _reach_v is not None:
+                    # GUARD (fold-back + overlap): the clearance cancellation must not push a
+                    # forward exit PAST the commanded direction. Near a ~180° fan the exit X
+                    # shrinks to ~0; subtracting the full clearance would flip it negative
+                    # (fold past vertical, >180° effective). Do NOT clamp the component to 0
+                    # either — that would collapse every sub-clearance near-vertical pass onto
+                    # the SAME vertical line (overlapping passes). Instead subtract the
+                    # clearance ONLY while the component stays >= 0; otherwise KEEP the
+                    # commanded exit, so each pass retains its distinct angle. Reach becomes
+                    # slightly clearance-dependent at those extreme angles (accepted:
+                    # distinctness/geometry wins over exact anchoring there).
                     if conformal:
-                        p3_x -= op_clearance * nx
-                        p3_z -= op_clearance * nz
+                        if p3_x - op_clearance * nx >= 0.0:
+                            p3_x -= op_clearance * nx
+                        if p3_z - op_clearance * nz >= 0.0:
+                            p3_z -= op_clearance * nz
                     else:
-                        p3_x -= op_clearance
+                        if p3_x - op_clearance >= 0.0:
+                            p3_x -= op_clearance
 
                 pass_label = f"{op.get('type').capitalize()} {i+1}"
                 

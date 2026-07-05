@@ -11,6 +11,7 @@ class SimulationController:
         
         self.is_running = False
         self.current_pos = None
+        self.current_pass_idx = -1   # path index the sim is currently playing (#63 overlay)
         self.current_radius = 25.0
         self.current_tilt = None   # B tilt (deg) at current point — tilt-arm machines only
         self.current_tool_id = ""
@@ -132,6 +133,7 @@ class SimulationController:
                             ct = tilts[cut_counter]
                             if ct is not None and len(ct) == len(path):
                                 cut_tilts = ct
+                        self.current_pass_idx = cut_counter   # #63: drives the deformed blank
                         cut_counter += 1
 
                         step_delay = 0.002
@@ -157,6 +159,7 @@ class SimulationController:
                 for pass_idx, path in enumerate(paths):
                     if not self.is_running: break
 
+                    self.current_pass_idx = pass_idx   # #63: drives the deformed blank
                     self.current_radius = default_rad
                     cut_tilts = None
                     if tilts is not None and pass_idx < len(tilts):
@@ -185,6 +188,7 @@ class SimulationController:
             self.is_running = False
             self.is_paused = False
             self.current_pos = None
+            self.current_pass_idx = -1
             self.current_tilt = None
             self.current_tool_id = ""
             logger.info("Simulation Thread Finished.")

@@ -107,6 +107,14 @@ the previous op's last-pass end-state into the new op **once**, then the new op 
 independent. No live dependency graph — safer given the #56 delete/reorder history.
 (User confirmed 2026-07-05: likes the single-button approach over parameter fiddling.)
 
+**⛔ ATTEMPTED & REMOVED (2026-07-05e).** Built P3-handle drag → per-pass override
+(`pass_overrides`) via VTK `add_sphere_widget`; the engine override layer was headless-tested
+and solid, but the **VTK widget interaction never stabilized** (small drag → huge angle/reach
+jumps, period-2 long/short oscillation, crashes). Untestable in the headless dev env. Fully
+reverted (UI + engine override) — see LAST_CHANGES 2026-07-05e. **Future retry: do NOT use a
+sphere-widget; consider point-picking + a constrained-to-XZ handle, or an entry-field / numeric
+nudge UI instead of free 3D drag.** The engine per-pass-override design is in git history.
+
 **NEW (user, 2026-07-05) — interactive 3D drag editing (the real "drag" request).** The
 user doesn't want to drag rows in a list — he wants to **grab a pass in the 3D view, drag
 it, then hit Calculate** to re-run with the modified parameters. Feasible: the view is
@@ -181,14 +189,15 @@ instead of two coupled offsets the operator has to reverse-engineer.
    independently, direction read from p3.
 2. **Continue from previous op** — one-shot button filling start_x/start_z/angle/reach
    from the prior op's last-pass end-state. Enables the "reverse pass = last forward pass"
-   case directly. **⏳ IMPLEMENTED 2026-07-05 (headless-verified, GUI smoke + commit
-   PENDING).** "Continue ⤵" toolbar button → `continue_from_previous()` +
+   case directly. **✅ GUI CONFIRMED 2026-07-05 (user) — commit PENDING.** "Continue ⤵"
+   toolbar button → `continue_from_previous()` +
    testable `_continue_fill_values()`. Copies Start Z (prev end), angle (pass_angle / fan
    end / raw p3 ratio), reach, clearance; tool NOT copied; then op is independent. Uses
    computed `last_op_end_z`/`last_op_reach`, param fallback if uncalculated. `_test_continue.py`
    passes. See LAST_CHANGES 2026-07-05.
-3. **Hold reach, change clear** — change clearance while keeping reach (contact point)
-   fixed; now a one-value operation.
+3. **Hold reach, change clear** — ✅ EFFECTIVELY DELIVERED by step 1 (2026-07-05). Because
+   reach is now CLEARANCE-INDEPENDENT, changing an op's clearance already keeps the exit end
+   fixed — no separate helper needed. (Low-clearance gouge still safety-corrected.)
 4. **Auto-calculate reach from blank radius (user, 2026-07-04) — the "fixes all reaching
    problems" button.** The blank radius is already known. For a pass at target Z, compute
    the **remaining (unformed) blank/flange size at that Z** and set `reach` so the exit
@@ -210,6 +219,15 @@ instead of two coupled offsets the operator has to reverse-engineer.
    - **Per pass** — each pass computes its own reach from the remaining blank at *its own*
      target Z (naturally shrinks as passes climb toward the flange; dovetails with #57
      progressive reach).
+   - **✅ IMPLEMENTED v1 2026-07-05 (opt-in, headless-verified, PHYSICAL validation + GUI
+     smoke PENDING).** Model confirmed with user: accounting ALWAYS from the clamped base
+     (min-Z), CLOSED flat bottom → `Rc(Z)²=r_base²+2Σ(base..Z)r·ds`; flange overhang
+     `√(r(Z)²+R_blank²−Rc²)−r(Z)`; **RADIAL** measure (user chose radial v1; tangent deferred
+     for steep walls). Orientation-proof (user: "varies by part").
+     `process_planner.estimate_flange_reach()` + opt-in **Reach⟲** toolbar button
+     (`compute_reach_from_blank`) that FILLS `reach` (and fans `progressive_reach_end` for
+     progressive-angle multi-pass ops) — never silent, labeled ESTIMATE. `_test_flange_reach.py`
+     (top→0, base=R−r_base, monotonic). See LAST_CHANGES 2026-07-05.
    - Implementation hook: **`process_planner.analyze_profile()` already computes** the
      profile arc-length segments (`ds`), `surface_len`, and a `blank_radius_suggested`.
      And `blank_radius` is a real param (`main.py:89`, auto-set to mandrel base ×1.1 on
@@ -297,18 +315,49 @@ the **unformed flange** sticking out from that height along the profile tangent 
 remaining-blank length from the area/arc model). As forming progresses the formed height
 advances and the flange shrinks.
 
-**DECIDED (user, 2026-07-05): show the SELECTED operation's end-state** — the overlay
-updates as the operator clicks through ops, showing how far the sheet is formed after that
-op. Best for tuning reach per op. (Rejected: whole-program final shape / animated
-progression — animation could come later as a nice-to-have.)
+**DECIDED (user, 2026-07-05b): PER-PASS, not per-op.** The overlay should show the formed
+shape after each individual **pass**, driven by a **"formed-up-to Z" = running max contact
+Z through pass k** (robust to reverse passes). Supersedes the earlier per-op end-state
+decision. Two access modes:
+- **Static scrubber** — a pass slider/spinner to preview any pass without playing (needed
+  because the ops tree selects OPERATIONS, not passes — this is the main *new* UI work).
+- **Simulation animation (user wants this)** — as the sim plays pass-by-pass, the blue
+  blank deforms in step (formed height climbs, flange shrinks). Per-pass + animation are
+  effectively the same feature.
+
+**Build order (incremental, all visual):**
+1. Faded-blue surface-of-revolution overlay driven by a single "formed Z" (works per-op
+   immediately from `last_op_end_z`). **✅ PHASE 1 IMPLEMENTED 2026-07-05b (headless-verified,
+   GUI smoke PENDING).** `main.update_deformed_blank()` builds the formed wall (mandrel r +
+   blank thickness, clamp-top→formed Z) + flat flange annulus (`estimate_flange_reach`)
+   revolved via pyvista `extrude_rotate`; faded blue opacity 0.30. Driven by
+   `_deformed_op_idx` (set in `program_tab.on_op_select`), formed Z read fresh from
+   `last_op_end_z` each draw. Toggle param `show_deformed_blank` (default on). Called from
+   `_update_scene_impl` + on op-select. `_test_deformed_blank.py` passes (valid mesh, spans
+   base→formed, flange present, tracks formed height). NO toolpath/G-code impact.
+2. Per-pass running-max formed-Z (small `path_generator` addition where passes are already
+   generated) + pass scrubber → per-pass static preview.
+3. Drive the current pass from `simulation_controller` → the deforming animation.
+   **✅ DONE 2026-07-05c (user confirmed "you made it right").** FINAL MODEL = toolpath-based:
+   revolve the selected pass's own toolpath (P2→P3) pulled in by r_tool → follows the pass's
+   angle+reach exactly (the mandrel-profile/flange-area models were scrapped). Sim: controller
+   `current_pass_idx` → `check_sim_loop` bends the blank pass-by-pass while playing.
+   `deformed_blank_offset` param tunes radial position. GUI smoke on the sim PENDING.
+
+**FUTURE (user, 2026-07-05b): material spring-back.** After forming, the surface relaxes
+slightly (radius grows / angle opens) by a material-dependent factor. Add a `springback`
+coefficient to `materials.json`; the overlay shows the relaxed shape. Purely geometric on
+the overlay — NO toolpath/G-code impact. Later refinement, not phase 1.
 
 **Implementation notes:**
 - Additive to `main.py update_scene`. The view already renders a flat blank disc
   (`main.py:666`) and shell meshes (`mandrel_analyzer.generate_shell_mesh`) — reuse that
   machinery to build the deformed surface; set low opacity (~0.3) + blue.
 - Inputs already exist: `blank_radius`, the profile arc-length/area model
-  (`process_planner.analyze_profile`), and per-op end Z (`last_op_end_z`).
-- Depends on #61 step 4 (flange model) and #62 (clamp-zone anchor) — build after those.
+  (`process_planner.analyze_profile`), per-op end Z (`last_op_end_z`); per-pass needs the
+  new running-max contact-Z array. Flange math = `process_planner.estimate_flange_reach`.
+- Depends on #61 step 4 (flange model ✅ done) and #62 (clamp-zone anchor ✅ phase 1 done)
+  — prerequisites now in place, buildable.
 - **Risk:** low–medium, purely visual; no toolpath/G-code impact.
 
 ### 64. Split operation into pass-chunks (→ reorder to interleave reverse passes)
@@ -340,7 +389,7 @@ the chunks stay first-class, independently tunable operations (not a hidden over
 
 **DECIDED (user, 2026-07-05): visual window with dividers** — a dialog lists the op's
 passes; click between passes to drop dividers → chunks.
-**✅ IMPLEMENTED 2026-07-05 (headless-verified, GUI smoke + commit PENDING).**
+**✅ GUI CONFIRMED 2026-07-05 (user) — commit PENDING.**
 `_split_op(op, sizes, end_z_fallback)` (pure, exact) + `_pass_previews` + `open_split_op` +
 `SplitOpDialog` (ui/dialogs/split_op_dialog.py) + `btn_split` toolbar + i18n. `_test_split.py`
 proves union of chunks == original forming toolpaths (prog angle+reach, constant, raw p3,
@@ -350,6 +399,23 @@ reverse ops. See LAST_CHANGES 2026-07-05.
 **Caveats:** after splitting you have N ops instead of 1 (tuning the whole sweep as one is
 gone — that's the trade for per-chunk flexibility). Clearance safety-correction is per-pass
 so it reproduces; only inter-op rapids differ (expected). Not started.
+
+### 65. Simulation mode — future improvements (backlog, opened 2026-07-05c)
+
+**Context:** the sim now drives the deformed-blank overlay pass-by-pass (#63 phase 3, done).
+This item collects ideas to make simulation richer/more useful later. None started.
+
+- **Deformed-blank in sim polish:** smooth the blank between passes (currently snaps per pass),
+  optionally accumulate the formed shape across passes rather than showing only the current
+  pass; restore the pre-sim selected pass when the sim ends (currently leaves it on the last).
+- **Spring-back overlay during sim** (ties to #63 future): show material relax as it forms.
+- **Scrubbable timeline / seek:** jump to a pass or % of the program, not just play/step.
+- **Speed + per-op feed-true timing:** play at real cycle-time proportions (feed/speed aware),
+  live cycle-time readout synced to the roller position.
+- **Collision / clamp-zone / workspace-limit flags surfaced live** while playing.
+- **Record / export a sim clip** (screenshots or video) for operator hand-off (ties to #53
+  teach mode / dry-run).
+- **Multi-view or section view** during sim so the operator sees roller vs. wall clearance.
 
 ---
 

@@ -49,7 +49,12 @@ class SpinningApp:
             "ref_points": [], "ref_point_labels": [],
             "tip_dist": [], "ref_point_dist": [],
             "mandrel_dims": [],
+            "clamp_zone": None, "deformed_blank": None,
         }
+        # #63 phase 1: selected op index driving the faded-blue deformed-blank overlay;
+        # its formed Z is read fresh from path_gen.last_op_end_z each draw (survives recalc).
+        # None = no overlay.
+        self._deformed_op_idx = None
 
         # 4. Setup Plotter & UI
         self.plotter = pv.Plotter(window_size=(1000, 800), title="SpinningCam3D")
@@ -140,6 +145,11 @@ class SpinningApp:
             "clamp_zone_length": 0.0,
             "clamp_zone_baseline": 0.0,
 
+            # #63: show the faded-blue deformed-blank overlay (follows the selected pass).
+            "show_deformed_blank": True,
+            # #63: radial nudge (mm) for the overlay — +out / -in — to tune its position.
+            "deformed_blank_offset": 0.0,
+
             # Cylinder
             "cylinder_show": True,
             "cylinder_enabled": True,
@@ -156,8 +166,11 @@ class SpinningApp:
             # Internal: last loaded STEP path (used to avoid overwriting blank_radius on same-file reload)
             "last_step_path": "",
 
-            # Application version — change this in settings.json to update the version label
+            # Application version — forced from version.APP_VERSION after settings load
+            # (settings.json can never pin a stale version). See changelog.py.
             "app_version": "1.002",
+            # Last app version whose changelog the user acknowledged with "Don't show again".
+            "changelog_seen_version": "",
 
             # Operation parameter presets — saved per op type (roughing/finishing/cutting/bending)
             "op_presets": {},
@@ -196,6 +209,13 @@ class SpinningApp:
                 logger.error(f"Settings JSON incomplete or corrupt: {e}")
         else:
             logger.warning("Settings file not found! Using defaults.")
+        # Version is a property of the BUILD, not the saved settings — force it from code
+        # so an old settings.json can never display/compare a stale version (changelog).
+        try:
+            from version import APP_VERSION
+            default_params["app_version"] = APP_VERSION
+        except Exception as e:
+            logger.warning(f"Could not force app_version from version.py: {e}")
         try:
             from config_schema import migrate_clearance
             migrate_clearance(default_params)
@@ -459,6 +479,67 @@ class SpinningApp:
                 self.plotter.render()
             except Exception:
                 pass
+
+    def _rtool_for_pass(self, k):
+        """Roller radius r_tool of the op that owns global pass index k."""
+        ops = self.params.get("operations", [])
+        total = 0
+        for op in ops:
+            if not op.get("enabled", True):
+                continue
+            span = int(op.get("count", 1)) * (2 if op.get("back_pass_enabled") else 1)
+            if k < total + span:
+                return float(op.get("r_tool", 25.0) or 25.0)
+            total += span
+        return float(ops[0].get("r_tool", 25.0) or 25.0) if ops else 25.0
+
+    def update_deformed_blank(self, render=False):
+        """(#63) Faded-blue overlay of the blank as bent by the SELECTED pass. Built DIRECTLY
+        from the pass's own toolpath (contact P2 → exit P3), pulled in by the tool radius so it
+        sits on the sheet — so it FOLLOWS THE PASS'S ANGLE AND REACH exactly, and updates as you
+        step passes. Purely visual — position/thickness not to scale (tune with
+        ``deformed_blank_offset``). ``render=True`` forces a redraw when called standalone."""
+        if self.actors.get("deformed_blank"):
+            try: self.plotter.remove_actor(self.actors["deformed_blank"])
+            except Exception: pass
+        self.actors["deformed_blank"] = None
+        if not self.params.get("show_deformed_blank", True):
+            if render:
+                try: self.plotter.render()
+                except Exception: pass
+            return
+        try:
+            paths = getattr(self.path_gen, "last_calculated_paths", None)
+            if paths:
+                import numpy as _np, pyvista as _pv
+                k = int(getattr(self, "active_editing_pass_idx", len(paths) - 1))
+                k = max(0, min(k, len(paths) - 1))
+                p = paths[k]
+                if p is not None and len(p) >= 2:
+                    pts = _np.asarray(p, dtype=float)
+                    cx = float(self.params.get("mandrel_pos_x_offset", 0.0))
+                    r_tool = self._rtool_for_pass(k)
+                    off = float(self.params.get("deformed_blank_offset", 0.0) or 0.0)
+                    ci = int(_np.argmin(_np.abs(pts[:, 0] - cx)))   # contact P2
+                    seg = pts[ci:]                                   # forming stroke → exit P3
+                    if len(seg) < 2:                                 # nothing to revolve (guard)
+                        raise ValueError("empty pass segment")
+                    # Sheet radius = roller-path radius pulled IN by the tool radius (+ optional
+                    # visual offset). The segment's slope IS the pass angle; its length IS reach.
+                    radial = _np.maximum(_np.abs(seg[:, 0] - cx) - r_tool + off, 0.1)
+                    prof = _np.column_stack([radial, _np.zeros(len(seg)), seg[:, 2]])
+                    surf = _pv.lines_from_points(prof).extrude_rotate(
+                        angle=360.0, resolution=60, capping=False, rotation_axis=(0, 0, 1))
+                    if abs(cx) > 1e-9:
+                        surf = surf.translate((cx, 0.0, 0.0), inplace=False)
+                    self.actors["deformed_blank"] = self.plotter.add_mesh(
+                        surf, color=(0.20, 0.55, 1.0), opacity=0.40, style="surface",
+                        smooth_shading=True)
+        except Exception as e:
+            logger.warning(f"Deformed-blank overlay failed: {e}")
+        if render:
+            try: self.plotter.render()
+            except Exception: pass
 
     def _update_scene_impl(self, update_type="all", force_path_calc=False, use_cached_paths=False):
         # --- HESAPLAMALAR ---
@@ -1015,6 +1096,9 @@ class SpinningApp:
 
         # 4. Roller & Measurement
         if update_type in ["all", "paths", "visual"]:
+            # Deformed-blank overlay (#63) — redraws here so it tracks the active pass
+            # (pass-stepping calls update_scene("paths")). Faded blue, purely visual.
+            self.update_deformed_blank(render=False)
             if self.actors["roller"]: self.plotter.remove_actor(self.actors["roller"])
             if self.actors.get("roller_tip"): self.plotter.remove_actor(self.actors["roller_tip"]); self.actors["roller_tip"] = None
 
@@ -1313,9 +1397,11 @@ class SpinningApp:
         if new_val is not None:
             self.update_slider_and_param(key, new_val, slider_widget, mode)
             
-    def cb_idx(self, v): 
+    def cb_idx(self, v):
         self.active_editing_pass_idx = int(round(v))
         self.update_scene("paths")
+        # #63: refresh the deformed-blank overlay for the newly selected pass (cheap; no recalc).
+        self.update_deformed_blank(render=True)
         
     def cb_scroll(self, v): 
         self.params["last_scroll_val"] = v

@@ -217,6 +217,66 @@ def analyze_profile(mandrel_mgr) -> dict:
     }
 
 
+def estimate_flange_reach(mandrel_mgr, blank_radius, contact_z):
+    """First-order estimate of the unformed FLANGE overhang at forming height ``contact_z``
+    (TODO #61 step 4) — the suggested per-pass reach.
+
+    Same constant-thickness AREA equivalence as ``analyze_profile``: the mandrel surface
+    from the nose up to ``contact_z`` consumes a blank-equivalent radius Rc where
+    ``Rc^2 = r_min^2 + 2*sum(r*ds)`` over that portion. The leftover blank material forms a
+    flat flange at ``contact_z`` whose outer radius is
+    ``R_flange = sqrt(r(z)^2 + R_blank^2 - Rc^2)``; the returned reach is the radial
+    overhang ``R_flange - r(z)``. Decreases monotonically from ``R_blank - r_min`` at the
+    base to 0 once the blank is fully formed.
+
+    Material accounting ALWAYS starts at the clamped base (min-Z, where the counter-press
+    holds the part) and integrates the wall upward, so it is orientation-proof (works whether
+    the radius grows or shrinks away from the base — user: "varies by part"). The base is a
+    CLOSED FLAT BOTTOM (user), so it contributes a disc of radius r(base):
+    ``Rc(Z)^2 = r_base^2 + 2*sum(base..Z) r*ds``.
+
+    ESTIMATE ONLY (constant thickness, flange measured radially). Verify against the real
+    part; meant to seed the reach field, not to be trusted blindly.
+    """
+    z = np.asarray(mandrel_mgr.profile_z, dtype=float)
+    r = np.asarray(mandrel_mgr.profile_r, dtype=float)
+    if len(z) < 2 or not blank_radius or blank_radius <= 0:
+        return 0.0
+    if z[0] > z[-1]:            # ensure ascending in Z (accumulate from the clamped base up)
+        z, r = z[::-1], r[::-1]
+    r_base = float(r[0])        # radius at the clamped base = closed flat-bottom disc radius
+    dz, dr = np.diff(z), np.diff(r)
+    ds = np.sqrt(dz * dz + dr * dr)
+    r_mid = (r[:-1] + r[1:]) / 2.0
+    mask = z[1:] <= float(contact_z)          # wall segments consumed up to contact_z
+    rc2 = r_base * r_base + 2.0 * float((r_mid[mask] * ds[mask]).sum())
+    r_at = float(mandrel_mgr.get_radius_fast(contact_z))
+    r_flange = math.sqrt(max(0.0, r_at * r_at + float(blank_radius) ** 2 - rc2))
+    return max(0.0, r_flange - r_at)
+
+
+def estimate_surface_angle(mandrel_mgr, contact_z, forming_up=True):
+    """Surface tangent direction (deg from +X) at ``contact_z`` — the exit direction that
+    lays material ALONG the mandrel wall (TODO #61: surface-derived fan-end angle).
+
+    The mandrel outward normal is ``(nx, nz) = (dz, -dr)`` (``get_normal_at_z``). The wall
+    tangent is perpendicular to it; the branch pointing along the forming Z direction is:
+        forming_up=True  → (-nz,  nx)   (tangent toward +Z, passes climbing)
+        forming_up=False → ( nz, -nx)   (tangent toward -Z, passes descending)
+    The returned angle is that tangent measured from +X (``atan2(tz, tx)``).
+
+    Sanity: a cylinder (dr=0) → normal (1,0) → tangent (0,1) → 90°, which combined with a
+    linear approach (θ_A=-90°) reproduces the legacy 180° fan-end default. For a cone it
+    returns the wall slope instead.
+
+    ESTIMATE — the forming direction (up vs down the wall) is the operator's to confirm;
+    getting it backwards flips the exit. Verify against the real part before running.
+    """
+    nx, nz = mandrel_mgr.get_normal_at_z(float(contact_z))
+    tx, tz = (-nz, nx) if forming_up else (nz, -nx)
+    return math.degrees(math.atan2(tz, tx))
+
+
 def suggest_operations(mandrel_mgr, params, material, tool_library,
                        blank_diameter=None, blank_thickness=None) -> dict:
     """Builds a suggested op sequence for the loaded mandrel + material.

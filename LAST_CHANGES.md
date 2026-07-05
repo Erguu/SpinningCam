@@ -5,6 +5,186 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-05e — 3D sürükle-düzenle GERİ ÇEKİLDİ (kullanıcı: "hâlâ glitch, kaldıralım")
+
+VTK sphere-widget sürükleme birkaç turdan sonra bile stabil çalışmadı (küçük kaydırma → büyük
+açı/reach sıçraması, periyodik uzun/kısa salınım, çökme). Ortam GUI'siz olduğu için etkileşim
+burada test edilemiyor. TAMAMEN KALDIRILDI:
+- `program_tab`: Drag Edit + Revert⤺ butonları, `toggle_drag_edit`/`_refresh_drag_handle`/
+  `_on_p3_drag`/`_on_drag_release`/`_active_forming_pass`/`revert_active_pass_override`,
+  on_op_select + ◀/▶ kancaları. `var_drag_edit` kaldırıldı.
+- `path_generator`: per-pass override motoru (`pass_overrides` bloğu, `_pass_overridden`,
+  clearance-guard koşulu) GERİ ALINDI → orijinal davranış. ⚠ SONUÇ: sürükleyle bozulan op'lar
+  KENDİLİĞİNDEN düzelir (op["pass_overrides"] verisi artık YOK SAYILIR).
+- `main`: `self._last_cps` deposu kaldırıldı. `i18n`: btn_drag_edit/btn_revert_pass/msg_revert_*
+  kaldırıldı. `_test_pass_override.py` silindi. NOT: `gui_pass_overrides` (ayrı, önceden var olan
+  sistem) DOKUNULMADI.
+Motor testleri (reach, foldback, progressive, real_end_z) GEÇİYOR = path_gen temiz.
+Not: geri-çekilen tasarım git geçmişinde; ileride Customize-mode VTK sphere-widget YERİNE başka
+yolla denenmeli.
+
+## 2026-07-05d — 3D sürükle-düzenle: aktif pasın P3 tutamağı → per-pass override (TODO #61)
+
+Kullanıcı seçti: **P3 (çıkış) tutamağı → reach+açı**, ve **SADECE O PAS** (per-pass override).
+
+### Motor temeli (headless doğrulandı)
+`path_generator` pas döngüsüne **per-pass override** eklendi: `op["pass_overrides"][i] =
+{"angle":..,"reach":..}` (i = forming-pas indeksi, JSON string anahtar) fan'ı geçersiz kılıp O
+PASIN `_eff_angle`/`_L3`'ünü sabitler. Yalnız pass-angle modunda. `_test_pass_override.py` GEÇTİ:
+override'lı pas değişir, diğerleri AYNI, reach 25↔50 ucu tam 25 mm oynatır, boş override =
+birebir eski davranış.
+
+### Sürükle tutamağı (GUI — SMOKE TEST BEKLİYOR, VTK etkileşimi burada doğrulanamaz)
+- `main.update_scene`: `self._last_cps = cps` (pas başına [P1,P2,P3], P3=cps[k][2]).
+- `program_tab`: **"Drag Edit"** toolbar checkbox (opt-in, `toggle_drag_edit`). Açıkken aktif
+  pasın P3'üne `plotter.add_sphere_widget` sarı tutamak. `_on_p3_drag`: yeni P3'ten
+  exit=P3−P2 → reach=|exit|, θ_B=atan2, pass_angle=θ_B−θ_A → `pass_overrides[fi]`'ye yaz,
+  350 ms debounce recalc (sürükleme akıcı kalsın). `_active_forming_pass` (back-pass/yanlış tip
+  atlar), `_refresh_drag_handle` op-seçim + ◀/▶'te tutamağı taşır. i18n `btn_drag_edit`.
+- ⚠ SONRAKİ: gerçek pencerede sürükleme, geri-hesap doğruluğu, recalc sonrası tutamak konumu.
+
+### DÜZELTME (kullanıcı testi 1: "çılgın hareket, ayarlanamıyor")
+Kök neden: override'lı pasa da clearance-bağımsız-reach çıkarması (`p3_x −= clearance`)
+uygulanıyordu → sürüklenen P3 ile motorun yeniden ürettiği P3 uyuşmuyor → her recalc'ta pas
+zıplıyor. Fix: `_pass_overridden` bayrağı; override'lı pas clearance kaydırmasını ATLAR →
+P3 = P2 + reach·(cosθ_B,sinθ_B) TAM sürükleme noktası. Böylece bire-bir, açı/reach op fan'ıyla
+SINIRLI DEĞİL. `_test_pass_override.py` + `_test_reach_foldback.py` GEÇTİ. **Revert⤺ butonu**
+(`revert_active_pass_override`, kullanıcı seçti "düğme, düzenlemeler kalır"): aktif pasın
+override'ını siler → fan varsayılanına döner, diğer paslar korunur. i18n `btn_revert_pass`.
+Kullanıcı testi 2 + terminal kırmızı hataları BEKLİYOR.
+
+## 2026-07-05c — Deforme-blank önizleme faz 1 (#63) + changelog penceresi + STEP oto-yükle + versiyon
+
+### Deforme-blank overlay (TODO #63) — TOOLPATH-tabanlı, pasın açı+reach'ini birebir izler + SİMÜLASYON
+**KULLANICI ONAYLADI (2026-07-05c): "actually you made it right."** Model son hâli: seçili pasın
+GERÇEK toolpath'i (temas P2 → çıkış P3) alınır, tool yarıçapı kadar içeri çekilir, eksende
+döndürülür → yüzey pasın AÇISINI (eğim) ve REACH'ini (boy) yapısı gereği izler. `_rtool_for_pass`,
+`deformed_blank_offset` param (radyal ince ayar). Sığ pas→dışa yaslı, dik(~180°)→dik. Önceki
+mandrel-profil/flanş-alan modelleri ÇÖP (kullanıcı "içeride/merkezden" dedi → toolpath'e geçildi).
+**SİMÜLASYON (faz 3):** `SimulationController.current_pass_idx` (worker'da her cut/pass'te set,
+finally'de -1); `check_sim_loop` bunu izler, değişince `active_editing_pass_idx`'i güncelleyip
+`update_deformed_blank()` çağırır → sim oynarken sac pas-pas bükülür. `_sim_last_blank_pass` ile
+sadece pas değişince çizer. `_test_deformed_blank.py` (toolpath-tabanlı) GEÇTİ. Gelecek: spring-back.
+**MODEL YENİDEN KURULDU (kullanıcı 2026-07-05c): mandrel'e sarılan değil, PAS AÇISINA göre
+bükülen sac.** Kullanıcı seçti: "flanş bu pasın açısı+reach'iyle yaslanır." Alt duvar mandrel'e
+şekillenir (min-Z→pasın temas Z'si), oradan flanş **pasın kendi çıkış vektörü (P2→P3) boyunca
+yaslanır** — yönü = pas açısı (θ_B), boyu = reach. Pas ilerledikçe açı yelpazelenince flanş
+duvara doğru döner (sığ pas→dışa yaslı, ~180°→dikey). `main._active_pass_bend()` aktif pasın
+toolpath'inden P2 (eksene en yakın) + P3 (uç) alır; `update_deformed_blank()` duvar + çıkış-
+vektörü flanşı kurar, `extrude_rotate(angle=360)`; yarıçap eksene taşmaya karşı korunur; vis_off
+ile mandrel/shell'den TAŞKIN çizilir (kalınlık ölçekli DEĞİL). `active_editing_pass_idx` sürer.
+**Canlı yenileme düzeltmesi:** pas-nav ◀/▶ (`go_prev/go_next`) + slider (`cb_idx`) artık
+`update_deformed_blank(render=True)` çağırır (eskiden sadece recolor_paths → Calculate gerekiyordu).
+Toggle `show_deformed_blank`. SALT GÖRSEL. `_test_deformed_blank.py` (pas-tabanlı) GEÇTİ. Sıradaki:
+simülasyon animasyonu; gelecekte spring-back. GUI smoke BEKLİYOR.
+
+### Changelog penceresi + versiyon + STEP oto-yükle
+- **version.py** `APP_VERSION="1.004"` = tek kaynak; ayarlardan yüklenen app_version bunun üstüne
+  ZORLANIR (main.py) + tüm etiketler (title/gri bar/sidebar) doğrudan APP_VERSION okur (eski gri
+  bar v1.003 gösteriyordu — müşteri-ayar yüklemesi params'ı geri yazıyordu; `app_version` artık
+  `_load_machine_profile` clean-update'ten hariç). About metni hâlâ elle 1.002 (ayrı).
+- **changelog.py** sürüm-anahtarlı; **ui/dialogs/changelog_window.py** açılışta yeni sürümde
+  "Yenilikler" penceresi (Tekrar gösterme + OK). `changelog_seen_version` param; `entries_since`.
+- **STEP oto-yükle**: açılışta `last_step_path` varsa sormadan yüklenir (yoksa/eksikse sorar).
+  `main_window._auto_load_step`/`_startup_tasks`/`_maybe_show_changelog`.
+
+## 2026-07-05b — Reach/açı oturumu: End Angle çerçeve düzeltmesi, çap-koruması, Angle⟲, fold-back clamp
+
+Smoke-test sırasında bulunan 4 sorun (hepsi headless doğrulandı; **GUI smoke + commit BEKLİYOR**):
+
+### 1. End Angle sütunu yanlış çerçevede (113° pas → 23° gösteriyordu)
+`path_generator.py` ~373: son forming pasın end-angle'ı **mutlak +X'ten** kaydediliyordu
+(`atan2(p3_z,p3_x)`), ama Pass Angle **yaklaşım yönüne göre** ölçülür (linear approach θ_A=−90°) →
+113−90=23. Fix: pass-angle modunda `_eff_angle` (kullanıcının girdiği çerçeve, yelpaze bitişi
+dahil) kaydediliyor; raw modda mutlak açı korunuyor. Sadece GÖSTERİM — toolpath değişmedi.
+
+### 2. Reach⟲ çap-koruması (Sac Yarıçapı alanına ÇAP girilmesi)
+Kök neden: `blank_radius` bir YARIÇAP alanı (i18n "Sheet Radius", main.py:676/1468). Kullanıcı
+310 (çap) girmiş → reach ≈ 310−r_base ≈ 227 (gerçek ~72 olmalı). `compute_reach_from_blank`'e
+uyarı eklendi: `R > br×2.5` ise "çap mı girdiniz?" (askyesno, yine de izin verir — warn-but-allow).
+i18n `msg_reach_diam` (EN/TR/ES). br = `mandrel_mgr.props["br"]`.
+
+### 3. Angle⟲ — progressive_angle_end'i mandrel yüzeyinden tahmin (opt-in, TODO #61)
+Kullanıcı: "180 default yanlış — mandrel yüzey açısından hesaplansın." 180 sadece SİLİNDİR özel
+hâli. `process_planner.estimate_surface_angle(mgr, z, forming_up)`: duvar teğet açısı = dış normal
+`(dz,−dr)`'ye dik. `program_tab.compute_angle_from_surface()`: op end_z'de teğet → pass-angle
+çerçevesine çevir (θ_end − θ_A), `progressive_angle_end`'i DOLDUR (count>1 ise fan aç). Araç çubuğu
+`btn_compute_angle` (Reach⟲'dan sonra), i18n `btn_compute_angle`/`msg_angle_*`. Silindir→180 test
+edildi. ⚠ Şekillendirme YÖNÜ (yukarı/aşağı) fiziksel doğrulama bekliyor (ters olursa çıkış ters döner).
+
+### 4. Reach fold-back clamp (paslar 180°'yi geçip geri katlanıyordu) — KÖK NEDEN
+Kullanıcının "paslar 180'den büyük görünüyor" sorunu. Log kanıtı: pas 30 komut açısı 179.8° ama
+gerçek çıkış 182°. Kök neden = #61 clearance-bağımsız-reach: reach set iken `p3_x -= op_clearance`
+(path_generator ~421). Fan ~180'e yaklaşınca p3_x→~0, tam clearance çıkarılınca NEGATİFE düşüyor →
+çıkış dikeyi geçip geri katlanıyor. (Program kısaltmak / sac büyütmek ETKİLEMEZ — bu çıkarma yalnız
+clearance+açıya bağlı.) Fix: clearance'ı SADECE bileşen >= 0 kaldığı sürece çıkar; aksi hâlde komut
+çıkışını OLDUĞU GİBİ KORU (`if p3_x - op_clearance >= 0: p3_x -= op_clearance`, conformal'da her iki
+bileşen). ⚠ ÖNEMLİ: bileşeni 0'a CLAMP ETME — o zaman clearance-altı tüm ~dikey paslar AYNI dikey
+çizgiye çöker (paslar ÜST ÜSTE biner; kullanıcı bunu gördü). Komut çıkışını koruyunca her pas kendi
+açısını (θ_B) korur → ne katlanma ne çakışma. Aşırı açıda uç HAFİF clearance-bağımlı olur (güvenlik/
+ayrıklık > tam anchor). `_test_reach_foldback.py` GEÇTİ: (a) çıkış içe dönmüyor, (b) iki ~180° pas
+AYRIK yön koruyor (dxa≠dxb), çökmüyor.
+
+### 5. "Reach follows blank" — reach'i sac ucuna KİLİTLE (opt-in, TODO #61 option B)
+Kullanıcı: "zone end z'yi artırabilmeliyim, reach otomatik sacın ucunu öpecek şekilde
+hesaplansın." end_z ve reach ÇAKIŞMAZ (biri temas yüksekliği, diğeri çıkış stroju) ama reach'in
+ucu ÖPMESİ için end_z'ye bağlı olması gerekir. Yeni per-op bayrak `reach_follow_blank`: açıkken
+her recalc'tan önce reach flanş modelinden yeniden hesaplanır (start_z→reach, end_z→
+progressive_reach_end), böylece end_z değişince çıkış otomatik yeni flanş ucuna oturur. end_z
+sacın tükendiği yeri geçerse reach→0 (fold-back clamp near-flat pasları korur). Ortak yardımcılar
+`_blank_reach_values`/`_apply_blank_reach` (Reach⟲ ile paylaşılır), `_refresh_auto_reach`
+`_start_async_calc` başında çağrılır. Editörde checkbox (reach alanı altında), i18n
+`lbl_reach_follow`, OP_PARAM_UNIVERSE/LABELS/path_shape kaydı. Manuel reach'i geçersiz kılar.
+
+### 6. Pass Info'da reach satırı + reach payı (modifier)
+- **Pass Info penceresi**: her pasta artık `Reach → |P2→P3|: xx.xx mm` satırı (gerçekleşen çıkış
+  stroju = temas→uç mesafesi). `refresh_pass_info`, Contact satırından sonra.
+- **Reach çarpanı** (`reach_blank_factor`, ×, opt-in, default 1.0): sactan hesaplanan reach'i
+  ÖLÇEKLER. Reach⟲ ve 'Reach sacı takip etsin' değerine uygulanır (`_blank_reach_values`).
+  1.00 = tam sac ucu, 0.90 = %90 (ucundan önce dur), 1.10 = %110 (geç); boş=1.0, negatife düşmez.
+  Editörde alan (reach-follow altında, OP_PARAM_DEFAULTS'ta 1.0 ipucu), i18n `lbl_reach_factor`,
+  OP_PARAM_UNIVERSE/LABELS/path_shape kaydı.
+
+### Doğrulama
+`spinning_cam` env'de: `_test_reach.py`, `_test_real_end_z.py`, `_test_progressive_reach.py`,
+`_test_surface_angle.py` (yeni), `_test_reach_foldback.py` (yeni), `_test_reach_follow.py` (yeni,
+gerçek ProgramTab yardımcılarını stub'a bağlayıp end_z↑→reach↓ doğrular) — HEPSİ GEÇTİ. Değişen
+dosyalar: `path_generator.py`, `process_planner.py`, `ui/tabs/program_tab.py`, `i18n.py`.
+COMMIT EDİLMEDİ.
+
+---
+
+## 2026-07-05 — Reach'i sactan tahmin (Reach⟲) — flanş alan-eşdeğerliği, opt-in (TODO #61 adım 4)
+
+### Ne (kısa)
+Opt-in **Reach⟲** düğmesi: seçili op'un reach'ini kalan sac FLANŞINDAN tahmin edip alanı
+DOLDURUR (sessizce UYGULAMAZ — operatör değeri görür). Kullanıcı: "sac yarıçapı belli, kalan
+flanşı hesapla, reach o olsun."
+
+### Model (kullanıcı ile netleşti)
+- Malzeme sayımı DAİMA kıskaç tabanından (min-Z, karşı baskının tuttuğu yer) başlar →
+  yön-bağımsız ("parçaya göre değişir" cevabı). KAPALI düz taban → taban diski `r_base²`.
+- `Rc(Z)² = r_base² + 2·Σ(taban..Z) r·ds` (alan-eşdeğerliği, analyze_profile ile aynı).
+- Flanş dış yarıçapı `R_flanş = √(r(Z)² + R_sac² − Rc²)`; reach = RADYAL taşma `R_flanş − r(Z)`.
+- RADYAL ölçüm (kullanıcı v1 için radyal seçti; tangent dik duvarlar için ertelendi).
+- Tabanda büyük → tepede 0'a monoton azalır.
+
+### Nasıl / nerede
+- `process_planner.estimate_flange_reach(mandrel_mgr, blank_radius, contact_z)` — saf hesap.
+- `ui/tabs/program_tab.py` `compute_reach_from_blank()`: seçili op'ta start_z'de reach,
+  progressive-angle çok-paslı op'ta end_z'de `progressive_reach_end` (yelpaze) doldurur;
+  refresh+recalc; "TAHMİN, doğrula" messagebox. Araç çubuğu `btn_compute_reach` (Split'ten
+  sonra). i18n `btn_compute_reach`, `msg_reach_*` (EN/TR/ES). Sac Yarıçapı (blank_radius) şart.
+
+### Doğrulama / durum
+- Headless: `_test_flange_reach.py` GEÇTİ — tam sacla tepe taşması ~0, taban = R−r_base,
+  monoton azalış, aşırı sac → tepede flanş kalır, bozuk girdi → 0. compile OK, i18n format OK.
+- ⚠ İLK yanlış model (r_min² kapağı, nose-ucundan) test ile YAKALANDI ve düzeltildi
+  (r_base, tabandan). **FİZİKSEL doğrulama + GUI smoke BEKLİYOR** (reach yanlışsa gouge riski).
+- COMMIT EDİLMEDİ.
+
+---
+
 ## 2026-07-05 — Operasyonu Parçalara Böl (Split…) — birebir üreten bitişik parçalar (TODO #64)
 
 ### Ne (kısa)
