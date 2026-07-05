@@ -1,0 +1,68 @@
+======================================================================
+TOOL T0101 (Rough)  step=C:/Users/PC/Documents/CAD_Files/meksika/Spinning tool 1.STEP
+  tools.json: radius=73.79  r_tool=73.79
+  mesh: 1780 verts
+  bounds X [-0.044, 112.955]  Y [-75.000, 75.000]  Z [-102.513, 10.486]
+  get_contact_radius = max|XZ|/2 = 73.793   (max point at X=109.98 Z=-98.42 Y=3.80)
+  far-point Z/X ratio = -0.8949 (should be ~0 if it is the opposite rim of the disc)
+  centroid-axis estimate: axis at X=56.46 Z=-46.01; max radius about axis = 74.908
+  |tip -> axis| = 72.832  (independent disc-radius estimate)
+  rim band (156 pts): y range [-18.80, 18.80]  -> rim axial thickness ~37.60
+  support function (theta = surface-normal tilt from radial, XZ plane):
+    theta   delta+ (toward +Z)   delta- (toward -Z)
+        0          0.044              0.044
+        5          0.118              0.048
+       10          0.322              0.051
+       15          2.151              0.236
+       20          4.018              0.446
+       30          7.644              1.089
+       45         12.616              2.447
+       60         45.151              4.911
+       75         74.608              7.620
+       89        100.708             10.303
+======================================================================
+TOOL T0102 (Bend)  step=C:/Users/PC/Documents/CAD_Files/meksika/Spinning tool 3.STEP
+  tools.json: radius=77.53  r_tool=77.53
+  mesh: 2144 verts
+  bounds X [-0.000, 134.214]  Y [-75.000, 75.000]  Z [-105.930, 28.284]
+  get_contact_radius = max|XZ|/2 = 77.528   (max point at X=134.21 Z=-77.65 Y=3.80)
+  far-point Z/X ratio = -0.5785 (should be ~0 if it is the opposite rim of the disc)
+  centroid-axis estimate: axis at X=67.11 Z=-38.82; max radius about axis = 77.528
+  |tip -> axis| = 77.528  (independent disc-radius estimate)
+  rim band (80 pts): y range [-18.80, 18.80]  -> rim axial thickness ~37.60
+  support function (theta = surface-normal tilt from radial, XZ plane):
+    theta   delta+ (toward +Z)   delta- (toward -Z)
+        0          0.000              0.000
+        5          0.000              0.000
+       10          0.000              0.000
+       15          0.000              0.000
+       20          0.000              0.000
+       30          0.000              0.000
+       45          0.000              0.000
+       60         38.773             10.353
+       75         74.904             20.000
+       89        104.065             27.786
+======================================================================
+TOOL T0103 (Finish)  step=C:/Users/PC/Documents/CAD_Files/meksika/Spinning tool 2.STEP
+  tools.json: radius=74.31  r_tool=79.5
+  mesh: 1996 verts
+  bounds X [-0.061, 109.024]  Y [-75.000, 75.000]  Z [-104.214, 4.870]
+  get_contact_radius = max|XZ|/2 = 74.308   (max point at X=108.44 Z=-101.62 Y=0.00)
+  far-point Z/X ratio = -0.9371 (should be ~0 if it is the opposite rim of the disc)
+  centroid-axis estimate: axis at X=54.49 Z=-49.66; max radius about axis = 74.905
+  |tip -> axis| = 73.727  (independent disc-radius estimate)
+  rim band (224 pts): y range [-18.80, 18.80]  -> rim axial thickness ~37.60
+  support function (theta = surface-normal tilt from radial, XZ plane):
+    theta   delta+ (toward +Z)   delta- (toward -Z)
+        0          0.061              0.061
+        5          0.065              0.105
+       10          0.101              0.149
+       15          0.137              0.249
+       20          0.246              0.371
+       30          6.034              0.689
+       45         16.599              1.256
+       60         44.157              2.450
+       75         73.785              3.650
+       89        102.372              4.794
+======================================================================
+done

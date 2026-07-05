@@ -1,0 +1,47 @@
+mandrel: C:/Users/PC/Documents/CAD_Files/meksika/18 konik kap.STEP
+blank thickness = 1.0
+mandrel z range: [0.00, 160.00]
+surface normal tilt from radial: min -73.2 deg, max 38.9 deg
+  histogram (deg : fraction of z-range):
+    [-75,-60) :   0.2%
+    [-60,-45) :   0.5%
+    [-45,-30) :   0.8%
+    [-30,-15) :   1.0%
+    [-15, +0) :  95.0%
+    [ +0,+15) :   2.2%
+    [+30,+45) :   0.2%
+
+operations:
+  ?: type=roughing tool=T0101 r_tool=73.79 clearance=0.0 enabled=True
+
+=== TRUE GAP (negative = roller digs into blank envelope) ===
+
+TOOL T0101  r_tool=73.79  clearance=0.0  blank=1.0
+  model=radial : gap min  -10.910 mm at z=   1.30 (tilt +38.9 deg) | gap max   -0.044 mm at z=   7.27 (tilt  +0.1 deg)
+      z=   8.07 tilt= +0.1 deg -> gap   -0.044 mm
+      z=  39.95 tilt= -0.2 deg -> gap   -0.044 mm
+      z=  79.80 tilt= -0.2 deg -> gap   -0.044 mm
+      z= 119.65 tilt= -0.2 deg -> gap   -0.044 mm
+      z= 151.53 tilt= -0.2 deg -> gap   -0.044 mm
+  model=normal : gap min   -0.044 mm at z=  24.01 (tilt  -0.0 deg) | gap max  +45.121 mm at z=   0.50 (tilt -73.2 deg)
+      z=   8.07 tilt= +0.1 deg -> gap   -0.044 mm
+      z=  39.95 tilt= -0.2 deg -> gap   -0.044 mm
+      z=  79.80 tilt= -0.2 deg -> gap   -0.044 mm
+      z= 119.65 tilt= -0.2 deg -> gap   -0.044 mm
+      z= 151.53 tilt= -0.2 deg -> gap   -0.044 mm
+
+TOOL T0103  r_tool=79.5  clearance=0.0  blank=1.0
+  model=radial : gap min  -12.639 mm at z=   1.30 (tilt +38.9 deg) | gap max   -0.060 mm at z=   7.27 (tilt  +0.1 deg)
+      z=   8.07 tilt= +0.1 deg -> gap   -0.060 mm
+      z=  39.95 tilt= -0.2 deg -> gap   -0.062 mm
+      z=  79.80 tilt= -0.2 deg -> gap   -0.062 mm
+      z= 119.65 tilt= -0.2 deg -> gap   -0.062 mm
+      z= 151.53 tilt= -0.2 deg -> gap   -0.062 mm
+  model=normal : gap min   -0.062 mm at z= 141.97 (tilt  -0.4 deg) | gap max  +52.954 mm at z=   0.50 (tilt -73.2 deg)
+      z=   8.07 tilt= +0.1 deg -> gap   -0.060 mm
+      z=  39.95 tilt= -0.2 deg -> gap   -0.062 mm
+      z=  79.80 tilt= -0.2 deg -> gap   -0.062 mm
+      z= 119.65 tilt= -0.2 deg -> gap   -0.062 mm
+      z= 151.53 tilt= -0.2 deg -> gap   -0.062 mm
+
+done
