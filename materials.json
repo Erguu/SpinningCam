@@ -1,0 +1,94 @@
+{
+  "materials": [
+    {
+      "id": "alu_soft",
+      "name": {
+        "EN": "Aluminum 1050/3003 (soft)",
+        "TR": "Alüminyum 1050/3003 (yumuşak)",
+        "ES": "Aluminio 1050/3003 (blando)"
+      },
+      "angle_per_pass_deg": 25.0,
+      "surface_speed_m_min": 350.0,
+      "feed_mm_rev_rough": 0.6,
+      "feed_mm_rev_finish": 0.3,
+      "max_spinning_ratio": 1.9,
+      "rough_clearance_mm": 0.5,
+      "finish_clearance_mm": 0.0
+    },
+    {
+      "id": "alu_5xxx",
+      "name": {
+        "EN": "Aluminum 5754/5083",
+        "TR": "Alüminyum 5754/5083",
+        "ES": "Aluminio 5754/5083"
+      },
+      "angle_per_pass_deg": 20.0,
+      "surface_speed_m_min": 300.0,
+      "feed_mm_rev_rough": 0.5,
+      "feed_mm_rev_finish": 0.25,
+      "max_spinning_ratio": 1.7,
+      "rough_clearance_mm": 0.5,
+      "finish_clearance_mm": 0.0
+    },
+    {
+      "id": "steel_dc04",
+      "name": {
+        "EN": "Mild steel DC04 / AISI 1008",
+        "TR": "Yumuşak çelik DC04 / AISI 1008",
+        "ES": "Acero dulce DC04 / AISI 1008"
+      },
+      "angle_per_pass_deg": 20.0,
+      "surface_speed_m_min": 250.0,
+      "feed_mm_rev_rough": 0.4,
+      "feed_mm_rev_finish": 0.2,
+      "max_spinning_ratio": 1.7,
+      "rough_clearance_mm": 0.5,
+      "finish_clearance_mm": 0.0
+    },
+    {
+      "id": "stainless_304",
+      "name": {
+        "EN": "Stainless 304 / 316",
+        "TR": "Paslanmaz 304 / 316",
+        "ES": "Inoxidable 304 / 316"
+      },
+      "angle_per_pass_deg": 15.0,
+      "surface_speed_m_min": 150.0,
+      "feed_mm_rev_rough": 0.3,
+      "feed_mm_rev_finish": 0.15,
+      "max_spinning_ratio": 1.6,
+      "rough_clearance_mm": 0.5,
+      "finish_clearance_mm": 0.0
+    },
+    {
+      "id": "copper",
+      "name": {
+        "EN": "Copper (annealed)",
+        "TR": "Bakır (tavlanmış)",
+        "ES": "Cobre (recocido)"
+      },
+      "angle_per_pass_deg": 25.0,
+      "surface_speed_m_min": 300.0,
+      "feed_mm_rev_rough": 0.5,
+      "feed_mm_rev_finish": 0.25,
+      "max_spinning_ratio": 1.9,
+      "rough_clearance_mm": 0.5,
+      "finish_clearance_mm": 0.0
+    },
+    {
+      "id": "brass",
+      "name": {
+        "EN": "Brass CuZn37",
+        "TR": "Pirinç CuZn37",
+        "ES": "Latón CuZn37"
+      },
+      "angle_per_pass_deg": 20.0,
+      "surface_speed_m_min": 250.0,
+      "feed_mm_rev_rough": 0.4,
+      "feed_mm_rev_finish": 0.2,
+      "max_spinning_ratio": 1.75,
+      "rough_clearance_mm": 0.5,
+      "finish_clearance_mm": 0.0
+    }
+  ]
+}

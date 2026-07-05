@@ -119,6 +119,7 @@ class MachineProfileSchema(BaseModel):
     workspace_x_max: Optional[float] = None
     workspace_z_min: Optional[float] = None
     workspace_z_max: Optional[float] = None
+    clamp_zone_baseline: Optional[float] = None  # TODO #62 counter-press exclusion default (mm from base)
     cylinder_enabled: Optional[Any] = None
     cylinder_show: Optional[Any] = None
     cylinder_position_mm: Optional[float] = None

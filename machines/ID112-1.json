@@ -26,6 +26,7 @@
     "workspace_x_max": 400.0,
     "workspace_z_min": -400.0,
     "workspace_z_max": 300.0,
+    "clamp_zone_baseline": 0.0,
     "cylinder_enabled": 0.0,
     "cylinder_show": 0.0,
     "cylinder_position_mm": 80.0,

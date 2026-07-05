@@ -13,6 +13,7 @@ MACHINE_PROFILE_KEYS = [
     "home_x", "home_z", "retract_x", "retract_z",
     "workspace_show", "workspace_x_min", "workspace_x_max",
     "workspace_z_min", "workspace_z_max",
+    "clamp_zone_baseline",
     "cylinder_enabled", "cylinder_show", "cylinder_position_mm",
     "cylinder_x_pos", "cylinder_z_base",
     "plc_mode", "plc_tolerance", "plc_exit_tolerance",

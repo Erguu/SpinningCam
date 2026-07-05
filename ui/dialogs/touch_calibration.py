@@ -231,6 +231,30 @@ class TouchCalibrationDialog(tk.Toplevel):
              "Auto-filled from r_tool in Operations (already accounts for disc tilt/mounting).\n"
              "Do NOT use the disc outer radius — that is a larger, uncorrected value.")
 
+        # ── CHALLENGER reach (axis-fit) — opt-in A/B test, does not change defaults ──
+        f_chal = tk.Frame(inner, bg="#0d1520")
+        f_chal.pack(fill="x", padx=10, pady=(0, 2))
+        tk.Label(f_chal, text="Challenger Rr (axis):", bg="#0d1520", fg=self.C_LBL,
+                 font=("Consolas", 8), width=20, anchor="w").pack(side="left")
+        self.lbl_challenger = tk.Label(f_chal, text="—", bg="#0d1520", fg="#c8a24a",
+                                       font=("Consolas", 8), anchor="w")
+        self.lbl_challenger.pack(side="left")
+        self._btn_use_challenger = tk.Button(
+            f_chal, text="Use ▸", command=self._use_challenger_rt,
+            bg="#2a3f55", fg="#88aacc", font=("Consolas", 7), width=5,
+            relief="flat", activebackground="#3a5570", state="disabled")
+        self._btn_use_challenger.pack(side="left", padx=(6, 0))
+        self._challenger_rt = None
+        hint("A SECOND way to measure this tool's reach (Rr), read from its STEP file.\n"
+             "\n"
+             "Why it exists: if you calibrate with one tool and then run a DIFFERENT\n"
+             "tool, a small gap can appear. That is because the normal Rr is measured\n"
+             "slightly differently for each tool. This value measures every tool the\n"
+             "same way, so tools stay consistent with each other.\n"
+             "\n"
+             "'Use ▸' just types this number into the Rr box above so you can test it\n"
+             "on the machine. It saves NOTHING and does NOT change the tool library.")
+
         # Approach angle
         self.entry_angle = self._frow(inner, "Contact angle (°):")
         self.entry_angle.insert(0, "0.0")
@@ -568,10 +592,12 @@ class TouchCalibrationDialog(tk.Toplevel):
     def _on_tool_selected(self, _=None):
         sel = self.tool_var.get()
         if sel.startswith("(manual)"):
+            self._refresh_challenger(None)
             self._redraw()
             return
         tid = sel.split()[0]
         tool = self._tools_data.get(tid, {})
+        self._refresh_challenger(tool)
         # r_tool: tool library is the primary source (set once in Tool Manager).
         # Fall back to operations for backwards compatibility.
         # The disc outer radius (tool["radius"]) is NOT used here.
@@ -589,6 +615,42 @@ class TouchCalibrationDialog(tk.Toplevel):
         # step_rotation is 3D visualisation data, not a calibration parameter.
         self.entry_angle.delete(0, "end")
         self.entry_angle.insert(0, "0.0")
+        self._redraw()
+
+    def _refresh_challenger(self, tool):
+        """Compute the axis-fit challenger reach for the selected tool and show it.
+        Read-only display + enables the 'Use ▸' button; never changes Rr on its own."""
+        self._challenger_rt = None
+        loader = getattr(self.app, "tool_step_loader", None)
+        val = None
+        if tool and loader is not None:
+            try:
+                val = loader.get_contact_radius_axis(tool)
+            except Exception:
+                val = None
+        if val is None:
+            self._challenger_rt = None
+            self.lbl_challenger.config(text="—  (no STEP / current default)")
+            self._btn_use_challenger.config(state="disabled")
+            return
+        self._challenger_rt = float(val)
+        try:
+            cur = float(self.entry_rt.get())
+            delta = f"   Δ {self._challenger_rt - cur:+.2f} vs current"
+        except (ValueError, tk.TclError):
+            delta = ""
+        self.lbl_challenger.config(text=f"{self._challenger_rt:.2f} mm{delta}")
+        self._btn_use_challenger.config(state="normal")
+
+    def _use_challenger_rt(self):
+        """Copy the challenger reach into the editable Rr field (opt-in A/B test)."""
+        if self._challenger_rt is None:
+            return
+        self.entry_rt.delete(0, "end")
+        self.entry_rt.insert(0, f"{self._challenger_rt:.2f}")
+        self._refresh_challenger(  # refresh Δ read-out against the new value
+            self._tools_data.get(self.tool_var.get().split()[0], {})
+            if not self.tool_var.get().startswith("(manual)") else None)
         self._redraw()
 
     # ═════════════════════════════════════════════════════════════════════
@@ -662,6 +724,9 @@ class TouchCalibrationDialog(tk.Toplevel):
 
         # Restore last-used Rr override (operator may have hand-edited it)
         _fill(self.entry_rt, "entry_rt")
+        # Re-sync the challenger Δ read-out against the restored Rr override
+        if last.get("tool_var") and not last["tool_var"].startswith("(manual)"):
+            self._refresh_challenger(self._tools_data.get(last["tool_var"].split()[0], {}))
         # Do NOT restore contact angle — always keep 0° (r_tool is already
         # the effective reach; restoring a stale 45° causes a double-correction)
 

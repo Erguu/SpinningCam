@@ -1,13 +1,60 @@
 import tkinter as tk
 from tkinter import ttk
+from i18n import t
+
+
+def _fmt_num(v):
+    """Compact number formatting: drop the '.0' on integers, trim noise otherwise."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    if f == int(f):
+        return str(int(f))
+    return f"{f:g}"
+
 
 class UIHelper:
+    # Faded hint styling (default value + allowed range shown under a field).
+    HINT_COLOR = "#9a9a9a"
+    HINT_FONT = ("Arial", 7)
+
     def __init__(self, tooltip_label):
         self.lbl_info = tooltip_label
 
+    def _field_hint_text(self, app, key, min_val, max_val):
+        """Build the faded hint string: factory default + the range you can move within.
+
+        Example:  'default 2  ·  0 - 20'  (default is 2, adjustable between 0 and 20).
+        Uses only Latin-5-safe characters so it never trips the cp1254 console.
+        """
+        defaults = getattr(app, "factory_defaults", None) or {}
+        parts = []
+        if key in defaults:
+            parts.append(f"{t('hint_default')} {_fmt_num(defaults[key])}")
+        parts.append(f"{_fmt_num(min_val)} - {_fmt_num(max_val)}")
+        return "  ·  ".join(parts)
+
+    def _add_field_hint(self, parent, app, key, min_val, max_val, side="right"):
+        """Pack a small greyed-out hint label onto an input's label row.
+
+        Placed on the same row as the field title (right-aligned) so it never
+        adds a line of height / shifts the layout down.
+        """
+        text = self._field_hint_text(app, key, min_val, max_val)
+        if not text:
+            return
+        tk.Label(parent, text=text, fg=self.HINT_COLOR, font=self.HINT_FONT,
+                 anchor="e").pack(side=side, anchor="e", padx=(6, 0))
+
     def bind_tooltip(self, widget, text):
         if not text: return
-        widget.bind("<Enter>", lambda e: self.lbl_info.config(text=text))
+        # Collapse newlines/runs of whitespace so the single-line status bar
+        # always shows one tidy line. (The bar's height is locked in
+        # main_window._setup_layout, so multi-line text would otherwise be
+        # clipped mid-sentence.)
+        flat = " ".join(text.split())
+        widget.bind("<Enter>", lambda e: self.lbl_info.config(text=flat))
         widget.bind("<Leave>", lambda e: self.lbl_info.config(text="Ready. Hover over items for info."))
 
     def add_section_header(self, parent, text, color="gray"):
@@ -20,8 +67,11 @@ class UIHelper:
         f = ttk.Frame(parent)
         f.pack(fill="x", padx=10, pady=2)
         
-        ttk.Label(f, text=title).pack(side="top", anchor="w")
-        
+        title_row = ttk.Frame(f)
+        title_row.pack(fill="x")
+        ttk.Label(title_row, text=title).pack(side="left", anchor="w")
+        self._add_field_hint(title_row, app, key, min_val, max_val)
+
         # Tkinter Spinbox works with strings mostly
         var = tk.DoubleVar(value=app.params.get(key, 0.0))
         
@@ -40,24 +90,27 @@ class UIHelper:
     def add_scale(self, parent, app, key, title, min_val, max_val, mode="all", tooltip=""):
         f = ttk.Frame(parent)
         f.pack(fill="x", padx=10, pady=2)
-        
-        ttk.Label(f, text=title).pack(side="left", anchor="w")
-        
+
+        row = ttk.Frame(f)
+        row.pack(fill="x")
+        ttk.Label(row, text=title).pack(side="left", anchor="w")
+
         val = app.params.get(key, 0.0)
         var = tk.StringVar(value=f"{float(val):.2f}")
-        
+
         def on_update(event=None):
             try:
                 v = float(var.get())
                 app.on_param_change(key, v, mode)
             except ValueError:
                 pass
-                
-        e = ttk.Entry(f, textvariable=var, width=10, justify="right")
+
+        e = ttk.Entry(row, textvariable=var, width=10, justify="right")
         e.pack(side="right")
         e.bind("<Return>", on_update)
         e.bind("<FocusOut>", on_update)
         e.bind("<Button-1>", lambda event: event.widget.focus_force())
+        self._add_field_hint(row, app, key, min_val, max_val)
         self.bind_tooltip(e, tooltip)
         self.bind_tooltip(f, tooltip)
 

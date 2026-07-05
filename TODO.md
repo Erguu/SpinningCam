@@ -3,6 +3,481 @@
 
 ---
 
+## Research & Check Series — 2026-07-04 (scoping only, not started)
+
+> Two operator-confidence topics raised by the user. Descriptions below are the
+> agreed scope; **open questions** at the end of each need answers before design.
+> Nothing implemented yet.
+
+### 60. Tool reach/angle confidence — "Tested/Approved" flag + predicted touch point in the tool library
+
+**Why:** Tool reach (`r_tool`) is the single riskiest number in the app — a too-small
+value drives the roller into the part (gouge), and it has burned us repeatedly
+(T0103 79.5 vs 74.31 saga; residual ~1 mm inter-tool gap → challenger axis-fit reach,
+[[feedback-calibration-rtool]], TODO #58). Today the operator has no in-app way to
+*prove* a tool's reach/angle before running it — he can measure, but there's no
+capture-and-confirm workflow, and no record that a given tool was ever verified.
+
+**Idea (user, 2026-07-04):** give each tool a **"Tested / Approved"** state and a
+predicted **touch point** so the operator can jog to it, confirm the roller kisses
+the part where the app says it will, and then mark the tool trusted.
+
+**Proposed workflow:**
+1. Operator calibrates `home_x` with a **baseline** tool he trusts (e.g. T0101),
+   confirms the touch, and ticks **"Tested"** on that tool. This becomes the reference.
+2. For another tool (e.g. T0103), the app **computes its reach** (from STEP: default
+   chord/2 `get_contact_radius`, or the axis-fit challenger from #58) and shows the
+   **predicted touch point** — the DRO X/Z the operator should see when the roller
+   just contacts the part at a chosen Z (derived from the same
+   `cam_x_contact = cx_man + side × (mandrel_R + blank + r_tool)` math the calibration
+   dialog already uses, CODE_NAV §16).
+3. Operator jogs to that point, verifies contact, and either **approves** (tick Tested,
+   optionally write the confirmed `r_tool` to `tools.json`) or adjusts.
+
+**DECIDED (user, 2026-07-04):**
+- **Touch point = relative Δreach vs. the baseline (Tested) tool**, driven by #58's
+  axis-fit `get_contact_radius_axis()` (tilt-independent, tool-to-tool consistent).
+  After calibrating with the trusted baseline, each other tool is shown as *how much
+  farther/closer* its contact sits — the operator verifies that delta, not an absolute.
+- **On approve, WRITE the confirmed reach to `tools.json`** (`r_tool`). This is a
+  deliberate exception to #58's read-only stance: approval is the moment the operator
+  commits the verified value. ⚠️ Because `r_tool` is the gouge-risk number, gate the
+  write behind the explicit Tested/Approve action and keep the gouge guard
+  (`r_tool < radius` refused).
+- **Fix-in-window when the guess is wrong (user, 2026-07-04):** the computed reach /
+  touch point for a non-tested tool is only an estimate and may come out false. The same
+  window must let the operator **edit the calculated reach value in place** and re-check
+  before approving — i.e. the predicted-reach field is editable (seeded from the STEP
+  guess), the touch point recomputes live from the edited value, and Approve writes the
+  operator's corrected value. So the flow is: guess → operator jogs & sees it's off →
+  edit the number here → touch matches → Approve (writes to tools.json).
+
+**DECIDED (user, 2026-07-04):**
+- **Tested state is per (tool, machine profile)** — reach is machine-calibrated, so a tool
+  verified on ID111-1 is trusted only there; untested elsewhere until re-verified. Store
+  keyed by machine (e.g. `tools.json` `tested: {"ID111-1": {date, reach}}`, or in the
+  machine profile) rather than a single global flag.
+- **Angle to confirm (phase 1) = the disc tilt baked into reach (ID111)** — on the 2-axis
+  machine the fixed disc tilt is already inside `r_tool`, so verifying reach covers it.
+  Design so **ID112 B-axis tilt verification can slot in later** (it's a real per-pass
+  commanded angle, a separate check).
+- **Untested tool = warn but allow.** Clear "this tool is not verified" warning at
+  export/run; operator may proceed (respects operator judgement, doesn't block quick trials).
+
+### 61. Program-tab operation authoring — reorder + "continue from previous op's end-state" + hold-reach / hold-clear helpers
+
+**Why:** Big programs are hard to maintain because everything is manual. Spinning is
+trial-and-error, so the user wants many small operations of different pass types stacked
+and re-tried, not one big op. The real pain isn't a single op with many passes (that's
+already easy) — it's making a **new op start exactly where the previous op's last pass
+ended**, which today requires hand-calculating that pass's end position, angle, and reach.
+
+**User's concrete scenarios (2026-07-04):**
+- "5 forward linear-approach passes, 2 mm clear, angle sweeping 95° → 101°. Then **1
+  reverse pass at the same position/angle as the *last* pass of the previous op**." →
+  today he must manually work out what the 5th pass's position/angle actually were.
+- Added **"Real End Z"** column (`last_op_end_z`, CODE_NAV §5) to see the last contact Z
+  — but **angle and reach of that end pass are still invisible / hand-derived**.
+- "I want a **larger clear but the same reach** as the previous pass" → he must hand-solve
+  the P3 X/Z to hold the contact point fixed while pushing the standoff out.
+
+**Two separable pieces:**
+
+**(A) Reordering / duplication ergonomics.** There's Save-as-default + copy + Move
+Up/Down, but no drag-and-drop and copies still need manual shift/tilt. Scope:
+- Drag-and-drop reorder in the ops tree (replaces/augments Move Up/Down).
+- "Duplicate op" that clones in place, ready to edit (already partially there via default).
+
+**(B) Derived / linked pass authoring — the real request.** Let a pass or op inherit
+computed end-state from the previous op's last pass, instead of re-deriving it by hand:
+- **"Continue from previous op"** — new op's start position/angle/reach auto-fill from
+  the previous op's **last-pass end-state** (the same values behind Real End Z, extended
+  to include end angle θ and end reach). Enables the "reverse pass matching the last
+  forward pass" case directly.
+- **"Hold reach, change clear"** helper — given a target clearance change, solve the new
+  P3 X/Z (or P2 offset) so the **contact point stays put** while standoff grows. This is
+  the "larger clear, same reach" case; math sits on top of the existing
+  `total_off = r_tool + blank + clearance` and the polar P3 (`_L3` × θ_B, #57 fan).
+- Expose the **end-state readout** per op (end Z **and** end angle **and** end reach),
+  since Real End Z alone isn't enough — the user explicitly said "angle and reach are
+  another topic."
+
+**DECIDED (user, 2026-07-04): one-shot fill.** A "Continue from previous" button copies
+the previous op's last-pass end-state into the new op **once**, then the new op is
+independent. No live dependency graph — safer given the #56 delete/reorder history.
+(User confirmed 2026-07-05: likes the single-button approach over parameter fiddling.)
+
+**NEW (user, 2026-07-05) — interactive 3D drag editing (the real "drag" request).** The
+user doesn't want to drag rows in a list — he wants to **grab a pass in the 3D view, drag
+it, then hit Calculate** to re-run with the modified parameters. Feasible: the view is
+VTK/PyVista, which supports draggable handle widgets + point picking.
+- **Realistic shape:** put grab-handles on an operation's **defining control points** — its
+  contact point (P2) and its exit (P3) — not on arbitrary generated middle passes. Drag P3
+  → back-compute `reach`/`angle` (or `p3_x`/`p3_z`); drag P2 → `start_x`/`start_z`/clearance.
+  Then Calculate (or live-preview) with the new params.
+- **Why endpoints only:** passes are *generated* from the op's start→end sweep (count,
+  progressive angle/reach), so a middle pass has no stored params of its own. The draggable
+  points are the op's endpoints, which is exactly what the single-reach model (below) needs.
+- **Pairs with the single-reach reframe:** dragging the exit handle *is* the visual way to
+  set the one `reach` value — direct-manipulation front-end for the same parameter.
+- **Effort/risk:** medium–high. Needs handle placement on the selected op, drag→inverse-
+  param mapping, and a recalc trigger. Additive to the 3D scene (`main.py update_scene`).
+  Scope as its own phase after the single-reach param exists (it depends on it).
+
+**NEW (user, 2026-07-05) — "Customize mode": drag each individual pass, revert, or save.**
+Extends the 3D-drag idea to *every* pass in an op, not just the endpoints. A toggled mode
+where the op's generated passes become individually draggable; the operator nudges any
+pass, can **Return to original** (discard edits) at any time, and when happy clicks **Save**
+to make the edited passes the op's **final version**.
+- **Why this is a real model change:** passes today are *generated* from `count` + params,
+  so a single pass has no stored geometry to drag. Customize mode must **explode** the op's
+  passes into an editable per-pass layer.
+- **DECIDED (user, 2026-07-05): override layer — op stays parametric.** Save keeps the op's
+  `count`/angle/etc. and stores the operator's drags as an **override layer on top**
+  (`pass_overrides[i] = {reach, angle, start_x, start_z, …}`). Non-dragged passes still
+  regenerate from params; changing count/angle later still works and edits stick where they
+  apply. (Rejected the "freeze to fixed passes" alternative.)
+  - **Regeneration rule to define:** what happens to `pass_overrides[3]` if the operator
+    later drops the op from 5 passes to 3? (Likely: keep overrides for surviving indices,
+    drop/stash the rest — confirm at design time.)
+- **Revert** needs the pre-edit state kept in memory while in customize mode (snapshot on
+  enter). **Save** commits per the chosen storage model above.
+- **Effort/risk:** high — new UI mode, per-pass 3D handles, storage-model change,
+  regeneration rules, and .ssp persistence. The heaviest piece in #61; do it last.
+
+**FOUNDATIONAL REFRAME (user, 2026-07-04) — collapse P3 into a single "reach" parameter.**
+The user's mental model of a pass = **start_x, start_z, reach, angle**. Today the exit is
+stored as the coupled pair `p3_x` / `p3_z`, and "reach" scales that X/Z combination *at a
+different scale* — so a pass showing `p3_x = 50` does **not** have reach = 50. This
+coupling is exactly what forces the hand-calculation. **The fix underneath everything
+else in #61 is to express the exit as ONE reach value along the pass angle** (polar:
+reach = stroke length, angle = direction), and show that single number in the editor —
+instead of two coupled offsets the operator has to reverse-engineer.
+- This already exists *partly*: when `pass_angle` is set, P3 is polar (`_L3` × θ_B, #57).
+  When `pass_angle` is empty, P3 is raw `p3_x`/`p3_z`. Unify so **reach is always the
+  single authoritative exit parameter** (derive p3_x/p3_z from reach+angle for the engine;
+  keep raw-XZ as an advanced/back-compat fallback).
+- **REFINED (user, 2026-07-04) — keep `p3_x`/`p3_z`, let reach scale them proportionally.**
+  Don't remove the exit-X/Z fields. Instead: `p3_x` / `p3_z` define the exit **direction
+  (their X/Z ratio)**, and **reach scales that vector's length without breaking the ratio**.
+  Left at default, `reach` simply makes the exit longer along the same angle. So reach =
+  the vector magnitude, `p3_x`/`p3_z` = the direction — a two-way bound polar/cartesian
+  view (edit reach → rescale p3_x/p3_z keeping ratio; edit p3_x/p3_z → reach display
+  updates). "Show that single number" = expose the magnitude, keep XZ as the advanced view.
+- Once reach is a single number, "continue from previous" and "hold reach, change clear"
+  become trivial: copy/hold one value instead of solving an X/Z pair.
+
+**Build order (user-guided):**
+1. **Single reach parameter** — unify P3 to (angle, reach); surface `reach` in the editor
+   and as a readout (extends Real End Z with end-angle + end-reach). *Prerequisite.*
+   **⏳ IMPLEMENTED 2026-07-05 (headless-verified, GUI smoke + commit PENDING).** Engine:
+   per-op `reach` = exit magnitude, overrides `_L3` in pass-angle mode / scales p3_x/p3_z
+   (ratio preserved) in raw mode; unset=identical (backward-compat verified + e2e regression).
+   `last_op_reach`/`last_op_end_angle` recorded. UI: `reach` editor field + End Reach / End
+   Angle columns. **Reach is CLEARANCE-INDEPENDENT** (user 2026-07-05): same reach + diff
+   clearance ⇒ same absolute END (P3 anchored to zero-clearance contact; caveats: exact only
+   for base_rot=0, safety-floor may override at low clearance). See LAST_CHANGES 2026-07-05.
+   **Deferred:** two-way live bind (reach ↔ p3_x/p3_z boxes) — reach currently written
+   independently, direction read from p3.
+2. **Continue from previous op** — one-shot button filling start_x/start_z/angle/reach
+   from the prior op's last-pass end-state. Enables the "reverse pass = last forward pass"
+   case directly. **⏳ IMPLEMENTED 2026-07-05 (headless-verified, GUI smoke + commit
+   PENDING).** "Continue ⤵" toolbar button → `continue_from_previous()` +
+   testable `_continue_fill_values()`. Copies Start Z (prev end), angle (pass_angle / fan
+   end / raw p3 ratio), reach, clearance; tool NOT copied; then op is independent. Uses
+   computed `last_op_end_z`/`last_op_reach`, param fallback if uncalculated. `_test_continue.py`
+   passes. See LAST_CHANGES 2026-07-05.
+3. **Hold reach, change clear** — change clearance while keeping reach (contact point)
+   fixed; now a one-value operation.
+4. **Auto-calculate reach from blank radius (user, 2026-07-04) — the "fixes all reaching
+   problems" button.** The blank radius is already known. For a pass at target Z, compute
+   the **remaining (unformed) blank/flange size at that Z** and set `reach` so the exit
+   lands on the flange edge automatically — no hand-tuning. Revives the idea deferred in
+   **#57** ("auto-fill start reach from blank radius … physics-exact flange model deferred").
+   **DECIDED (user, 2026-07-04):**
+   - **Model = simple geometric estimate first** (no thinning / material-flow). Physics-
+     exact material conservation stays deferred.
+   - **Remaining flange = blank radius − (material formed up to the pass's Z)**, measured
+     from the **clamp-zone top Z** (see #62), not the raw mandrel base. Reach = distance
+     from the contact point out to the flange edge, **directed along the profile tangent
+     at that Z** (user, 2026-07-04 — more accurate on angled/curved mandrel ends than a
+     purely radial flange).
+   - **Model: area equivalence, not raw arc length (agent recommendation; user deferred
+     "never used it").** Use the existing surface-of-revolution math in
+     `analyze_profile` (`blank_r = sqrt(r_min² + 2·Σ r_mid·ds)`) rather than plain arc
+     length — physically correct for a shrinking disc and already coded. Revisit only if
+     it misbehaves in practice.
+   - **Per pass** — each pass computes its own reach from the remaining blank at *its own*
+     target Z (naturally shrinks as passes climb toward the flange; dovetails with #57
+     progressive reach).
+   - Implementation hook: **`process_planner.analyze_profile()` already computes** the
+     profile arc-length segments (`ds`), `surface_len`, and a `blank_radius_suggested`.
+     And `blank_radius` is a real param (`main.py:89`, auto-set to mandrel base ×1.1 on
+     STEP load, `main.py:1439`) — so both inputs exist; reach-from-blank is mostly wiring.
+   - **Anchor (origin) for the material-formed measurement = the clamp-zone top Z (#62).**
+     That's where free forming actually begins, so it's the correct zero for accumulating
+     formed material. If #62 isn't built yet, fall back to the **lowest program-start Z
+     across ops** (or a manual offset) as the anchor.
+5. **Drag-and-drop reorder + duplicate** — ergonomics, lower priority (Move Up/Down + copy
+   already exist).
+
+**Still open (need answers before design):**
+- **DECIDED (user, 2026-07-04): end-state readout = new tree columns** (end Z / end angle /
+  end reach) next to the existing Real End Z, via the Customize-View column system (§21) —
+  so all ops are comparable at a glance.
+- **DECIDED (user, 2026-07-05): reach is CLEARANCE-INDEPENDENT** — "same reach + different
+  clearance ⇒ same absolute END position." Implemented in step 1: the exit P3 is anchored to
+  the zero-clearance contact reference (clearance component subtracted from the P3 offset), so
+  clearance moves only the contact/approach, not the endpoint. Exact for base_rot=0 (linear
+  approach / rotation off); approximate for auto-rotated splines; at low clearance the safety-
+  floor may override the anchor to avoid a gouge (safety wins). This resolves the old "hold
+  reach, change clear" invariant question → the invariant is the absolute END point.
+- Still open — migration: existing programs store `p3_x`/`p3_z`. Convert to reach+angle on
+  load, or keep both and prefer reach? (Back-compat + .ssp files.)
+
+### 62. Counter-press / clamp-zone exclusion — the base fillet must not be machined (fix FIRST)
+
+**⏳ PHASE 1 IMPLEMENTED (2026-07-05) — headless-verified, GUI smoke + commit PENDING.**
+Params (`clamp_zone_length` per-part + `clamp_zone_baseline` machine),
+`effective_clamp_length()`, `calculate_paths` warning (`last_clamp_warnings`), 3D red band
+in `update_scene`, Process/Machine UI, i18n, help. `_test_clamp_zone.py` passes. Phase 2
+(hard clip so the manual `start_z` hack is dropped) NOT started. See LAST_CHANGES 2026-07-05.
+
+
+**Bug (user, 2026-07-04):** the mandrel has a **radius/fillet at its base**, and the
+program tries to machine that region too. In reality that part of the blank is **clamped
+between the counter-press (tailstock holder) and the mandrel** — it never gets formed, so
+it must be **excluded from all toolpaths**. Today the operator works around it by manually
+setting the first op's `start_z` to an offset like `10`. The user wants this fixed
+**before** auto-reach (#61 step 4), because the clamp-zone top is also the correct anchor
+for the blank/flange calculation.
+
+**Agent's take (what I think — user asked):** replace the per-op manual `start_z` hack
+with **one part/machine-level "clamp zone" parameter** — the Z below which nothing is
+machined (the counter-press region). Benefits:
+- **Fixes the bug at the source:** every op's effective start is clamped to
+  `max(clamp_top_z, op.start_z)`; no need to remember a magic `start_z=10` on op 1, and no
+  risk of a later op accidentally dipping into the clamped fillet.
+- **Becomes the single anchor** for #61's blank/flange calc (arc-length/area origin) and a
+  sensible default first-pass start.
+- **Fits the geometry we already have:** mandrel `props["min_z"]` is the raw base; the
+  clamp zone is `min_z → clamp_top_z`. Path-gen already reads `op.start_z`
+  (`path_generator.py:224`) and `min_z` (`:335`), so this is a small clamp added there.
+
+**DECIDED (user, 2026-07-04):**
+- **Specified as a LENGTH from the mandrel base** (e.g. `clamp_zone_length` = "bottom
+  12 mm is clamped"), not an absolute Z — portable across parts, matches how the
+  counter-press grips a fixed depth. Effective top Z = `min_z + clamp_zone_length`.
+- **Machine default + per-part override.** Machine profile carries a baseline (counter-
+  press is hardware); each program/.ssp can override it (fillet height is part geometry).
+- **Warning-only first**, hard clip later. Phase 1: draw the excluded band in 3D + warn if
+  an op enters the clamp zone, but still generate. Phase 2: actually clamp/clip toolpaths
+  so the manual `start_z=10` hack is no longer needed. ⚠️ Note: until phase 2 ships, the
+  operator still hand-sets `start_z`; the warning just makes the zone visible.
+- **Operator enters the clamped height** (knows the counter-press grip depth). Auto-detect
+  of the base fillet from STEP is a later nicety, not phase 1.
+
+**Implementation sketch:** new `clamp_zone_length` param (machine-profile default in
+`MACHINE_PROFILE_KEYS`, per-part override in `params`/.ssp); compute `clamp_top_z =
+mandrel min_z + clamp_zone_length`; phase-1 warn in `calculate_paths` when an op's
+`start_z < clamp_top_z` (path_gen already reads both, `:224`/`:335`); 3D band in
+`update_scene`; phase-2 clamp each op/pass start to `max(clamp_top_z, start_z)`. Feeds
+#61 step 4 as the blank-calc anchor.
+
+### 63. Deformed-blank preview — faded-blue overlay of the formed sheet (from the reach calc)
+
+**Idea (user, 2026-07-05):** show the **predicted deformed blank** in the 3D view as a
+**semi-transparent ("faded") blue** surface, built from the same reach/flange math as
+#61 step 4. Lets the operator *see* how far the sheet is formed and whether the reaching
+looks right — and doubles as a visual sanity check on the blank/flange model itself.
+
+**Shape of the surface:** a surface of revolution = **formed region** (sheet lies on the
+mandrel, offset by blank thickness) from the clamp-zone top up to the last-formed Z, then
+the **unformed flange** sticking out from that height along the profile tangent (the
+remaining-blank length from the area/arc model). As forming progresses the formed height
+advances and the flange shrinks.
+
+**DECIDED (user, 2026-07-05): show the SELECTED operation's end-state** — the overlay
+updates as the operator clicks through ops, showing how far the sheet is formed after that
+op. Best for tuning reach per op. (Rejected: whole-program final shape / animated
+progression — animation could come later as a nice-to-have.)
+
+**Implementation notes:**
+- Additive to `main.py update_scene`. The view already renders a flat blank disc
+  (`main.py:666`) and shell meshes (`mandrel_analyzer.generate_shell_mesh`) — reuse that
+  machinery to build the deformed surface; set low opacity (~0.3) + blue.
+- Inputs already exist: `blank_radius`, the profile arc-length/area model
+  (`process_planner.analyze_profile`), and per-op end Z (`last_op_end_z`).
+- Depends on #61 step 4 (flange model) and #62 (clamp-zone anchor) — build after those.
+- **Risk:** low–medium, purely visual; no toolpath/G-code impact.
+
+### 64. Split operation into pass-chunks (→ reorder to interleave reverse passes)
+
+**Idea (user, 2026-07-05):** author one parametric multi-pass op (e.g. 20 rough passes,
+Z 10→60, angle 90→180), then **split it into contiguous chunks** — e.g. `1·1·5·5·3·2·2`
+(=20). Each chunk becomes its own normal operation in the op-management list,
+independently editable. Then drop reverse operations *between* the chunks (reorder via
+Move Up/Down or the planned drag). Reordering only — passes are preserved, not recreated.
+
+**Why it works (exact reproduction):** the op progresses LINEARLY in Z, angle
+(`pass_angle`→`progressive_angle_end`) and reach across its passes. So a chunk covering
+passes [a..b] becomes an op with `count=b-a+1` whose `start_z`/`end_z`,
+`pass_angle`/`progressive_angle_end`, and `reach`/`progressive_reach_end` are the sub-range
+values at passes a and b. Because the progression is linear, the sub-op's own fan
+reproduces those passes exactly; the union of chunks == the original op. Single-pass chunks
+→ fixed angle/reach (count=1, no fan). Verify exactness in a headless test on split.
+
+**This replaces the earlier per-op "reverse every N" and "sequence-layer" ideas** — the
+user prefers splitting the parametric op into editable chunk-ops + reordering ops, because
+the chunks stay first-class, independently tunable operations (not a hidden override).
+
+**Reduces to two primitives:**
+- **Split op** — the new piece. Select an op → specify the split → replace it with N
+  contiguous chunk-ops that reproduce it. (Engine already supports each chunk as a normal
+  op; this is a UI + param-slicing operation, no path-gen change.)
+- **Reorder ops** — Move Up/Down exists; drag-reorder is #61(A). Used to place reverse
+  ops (defined separately, e.g. a 5-pass reverse op split to singles) between chunks.
+
+**DECIDED (user, 2026-07-05): visual window with dividers** — a dialog lists the op's
+passes; click between passes to drop dividers → chunks.
+**✅ IMPLEMENTED 2026-07-05 (headless-verified, GUI smoke + commit PENDING).**
+`_split_op(op, sizes, end_z_fallback)` (pure, exact) + `_pass_previews` + `open_split_op` +
+`SplitOpDialog` (ui/dialogs/split_op_dialog.py) + `btn_split` toolbar + i18n. `_test_split.py`
+proves union of chunks == original forming toolpaths (prog angle+reach, constant, raw p3,
+open-ended). Chunks are first-class ops → reorder (Move Up/Down / #61(A) drag) to interleave
+reverse ops. See LAST_CHANGES 2026-07-05.
+
+**Caveats:** after splitting you have N ops instead of 1 (tuning the whole sweep as one is
+gone — that's the trade for per-chunk flexibility). Clearance safety-correction is per-pass
+so it reproduces; only inter-op rapids differ (expected). Not started.
+
+---
+
+## Features — 2026-07-04
+
+### 59. ✅ GUI CONFIRMED (2026-07-04, user) — Program tab "Customize View" (columns + Basic/Advanced)
+**What:** Program tab now has a "Customize…" button + global "Advanced" checkbox.
+Per op type, tick **Column** (adds the param as a column in the ops table) and/or
+**Advanced** (hides it from the property editor while Advanced is off). Settings are
+per-program (`params["op_view_config"]`, saved in .ssp); the Advanced switch is a
+global app pref (`op_view_show_advanced`), **default OFF = Basic view on first run**.
+**Why:** Big programs expose dozens of params; this declutters the editor and lets you
+compare operations at a glance. Industry pattern: progressive disclosure + custom columns.
+**Files:** `ui/tabs/program_tab.py` (`OP_PARAM_UNIVERSE`/`OP_PARAM_LABELS`/`GROUP_DEPS`/
+`SECTION_KEYS`/`_DEFAULT_*`/`_default_cfg`, `_view_cfg`/`_hidden_keys`/`_apply_field_visibility`/
+`rebuild_tree_columns`/`_cell_value`, `_pkey`/`_section` tags, toolbar), new
+`ui/dialogs/view_customizer.py`, `main.py` load_project fix, `i18n.py`, `help_window.py`.
+**Safety:** view-only — hiding a field never changes its value or the toolpath.
+**Status:** headless logic tests 9/9 pass, all files compile, GUI verified by user
+("looks nice"). **NOT committed yet** (awaiting user go-ahead to commit).
+**Maintenance:** `OP_PARAM_UNIVERSE` is hand-kept in sync with `on_op_select` — update it
+when adding/removing an op field. See CODE_NAVIGATION §21.
+
+### 58. ⏳ AWAITING PHYSICAL A/B TEST (2026-07-04) — Calibration "Challenger Rr" (axis-fit reach)
+**Problem:** Calibrate `home_x` with tool A (T0101), then run tool B (T0103) → roller
+sits ~1 mm off (an earlier fix already cut this from ~5 mm). Root cause: the default
+reach `get_contact_radius = max|XZ|/2` mixes disc radius with disc tilt, so it differs
+tool-to-tool by ~0.5–1 mm. That inter-tool inconsistency is the residual gap.
+
+**What was added (non-destructive, opt-in):**
+- `tool_step_loader.get_contact_radius_axis()` — NEW; fits the disc rotation axis and
+  returns max rim radius about it (tilt-independent). Default `get_contact_radius`
+  UNCHANGED and still used everywhere else.
+- Calibration dialog: read-only "Challenger Rr (axis)" label + Δ + "Use ▸" button that
+  loads the value into the editable Rr field ONLY. `_refresh_challenger()`,
+  `_use_challenger_rt()`.
+
+**Verified headless (spinning_cam env):** T0101 73.79→74.91, T0102 77.53→77.53,
+T0103 74.31→74.91. Relative reach T0103−T0101: current +0.52 mm, challenger ≈0.00 mm.
+
+**Safety (verified):** button never saves a tool value; dialog never writes tools.json
+(read-only); no Apply button touches r_tool. Only home_x/offset/blank/etc. change.
+
+- [ ] **NEXT: physical A/B test** — calibrate with T0101 (Use ▸), then T0103 (Use ▸),
+      compare Delta X. ~0 → challenger wins.
+- [ ] If it wins: update `tools.json` r_tool values + optionally flag path-gen onto the
+      axis-fit reach. If ~1 mm persists → try tilt-projected reach (project contact
+      point onto machine-X at the disc's real tilt), not just axis-fit.
+- [ ] GUI smoke test (label/Δ/Use ▸ appear and populate Rr on real window).
+
+See LAST_CHANGES 2026-07-04, CODE_NAVIGATION §14/§16.
+
+### 57. ✅ DONE (2026-07-04) — Progressive Reach (per-pass P3 exit stroke length)
+Opt-in per-pass sweep of the P2→P3 stroke length (`L3`), sibling to the existing
+Progressive Angle fan. Angle sweeps the exit **direction** (θ_B), reach sweeps the
+exit **length** — orthogonal, can run together (P3 is polar: length × direction).
+First pass keeps current reach, last pass reaches `progressive_reach_end` (mm);
+shorten it to keep the exit near the shrinking flange as passes climb the mandrel.
+Only active when `pass_angle` is set. New op fields: `progressive_reach_enabled`,
+`progressive_reach_end`. See LAST_CHANGES 2026-07-04.
+
+Gated on **Pass Angle having a value** (not the fan checkbox) — that's the only mode
+where P3 is polar (`_L3` × θ_B). With Pass Angle empty, P3 is raw p3_x/p3_z offsets and
+there's no length to progress.
+
+- [x] Engine interp (`path_generator.py` ~265), UI row, i18n, help, test
+- [ ] GUI smoke test (checkbox appears with Pass Angle set; field toggles)
+- [ ] DEFERRED (user, 2026-07-04): reach when Pass Angle is fully OFF (pure P3 X/Z) —
+      scale p3_x/p3_z proportionally. Add only if needed.
+- [ ] Optional follow-up: auto-fill start reach from blank radius (needs a Compute
+      button; physics-exact flange model deliberately deferred)
+
+---
+
+## Bug Fixes — 2026-07-04
+
+### 56. ✅ FIXED (2026-07-04) — Deleting an op reverts the next set to defaults (Program tab)
+**Symptom:** With two+ rough/finish sets (second created from default, then edited),
+deleting the first set silently reverted the second to default values.
+
+**Root cause:** Property-editor entry-savers (and widget FocusOut/Return bindings)
+write to `operations[op_idx]` by **positional index** (`program_tab.py:1194`).
+`del_op()` popped the op but left `_active_entry_savers` and the editor widgets in
+place; those stale savers stayed bound to index 0 while still holding the deleted
+op's (usually default) values, and the next `_flush_entries()` wrote them into the
+op that shifted into index 0.
+
+**Fix (`ui/tabs/program_tab.py`):** `del_op()` clears `_active_entry_savers`,
+resets `_active_op_idx`, and destroys the editor widgets before popping, then
+rebuilds the editor for the new selection. `move_op()` had the same latent bug
+(swap-then-flush clobbered the swapped-in op) and now flushes+clears savers before
+the swap. See LAST_CHANGES 2026-07-04.
+
+- [x] Fix `del_op` / `move_op`
+- [ ] GUI smoke test in a real window (headless suites don't cover editor widget state)
+
+---
+
+## Operation Suggester Roadmap — 2026-07-03
+
+**Context:** v1+v2 done (rule-based advisory suggester, `process_planner.py` +
+`materials.json` + `OpSuggesterDialog`; WHY notes, back-pass rule, On/Off compare).
+See LAST_CHANGES 2026-07-03/-03b, CODE_NAVIGATION §20.
+
+### 54. Suggester — cover more parameters, each with a WHY explanation
+Every value the suggester emits should carry a one-line rationale (current
+`notes` mechanism, i18n `sug_note_*`). Candidates not yet suggested:
+- [ ] speed zones (`zones`) — e.g. slower RPM near the large diameter / flange edge
+- [ ] contact-zone feed (`contact_zone_mm`, `feed_contact`, `feed_contact_end`)
+- [ ] reverse direction strategy (when tip→root traversal helps)
+- [ ] `p2_z_extend`, exit arc angle, back-pass arc X/Z shape values
+- [ ] conformal flag on angled mandrels (ties into the angled-clearance advisory)
+- [ ] ID112: tilt_mode / tilt_start / tilt_end suggestion from surface normals
+- [ ] multi-stage roughing (2 ops with intermediate anneal note) when spinning
+      ratio exceeds the material limit — today it only warns
+
+### 55. Suggester — ask more inputs for more accurate suggestions
+Optional second step in the dialog ("More detail…"): each answer tightens the
+heuristics; blank/skip keeps the current defaults.
+- [ ] material temper/condition (annealed / H14 / work-hardened) → scales angle-per-pass
+- [ ] part tolerance / surface-quality target → finishing pass count + finer feeds
+- [ ] machine rigidity / max forming force class → feed ceiling
+- [ ] whether intermediate annealing is possible in-house → multi-stage planning
+- [ ] roller profile (round-nose vs flat) → clearance + back-pass defaults
+- [ ] production volume (one-off vs series) → bias cycle time vs safety margin
+
+---
+
 ## Machine #2 — Hot Spinning (ID112) Roadmap — 2026-07-02
 
 **Context:** Phase 0 (infrastructure) is DONE — `HotTiltArmSpinningAdapter` (type 112),
@@ -81,6 +556,42 @@ dependency (e.g. OPC-UA client for CODESYS transfer) — then decide per-build
 inclusion via PyInstaller `excludes`; or (b) a machine type's process know-how
 becomes IP-sensitive — then per-machine-type builds (same codebase, build flag).
 Not worth it at 2 machine types.
+
+### ✅ Done — Builder drift protection: manifest + auto-check + exe self-test (2026-07-04)
+
+**Problem:** the exe builder had silently fallen behind the app. Three divergent
+build recipes existed (`build_exe.py` run by the `.bat`, plus `SpinningCam.spec`
+and `EMS_SoftSpinner.spec`); only the `.spec` bundled `cryptography` (license
+backend) while the recipe actually run did not; new data files (`materials.json`,
+`machines/ID112-1.json`) were never shipped; and `--add-data` put files in
+`_internal/` which the app never reads (`get_base_path()` == exe folder). Failures
+were silent — a subtly incomplete exe, no error.
+
+**Fix (single source of truth + fail-loud):**
+- `packaging_manifest.py` — the ONE list of what must ship next to the exe
+  (`SHIP_NEXT_TO_EXE`), what must NEVER ship (`MUST_NOT_SHIP`: private key,
+  admin.lic), what is intentionally excluded (`NOT_SHIPPED`), and the
+  `CRITICAL_MODULES` that must import. Also hosts `run_selfcheck()`.
+- `main_tk.py --selfcheck` — proves a frozen build without opening the GUI:
+  imports every critical module, builds the license public key (forces the
+  cryptography backend to load), resolves every required data file next to the exe.
+- `check_packaging.py` — static checks (source exists, modules import, and a
+  SOURCE SCAN that WARNS about any data file read in code but not in the manifest)
+  + `--post-build` checks (files sit next to the exe, no secret leaked, exe
+  `--selfcheck` exits 0).
+- `build_exe.py` — now the ONLY recipe. Added `--collect-all=cryptography`,
+  dropped the unused `images/` (dev screenshots, never read by the app), copies
+  the manifest next to the exe after build, then runs `check_packaging --post-build`
+  and fails the build if the check fails. `.spec` files retired (git history keeps them).
+
+**Maintenance rule going forward:** add a new data file read at runtime → add it to
+`SHIP_NEXT_TO_EXE`. The source scanner warns if you forget. Run in the
+`spinning_cam` conda env (OCC/fpdf/cryptography live there; system python fails imports).
+
+**Status:** DONE and proven. Real frozen rebuild via `build_exe.bat` (2026-07-04)
+ended `BUILD SUCCESSFUL and VERIFIED` — the built exe's own `--selfcheck` reported
+all critical modules imported, license crypto loaded, and data files present next to
+the exe. Verifies completeness/launchability, NOT GUI render or license-logic correctness.
 
 ### 52. Phase 3 — CODESYS post-processor (Delta / Inovance IPC)
 

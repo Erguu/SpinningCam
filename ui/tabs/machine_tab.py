@@ -331,6 +331,10 @@ class MachineTab(ScrollableTabBase):
                      tooltip="Makinenin Z ekseninde ulaşabileceği minimum pozisyon (mm, CAM koordinatları).")
         add_ws_entry(f_ws, "workspace_z_max", t("lbl_ws_z_max"), default=500.0,
                      tooltip="Makinenin Z ekseninde ulaşabileceği maksimum pozisyon (mm, CAM koordinatları).")
+        add_ws_entry(f_ws, "clamp_zone_baseline", t("lbl_clamp_baseline"), default=0.0,
+                     tooltip="Karşı baskının kavradığı taban derinliği için MAKİNE varsayılanı (mm, mandrel tabanından yukarı). "
+                             "Bu bölge işlenmez (counter-press). Her program bunu Process sekmesindeki 'Kıskaç Bölgesi' "
+                             "alanıyla geçersiz kılabilir (0 = bu varsayılanı kullan). TODO #62.")
 
         # Cylinder Section
         f_cyl = ttk.LabelFrame(self.content, text=t("frm_cylinder"))

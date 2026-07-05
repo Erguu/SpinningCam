@@ -115,6 +115,10 @@ NAVIGATING THE 3D VIEW
 If the geometry disappears or gets clipped, use the Fix View
 button — it resets the camera clipping range.
 
+The divider between the control panel and the 3D view can be
+dragged to resize both — widen the panel if buttons or fields are
+cut off. The chosen width is remembered.
+
 
 WHAT YOU SEE
 ════════════════════════════════════════════════════════════════
@@ -153,8 +157,8 @@ Tip distance     The real-time gap between roller tip and mandrel
                  at the current roller position. Use this to verify
                  calibration looks sensible before running.
 
-Velocity Colors  Draws a faded translucent red band around the
-                 mandrel marking the contact zone — where the roller
+Contact Zone     Draws a faded translucent red band around the
+Band             mandrel marking the contact zone — where the roller
                  slows to its contact feed. Path segments inside the
                  band run slow; segments outside run fast. It follows
                  the mandrel profile and does not alter the toolpaths.
@@ -177,6 +181,10 @@ quick collision check.
 
 Geometri kaybolur veya kırpılırsa Görünümü Düzelt düğmesini
 kullanın — kamera kırpma aralığını sıfırlar.
+
+Kontrol paneli ile 3D görünüm arasındaki ayırıcı sürüklenerek
+ikisi de yeniden boyutlandırılabilir — düğmeler veya alanlar
+kesiliyorsa paneli genişletin. Seçilen genişlik hatırlanır.
 
 
 NE GÖRÜRSÜNÜZ
@@ -218,8 +226,8 @@ Uç mesafesi        Mevcut rulo konumunda rulo ucu ile mandrel
                    kalibrasyonun mantıklı göründüğünü doğrulamak
                    için kullanın.
 
-Hız Renkleri       Mandrel etrafında soluk yarı saydam kırmızı bir
-                   bant çizer — rulonun temas beslemesine (contact
+Temas Bölgesi      Mandrel etrafında soluk yarı saydam kırmızı bir
+Bandı              bant çizer — rulonun temas beslemesine (contact
                    feed) yavaşladığı temas bölgesini işaretler. Bandın
                    içindeki yol kısımları yavaş, dışındakiler hızlı
                    çalışır. Mandrel profilini takip eder ve takım
@@ -268,6 +276,26 @@ zero (the actual part thickness). Use 1–3 finishing passes
 depending on the surface quality required.
 
 
+PROGRESSIVE ANGLE & REACH (per-pass P3 exit shaping)
+════════════════════════════════════════════════════════════════
+The exit point P3 is defined as a length (reach) in a direction
+(angle) out from the contact point. When Pass Angle is set, two
+independent per-pass sweeps are available:
+
+  • Progressive Angle — swings the exit DIRECTION across passes,
+    from the first pass's Pass Angle toward the Fan End Angle.
+
+  • Progressive Reach — changes the exit LENGTH across passes,
+    from the current P3 reach toward the Reach End (mm). Set a
+    smaller Reach End to shorten the stroke on later passes.
+
+They are orthogonal and can run together: angle steers the
+direction, reach sets the length. As the passes climb the mandrel
+the unformed flange gets smaller, so shortening the reach per pass
+keeps the exit near the blank edge without any material model.
+Both fields only appear when Pass Angle is set and count > 1.
+
+
 PASS DIRECTION (FORWARD / REVERSE)
 ════════════════════════════════════════════════════════════════
 Each roughing or finishing operation has a Direction setting.
@@ -292,6 +320,85 @@ the roller clear material on the return without catching.
 Back passes double the number of toolpath lines and increase
 cycle time. Use them where surface finish or material control
 is critical.
+
+
+ADDING AND ORGANIZING OPERATIONS
+════════════════════════════════════════════════════════════════
+The "+ Add ▾" dropdown adds a new operation of the chosen type
+(roughing, finishing, cutting, bending).
+
+Each operation can be turned ON or OFF without deleting it: select
+it and press On/Off, or simply double-click the row. Disabled
+operations show "—" in the On column and appear gray; they are
+skipped by Calculate and never reach the G-code. Use this to keep
+several alternative strategies in the list and compare them by
+switching which ones are active.
+
+The "Real End Z" column shows where each operation's LAST pass
+actually reaches in Z — its deepest contact point (P2), taken from
+the path generator when the toolpaths are calculated. This differs
+from "Zone End Z": the
+p2_z_extend parameter pushes the last pass PAST the planned zone
+end, so Real End Z = Zone End Z + p2_z_extend (for roughing). It is
+in the same Z reference as Zone Start/End Z, so you can chain the
+next operation from it directly. It shows "—" until the toolpaths
+are calculated.
+
+The planned "Zone Start Z" / "Zone End Z" columns (the Start Z /
+End Z you set on each operation) can be added via Customize… (tick
+them as Column). If the table has many columns, use the horizontal
+scrollbar under it to reach the ones on the right.
+
+
+CUSTOMIZE VIEW (Customize… BUTTON + Advanced CHECKBOX)
+════════════════════════════════════════════════════════════════
+Large programs expose dozens of parameters per operation, most of
+which you rarely touch. Two controls tame this:
+
+  - "Customize…" opens a window with one tab per operation type
+    (Roughing / Finishing / Cutting / Bending). For each parameter
+    the type can use, tick "Column" to add it as a column in the
+    operations table (so you can compare operations at a glance),
+    and/or "Advanced" to hide it from the property editor. A
+    parameter can be basic for one type and advanced for another.
+
+  - The "Advanced" checkbox in the toolbar is a global view switch.
+    Off: the editor shows only the parameters NOT marked advanced —
+    a short, clean form. On: every parameter is shown (the classic
+    behaviour). It affects the view only.
+
+Column choices and basic/advanced tags are saved WITH the program
+(.ssp), so each program remembers its own layout; the Advanced
+switch is a single app-wide setting. IMPORTANT: hiding a parameter
+never changes its value and never changes the toolpath — a hidden
+field still feeds path generation exactly as before. This is only
+about what you see, not what the machine does. A cell that shows
+"—" in the table means that parameter does not apply to that
+operation type. New programs start from sensible defaults.
+
+
+OPERATION SUGGESTER (✨Suggest BUTTON)
+════════════════════════════════════════════════════════════════
+The Suggest button proposes a roughing + finishing sequence from
+the loaded mandrel profile and a material table. It estimates:
+  - roughing pass count from the part's total wall angle,
+  - the pass-angle fan (first pass angle, spreading to 180°),
+  - spindle RPM from the material surface speed,
+  - feeds (mm/min) from the material's mm/rev values,
+  - back pass on/off (ironing stroke when the wall is steep
+    enough that flange wrinkling is a risk),
+  - a blank diameter estimate by surface-area equivalence.
+
+The preview includes a "WHY THESE VALUES" section explaining each
+number in one line, plus warnings (spinning ratio, RPM/feed
+clamps, workspace). Nothing is inserted until you press
+"Insert as new operations" — the proposal is appended to the
+operation list, where you can edit or disable it like any other
+operation. Suggestions come from generic cold-spinning
+heuristics: treat them as a starting point, then Calculate,
+check clearances and simulate as usual. The numbers (angle per
+pass, speeds, feeds, ratio limits) live in materials.json next
+to the program and can be tuned per machine and material.
 
 
 CALCULATE
@@ -334,6 +441,26 @@ kalınlığına) indirir. Gereken yüzey kalitesine göre 1–3 bitirme
 pasası kullanın.
 
 
+KADEMELİ AÇI VE UZUNLUK (pas başına P3 çıkış şekli)
+════════════════════════════════════════════════════════════════
+Çıkış noktası P3, temas noktasından bir yönde (açı) uzanan bir
+uzunluk (reach) olarak tanımlanır. Pas Açısı tanımlıysa, pas başına
+iki bağımsız yelpaze kullanılabilir:
+
+  • Kademeli Açı — çıkış YÖNÜNÜ paslar boyunca ilk pasın Pas
+    Açısından Yelpaze Bitiş Açısına doğru çevirir.
+
+  • Kademeli Uzunluk — çıkış UZUNLUĞUNU paslar boyunca mevcut P3
+    uzunluğundan Uzunluk Bitiş (mm) değerine değiştirir. Daha
+    küçük bir bitiş değeri sonraki pasların strokunu kısaltır.
+
+İkisi diktir ve birlikte çalışır: açı yönü, uzunluk uzunluğu
+ayarlar. Paslar mandrelde yukarı çıktıkça şekillenmemiş flanş
+küçülür; bu yüzden pas başına uzunluğu kısaltmak, hiçbir malzeme
+modeli olmadan çıkışı blank kenarına yakın tutar. Her iki alan da
+yalnızca Pas Açısı tanımlı ve paso sayısı > 1 iken görünür.
+
+
 PAS YÖNÜ (İLERİ / TERS)
 ════════════════════════════════════════════════════════════════
 Her kaba veya bitirme operasyonunun bir Yön ayarı vardır. İleri
@@ -357,6 +484,88 @@ rulonun geri dönüşte malzemeye takılmadan geçmesine yardımcı olur.
 Geri paslar takım yolu çizgilerini iki katına çıkarır ve çevrim
 süresini artırır. Yüzey kalitesi veya malzeme kontrolünün kritik
 olduğu yerlerde kullanın.
+
+
+OPERASYON EKLEME VE DÜZENLEME
+════════════════════════════════════════════════════════════════
+"+ Ekle ▾" açılır menüsü seçilen tipte yeni operasyon ekler
+(kaba, bitirme, kesme, kıvırma).
+
+Her operasyon silinmeden AÇIK/KAPALI yapılabilir: seçip Aç/Kapat
+düğmesine basın veya satıra çift tıklayın. Kapalı operasyonlar
+Aktif sütununda "—" gösterir ve gri görünür; Hesapla bunları
+atlar, G-code'a asla girmezler. Birden fazla alternatif stratejiyi
+listede tutup hangilerinin aktif olduğunu değiştirerek
+karşılaştırmak için kullanın.
+
+"Gerçek Bitiş Z" sütunu her operasyonun SON pasının Z'de gerçekte
+nereye ulaştığını gösterir — en derin temas noktası (P2), takım
+yolları hesaplanırken yol üreticisinden alınır. Bu, "Bölge Bitiş
+Z"den FARKLIDIR: p2_z_extend
+parametresi son pası planlanan bölge bitişinin ÖTESİNE iter, yani
+Gerçek Bitiş Z = Bölge Bitiş Z + p2_z_extend (kaba için). Bölge
+Başlangıç/Bitiş Z ile aynı Z referansındadır, bu yüzden bir sonraki
+operasyonu doğrudan buradan zincirleyebilirsiniz. Takım yolları
+hesaplanana kadar "—" gösterir.
+
+Planlanan "Bölge Başlangıç Z" / "Bölge Bitiş Z" sütunları (operasyona
+verdiğiniz Start Z / End Z) Özelleştir… ile eklenebilir (Sütun
+kutusunu işaretleyin). Tabloda çok sütun varsa, sağdakilere ulaşmak
+için altındaki yatay kaydırma çubuğunu kullanın.
+
+
+GÖRÜNÜMÜ ÖZELLEŞTİRME (Özelleştir… DÜĞMESİ + Gelişmiş KUTUSU)
+════════════════════════════════════════════════════════════════
+Büyük programlarda her operasyon onlarca parametre gösterir, çoğuna
+nadiren dokunursunuz. İki kontrol bunu düzenler:
+
+  - "Özelleştir…" her operasyon tipi için bir sekme içeren bir
+    pencere açar (Kaba / Bitirme / Kesme / Kıvırma). Tipin
+    kullanabildiği her parametre için "Sütun"u işaretleyerek onu
+    operasyon tablosuna sütun olarak ekleyebilir (operasyonları bir
+    bakışta karşılaştırmak için) ve/veya "Gelişmiş"i işaretleyerek
+    özellik editöründen gizleyebilirsiniz. Bir parametre bir tip
+    için temel, başka bir tip için gelişmiş olabilir.
+
+  - Araç çubuğundaki "Gelişmiş" kutusu genel bir görünüm anahtarıdır.
+    Kapalı: editör yalnızca gelişmiş işaretlenmemiş parametreleri
+    gösterir — kısa, sade bir form. Açık: tüm parametreler görünür
+    (klasik davranış). Yalnızca görünümü etkiler.
+
+Sütun seçimleri ve temel/gelişmiş etiketleri programla (.ssp)
+BİRLİKTE kaydedilir; her program kendi düzenini hatırlar. Gelişmiş
+anahtarı ise uygulama genelinde tek bir ayardır. ÖNEMLİ: bir
+parametreyi gizlemek değerini ASLA değiştirmez ve takım yolunu ASLA
+değiştirmez — gizli bir alan yol üretimini eskisi gibi besler. Bu
+yalnızca ne gördüğünüzle ilgilidir, makinenin ne yaptığıyla değil.
+Tabloda "—" gösteren bir hücre, o parametrenin o operasyon tipine
+uygulanmadığı anlamına gelir. Yeni programlar makul varsayılanlarla
+başlar.
+
+
+OPERASYON ÖNERİCİ (✨ÖNER DÜĞMESİ)
+════════════════════════════════════════════════════════════════
+Öner düğmesi, yüklü mandrel profilinden ve bir malzeme tablosundan
+kaba + bitirme operasyon dizisi önerir. Tahmin ettikleri:
+  - parçanın toplam duvar açısından kaba paso sayısı,
+  - paso açısı yelpazesi (ilk paso açısı, 180°'ye yayılır),
+  - malzeme yüzey hızından mil devri (RPM),
+  - malzemenin mm/dev değerlerinden beslemeler (mm/dak),
+  - geri pas açık/kapalı (duvar açısı flanşta kırışma riski
+    yaratacak kadar dikse ütüleme hamlesi),
+  - yüzey alanı eşdeğerliğiyle sac çapı tahmini.
+
+Önizlemede her sayıyı tek satırda açıklayan "BU DEĞERLER NEDEN
+BÖYLE" bölümü ve uyarılar (sıvama oranı, RPM/besleme sınırlamaları,
+çalışma alanı) bulunur. "Yeni operasyon olarak ekle" düğmesine
+basmadan hiçbir şey eklenmez — öneri operasyon listesine eklenir
+ve diğer operasyonlar gibi düzenlenebilir veya kapatılabilir.
+Öneriler genel soğuk sıvama kurallarından gelir: başlangıç noktası
+olarak kullanın, ardından her zamanki gibi Hesapla'ya basın,
+mesafeleri kontrol edin ve simüle edin. Değerler (paso başına açı,
+hızlar, beslemeler, oran sınırları) programın yanındaki
+materials.json dosyasındadır; makineye ve malzemeye göre
+ayarlanabilir.
 
 
 HESAPLA
@@ -396,6 +605,17 @@ Workspace limits
   used to draw the workspace box in the 3D view as a visual
   reference. The software does not currently enforce hard limits
   — it is your responsibility to check that paths stay inside.
+
+Clamp Zone Default (counter-press)
+  The base region of the part is held between the counter-press
+  and the mandrel and is never formed. Set the clamped depth here
+  (mm, measured up from the mandrel base) as the machine default.
+  Each program can override it on the Process tab ("Clamp Zone");
+  0 there means "use this machine default". The excluded region is
+  drawn as a translucent red band in the 3D view. For now this is
+  advisory only: an operation that starts inside the band is logged
+  as a warning but the path is still generated — so keep setting the
+  first operation's Start Z above the band as you do today.
 
 Roller approach side
   Whether the roller approaches from the positive or negative X
@@ -469,6 +689,28 @@ Procedure:
 
 Repeat the calibration whenever you change the roller, re-home
 the machine, or suspect the position has drifted.
+
+Challenger Rr — a second way to measure the tool's reach:
+"Rr" is how far the roller reaches from the machine reference to
+the point that touches the part. Normally each tool's Rr is
+measured one way. The problem: that measurement can come out a
+little different for each tool, so calibrating with one tool and
+then running another can leave a small gap.
+
+Example: you calibrate with tool 1 and it is correct. You switch
+to tool 2, and it stops about 1 mm short of the part. The tool is
+fine — the two tools were just measured slightly differently.
+
+The dialog now shows a "Challenger Rr" for the selected tool. It
+measures every tool the SAME way (from the tool's STEP file), so
+the tools stay consistent with each other. To test it:
+
+  1. Pick tool 1, click "Use ▸", do the touch, and Apply.
+  2. Pick tool 2, click "Use ▸", and do its touch.
+  3. If the gap is gone, this way of measuring is better.
+
+Important: "Use ▸" only fills the Rr box for this calibration. It
+does NOT change the tool library and saves no tool value.
 
 
 EXPORT FORMATS
@@ -591,6 +833,28 @@ Ruloyu değiştirdiğinizde, makinenin home'unu sıfırladığınızda
 veya konumun kaymış olabileceğinden şüphelendiğinizde kalibrasyonu
 tekrarlayın.
 
+Challenger Rr — takımın erişimini ölçmenin ikinci bir yolu:
+"Rr", rulonun makine referansından parçaya değen noktaya kadar ne
+kadar uzandığıdır. Normalde her takımın Rr'si tek bir yöntemle
+ölçülür. Sorun: bu ölçüm her takım için biraz farklı çıkabilir; bu
+yüzden bir takımla kalibre edip başka takımla çalışınca küçük bir
+boşluk kalabilir.
+
+Örnek: Takım 1 ile kalibre ediyorsun, doğru. Takım 2'ye geçiyorsun
+ve parçaya ~1 mm kala duruyor. Takım kusurlu değil — iki takım
+sadece biraz farklı ölçülmüş.
+
+Diyalog artık seçili takım için bir "Challenger Rr" gösteriyor. Bu
+değer HER takımı AYNI şekilde ölçer (takımın STEP dosyasından), böylece
+takımlar birbiriyle tutarlı kalır. Test etmek için:
+
+  1. Takım 1'i seç, "Use ▸"e bas, dokunuşu yap ve Apply'la.
+  2. Takım 2'yi seç, "Use ▸"e bas ve onun dokunuşunu yap.
+  3. Boşluk kaybolduysa bu ölçüm yöntemi daha iyidir.
+
+Önemli: "Use ▸" yalnızca bu kalibrasyon için Rr kutusunu doldurur.
+Takım kütüphanesini DEĞİŞTİRMEZ ve hiçbir takım değerini KAYDETMEZ.
+
 
 DIŞA AKTARMA FORMATLARI
 ════════════════════════════════════════════════════════════════
@@ -703,6 +967,27 @@ every path will be shifted by that amount.
 Re-run the full touch calibration procedure. Pay attention to
 which surface you are touching (mandrel vs. blank) and which
 reference point the calibration dialog is applying to.
+
+
+"CLEARANCE ADVISORY — ANGLED SURFACES" WARNING APPEARS
+════════════════════════════════════════════════════════════════
+This warning is informational only — toolpaths are never changed
+by it. It appears when the mandrel has angled (conical or curved)
+surfaces inside an operation's Z range. On such slopes the
+clearance model is less accurate, because the roller is a tilted
+disc rather than a sphere:
+
+• A positive (+) deviation means the roller will stay farther
+  from the part than the commanded clearance (safe, but the
+  gap on the part will be larger than expected).
+
+• A negative (−) deviation means the roller can come CLOSER
+  to the part than commanded — treat this as a gouge risk and
+  verify the first run with a dry pass or extra clearance.
+
+On cylindrical (straight) mandrel sections the model is exact
+and this warning does not appear. The popup is shown once per
+recipe; the same details are always written to the log.
 """,
         "TR": """\
 DEĞİŞİKLİKTEN SONRA YOLLAR GÖRÜNMEDİ
@@ -794,6 +1079,28 @@ her yol o miktar kadar kaymış olacaktır.
 Tam touch kalibrasyon prosedürünü yeniden çalıştırın. Hangi yüzeye
 temas ettiğinize (mandrel ve blank) ve kalibrasyon diyaloğunun
 hangi referans noktasına uyguladığına dikkat edin.
+
+
+"BOŞLUK UYARISI — AÇILI YÜZEYLER" UYARISI GÖRÜNÜYOR
+════════════════════════════════════════════════════════════════
+Bu uyarı yalnızca bilgilendirme amaçlıdır — takım yolları asla
+değiştirilmez. Mandrelin, bir operasyonun Z aralığı içinde açılı
+(konik veya eğri) yüzeyleri olduğunda görünür. Bu tür eğimlerde
+boşluk modeli daha az hassastır, çünkü rulo bir küre değil,
+eğik bir disktir:
+
+• Pozitif (+) sapma, rulonun parçadan komut verilen boşluktan
+  daha uzak kalacağı anlamına gelir (güvenli, ancak parçadaki
+  boşluk beklenenden büyük olur).
+
+• Negatif (−) sapma, rulonun parçaya komut verilenden daha çok
+  YAKLAŞABİLECEĞİ anlamına gelir — bunu dalma (gouge) riski
+  olarak değerlendirin ve ilk çalıştırmayı kuru paso veya ek
+  boşlukla doğrulayın.
+
+Silindirik (düz) mandrel bölümlerinde model tamdır ve bu uyarı
+görünmez. Açılır pencere reçete başına bir kez gösterilir; aynı
+ayrıntılar her zaman log'a yazılır.
 """,
     },
 }

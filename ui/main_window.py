@@ -47,6 +47,9 @@ class SpinningCamWindow(tk.Tk):
             if update_type in ("all", "paths", "shell_and_paths", "visual"):
                 try:
                     self.ui_program.refresh_pass_info()
+                    # Keep the "Real End Z" column in sync with fresh toolpaths
+                    # (updates rows in place; selection is preserved).
+                    self.ui_program.refresh_ops_tree()
                 except Exception:
                     pass
         self.app.update_scene = _hooked_update_scene
@@ -185,6 +188,67 @@ class SpinningCamWindow(tk.Tk):
         self.wait_window(dlg)
         self.save_tools()
 
+    def refresh_clamp_status(self):
+        """Surface the clamp-zone advisory (#62) after a path calculation. Reads
+        path_gen.last_clamp_warnings (set by calculate_paths). Always updates the
+        status bar (amber persistent indicator). ALSO pops a modal warning with
+        Confirm / Don't-show-again buttons, unless the operator suppressed it this
+        session. Called from both the async poller and the synchronous Calculate
+        button so it fires whichever path the user takes."""
+        try:
+            cw = getattr(self.app.path_gen, "last_clamp_warnings", None) or []
+            # Persistent status-bar indicator
+            if cw:
+                self.lbl_info.config(
+                    text=t("status_clamp_warn").format(n=len(cw), idx=cw[0]["op_index"] + 1),
+                    fg="#ffb020")
+            else:
+                self.lbl_info.config(text=t("status_ready"), fg="#ddd")
+
+            # Modal popup (unless suppressed for the session via "Don't show again")
+            if cw and not getattr(self, "_clamp_popup_suppressed", False):
+                top = cw[0]["clamp_top_z"]
+                ops = "\n".join(
+                    "  • " + t("msg_clamp_warn_op").format(
+                        idx=w["op_index"] + 1, type=w["op_type"], sz=round(w["start_z"], 1))
+                    for w in cw)
+                self._show_clamp_popup(
+                    t("msg_clamp_warn_body").format(n=len(cw), top=round(top, 1), ops=ops))
+        except Exception:
+            pass
+
+    def _show_clamp_popup(self, body):
+        """Modal clamp-zone warning with two buttons: Confirm (acknowledge, may reappear
+        next calc) and Don't show again (suppress for the rest of this session; the amber
+        status bar stays as the persistent cue). Session-only by design — a safety cue
+        should re-alert on the next app launch."""
+        win = tk.Toplevel(self)
+        win.title(t("msg_clamp_warn_title"))
+        win.transient(self)
+        win.resizable(False, False)
+        frm = ttk.Frame(win, padding=16)
+        frm.pack(fill="both", expand=True)
+        tk.Label(frm, text="⚠", font=("Arial", 20), fg="#d08000").pack(anchor="w")
+        tk.Label(frm, text=body, justify="left", wraplength=460).pack(anchor="w", pady=(4, 0))
+        btns = ttk.Frame(frm)
+        btns.pack(fill="x", pady=(14, 0))
+
+        def _dont_show():
+            self._clamp_popup_suppressed = True
+            win.destroy()
+
+        ttk.Button(btns, text=t("btn_dont_show_again"), command=_dont_show).pack(side="left")
+        ttk.Button(btns, text=t("btn_confirm"), command=win.destroy).pack(side="right")
+        win.grab_set()
+        win.update_idletasks()
+        try:  # center over the main window
+            x = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2
+            y = self.winfo_rooty() + (self.winfo_height() - win.winfo_height()) // 3
+            win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+        self.wait_window(win)
+
     def _load_machine_profile(self):
         from machine_loader import list_machine_profiles, migrate_from_settings, get_unique_types
         from machine_adapter import get_adapter
@@ -256,14 +320,14 @@ class SpinningCamWindow(tk.Tk):
         tk.Label(frame_header, text=f"v{self.app.params.get('app_version', '?')}", bg="#222222", fg="#ffffff",
                  font=("Arial", 10, "bold")).pack(side="right", padx=12)
 
-        self.sidebar = tk.Frame(self, width=350, bg="#f0f0f0", relief="raised", bd=2)
-        self.sidebar.pack(side="left", fill="y")
-        self.sidebar.pack_propagate(False)
-
-        self._init_logo()
-
+        # Status bar packed BEFORE the paned area so the pane gets the rest.
+        # pack_propagate(False) LOCKS the height at 30px: multi-line tooltip
+        # text set into lbl_info can no longer grow this bar and steal vertical
+        # space from the paned area above it (which would make the sidebar jump
+        # under the cursor every time a hint changed line-count).
         frame_status = tk.Frame(self, bg="#333", height=30)
         frame_status.pack(side="bottom", fill="x")
+        frame_status.pack_propagate(False)
 
         self.lbl_info = tk.Label(frame_status, text=t("status_ready"), bg="#333", fg="#ddd",
                                   justify="left", anchor="w", font=("Consolas", 9))
@@ -274,6 +338,23 @@ class SpinningCamWindow(tk.Tk):
         self.lbl_monitor.pack(side="right", padx=10)
 
         self.helper = UIHelper(self.lbl_info)
+
+        # Sidebar | 3D view divider is draggable (PanedWindow sash). The
+        # embedded PyVista window already follows plot_frame <Configure>
+        # events (see embed_plotter), so sash drags resize it safely.
+        self._paned = tk.PanedWindow(self, orient="horizontal", sashwidth=6,
+                                     sashrelief="raised", bd=0, bg="#c9c9c9")
+        self._paned.pack(side="left", fill="both", expand=True)
+
+        self.sidebar = tk.Frame(self._paned, bg="#f0f0f0", relief="raised", bd=2)
+        _sb_w = 350
+        try:
+            _sb_w = max(280, int(self.app.params.get("sidebar_width", 350)))
+        except (TypeError, ValueError):
+            pass
+        self._paned.add(self.sidebar, width=_sb_w, minsize=280)
+
+        self._init_logo()
 
         self.tabs = ttk.Notebook(self.sidebar)
         self.tabs.pack(fill="both", expand=True)
@@ -290,8 +371,19 @@ class SpinningCamWindow(tk.Tk):
         self.tabs.add(self.tab_machine, text=t("tab_machine"))
         self.ui_machine = MachineTab(self.tab_machine, self.app, self.helper)
 
-        self.plot_frame = tk.Frame(self, bg="white")
-        self.plot_frame.pack(side="right", fill="both", expand=True)
+        self.plot_frame = tk.Frame(self._paned, bg="white")
+        self._paned.add(self.plot_frame, minsize=300)
+
+        # Persist the chosen sidebar width when the sash drag ends.
+        def _save_sidebar_width(event=None):
+            try:
+                w = self.sidebar.winfo_width()
+                if w > 50 and w != int(self.app.params.get("sidebar_width", 350)):
+                    self.app.params["sidebar_width"] = w
+                    self.app.save_settings_json()
+            except Exception:
+                pass
+        self._paned.bind("<ButtonRelease-1>", _save_sidebar_width)
 
         self.after(200, self.embed_plotter)
 

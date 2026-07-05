@@ -185,6 +185,36 @@ class ToolStepLoader:
         pts = canonical.points
         return float(np.sqrt(pts[:, 0] ** 2 + pts[:, 2] ** 2).max()) / 2.0
 
+    def get_contact_radius_axis(self, tool_entry: dict) -> "float | None":
+        """CHALLENGER reach — does NOT replace get_contact_radius (kept as default).
+
+        get_contact_radius() uses max|XZ|/2, which assumes the far rim point is the
+        clean diametral opposite of the tip.  On these discs the far point sits ~45°
+        off (tilted diagonal), so max|XZ|/2 blends disc radius with tilt and differs
+        tool-to-tool by ~0.5-1 mm.  That inter-tool inconsistency is the residual gap
+        seen when calibrating with one tool and running another.
+
+        This method instead fits the disc's revolution axis (centroid of the XZ
+        projection of the body) and returns the maximum rim radius about that axis —
+        a tilt-independent, geometry-pure reach.  In the 2026-07-02 research this gave
+        ~74.9 mm for both T0101 and T0103 (vs 73.79 / 74.31 from max|XZ|/2), i.e. the
+        two discs are physically the same reach.  Exposed as an opt-in challenger for
+        physical A/B validation; not wired into path-gen or calibration by default.
+        """
+        step_path = _resolve_step_path(tool_entry, self.base_dir)
+        if not step_path:
+            return None
+        canonical = self._get_canonical(tool_entry, step_path)
+        if canonical is None:
+            return None
+        pts = canonical.points
+        # Fit the revolution axis as the centroid of the XZ projection, then take the
+        # farthest rim point about it (same method as _research_tool_geometry.py).
+        cx = float(pts[:, 0].mean())
+        cz = float(pts[:, 2].mean())
+        rr = np.sqrt((pts[:, 0] - cx) ** 2 + (pts[:, 2] - cz) ** 2)
+        return float(rr.max())
+
     def get_canonical_mesh(self, tool_entry: dict, side: float) -> "pv.PolyData | None":
         """Return canonical mesh with tip at (0,0,0) and side-flip applied, ready for
         actor.SetPosition() — no translation to machine coords is applied here."""
@@ -247,6 +277,51 @@ class ToolStepLoader:
                     result = pts[np.argsort(ang)].tolist()
                 except Exception:
                     pass
+
+        self._cache[key] = result
+        return result
+
+    def get_support_table(self, tool_entry: dict, side: float = 1.0):
+        """Roller-body penetration table for tilted surface normals.
+
+        For a surface whose outward normal is tilted `theta` degrees from radial
+        (positive = toward +Z, i.e. mandrel radius decreasing with +Z), the roller
+        body extends delta(theta) mm beyond the tangent plane through the TIP.
+        The scalar r_tool model assumes delta == 0 for every angle; the real disc
+        violates that on slopes, so delta is the clearance ERROR of that model.
+
+        Returns (angles_deg, deltas_mm) numpy arrays for theta in [-89, +89],
+        baseline-corrected so delta(0) == 0 (mesh tip-band tolerance removed),
+        or None if the tool has no usable STEP mesh.
+        """
+        step_path = _resolve_step_path(tool_entry, self.base_dir)
+        if not step_path:
+            return None
+        shaft = tool_entry.get("shaft_axis", "Z")
+        rot   = tuple(tool_entry.get("step_rotation", [0.0, 0.0, 0.0]))
+        tip   = tuple(tool_entry.get("tip_offset",    [0.0, 0.0, 0.0]))
+        try:
+            mtime = os.path.getmtime(step_path)
+        except OSError:
+            return None
+        key = ("support", step_path, mtime, shaft, rot, tip, 1 if side >= 0 else -1)
+        if key in self._cache:
+            return self._cache[key]
+
+        canonical = self._get_canonical(tool_entry, step_path)
+        result = None
+        if canonical is not None:
+            pts = np.asarray(canonical.points)
+            angles = np.linspace(-89.0, 89.0, 179)
+            # Left-side roller is the X-mirror of the canonical mesh; in the
+            # mirrored frame a +Z normal tilt maps to -Z on the canonical mesh.
+            eff = angles if side >= 0 else -angles
+            rad = np.radians(eff)
+            dirs = np.column_stack([np.cos(rad), np.zeros_like(rad), np.sin(rad)])
+            deltas = -(pts @ dirs.T).min(axis=0)
+            base = deltas[np.argmin(np.abs(angles))]   # delta(0) ~ mesh tolerance
+            deltas = np.maximum(0.0, deltas - base)
+            result = (angles, deltas)
 
         self._cache[key] = result
         return result

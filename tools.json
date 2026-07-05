@@ -22,11 +22,11 @@
     {
         "id": "T0102",
         "name": "Bend",
-        "radius": 77.53,
+        "radius": 74.31,
         "type": "roller",
         "color": "gold",
-        "r_tool": 77.53,
-        "step_file": "C:/Users/PC/Documents/CAD_Files/meksika/Spinning tool 3.STEP",
+        "r_tool": 74.31,
+        "step_file": "C:/Users/PC/Documents/CAD_Files/meksika/Spinning tool 2.STEP",
         "shaft_axis": "Z",
         "tip_offset": [
             0.0,
@@ -45,7 +45,7 @@
         "radius": 74.31,
         "type": "roller",
         "color": "blue",
-        "r_tool": 79.5,
+        "r_tool": 74.31,
         "step_file": "C:/Users/PC/Documents/CAD_Files/meksika/Spinning tool 2.STEP",
         "shaft_axis": "Z",
         "tip_offset": [

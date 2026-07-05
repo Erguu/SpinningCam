@@ -25,8 +25,10 @@ class ProcessTab(ScrollableTabBase):
         self.helper.add_checkbox(self.content, self.app, "calc_active", t("cb_show_passes"),
                                  "Hesaplanan takım yollarını 3D görünümde göster/gizle.")
         self.helper.add_checkbox(self.content, self.app, "velocity_color_mode", t("cb_velocity_colors"),
-                                 "Pasları besleme hızına göre renklendir: yeşil=yavaş, kırmızı=hızlı. "
-                                 "Hız bölgelerini görsel olarak kontrol etmek için kullanılır.")
+                                 "Temas bölgesini (contact zone) 3D görünümde soluk kırmızı yarı saydam "
+                                 "bir bant olarak göster. Bant, rulonun yavaşladığı (temas beslemesi) "
+                                 "bölgeyi işaretler; içinde kalan pas kısımları yavaş, dışındakiler hızlıdır. "
+                                 "Pasların rengine dokunmaz — yalnızca görsel bir katmandır.")
         self.helper.add_checkbox(self.content, self.app, "show_heatmap", t("cb_show_heatmap"),
                                  "Her pas noktasının mandrel yüzeyine olan mesafesini renk skalasıyla göster. "
                                  "Mavi=güvenli mesafe, kırmızı=mandrel'e çok yakın veya çarpışma riski.")
@@ -183,6 +185,11 @@ class ProcessTab(ScrollableTabBase):
                                 "Rulo ile blank yüzeyi arasında ASLA ihlal edilmeyecek güvenlik tabanı (mm). "
                                 "Tek yönlü çalışır: bir pas bu mesafeden yakına geçerse dışarı itilir, içeri çekilmez. "
                                 "Asıl boşluğu her operasyonun 'Clearance' alanı belirler. 0 = yüzeye temasa izin ver.")
+        self.helper.add_spinbox(self.content, self.app, "clamp_zone_length", t("sp_clamp_zone"), 0.0, 200.0, 1.0,
+                                "Karşı baskı (counter-press) ile mandrel arasında sıkışan taban bölgesi (mm, mandrel tabanından yukarı). "
+                                "Bu bölge işlenmez; 3B sahnede kırmızı bant olarak gösterilir. "
+                                "Faz 1: sadece UYARI — bu bölgede başlayan operasyonlar loglanır, yol yine de üretilir. "
+                                "0 = makine varsayılanını (Makine sekmesi) kullan.")
 
         # --- Conformal Path Settings ---
         self.helper.add_section_header(self.content, t("section_conformal"), color="teal")
@@ -270,6 +277,7 @@ class ProcessTab(ScrollableTabBase):
         def force_calc():
              self.app.update_scene("paths", force_path_calc=True)
              self.root.ui_program.update_time_estimate()
+             self.root.refresh_clamp_status()   # clamp-zone advisory (#62)
 
         self.helper.add_button(self.content, t("btn_calculate"), force_calc, "orange",
                                "Mevcut ayarlara göre tüm takım yollarını yeniden hesapla ve görünümü güncelle.")

@@ -10,7 +10,7 @@ import threading
 import queue
 import copy
 from mandrel_analyzer import MandrelManager
-from path_generator import PathGenerator
+from path_generator import PathGenerator, effective_clamp_length
 from simulation_controller import SimulationController
 from tool_step_loader import ToolStepLoader
 from logger_config import logger
@@ -115,6 +115,8 @@ class SpinningApp:
 
             # Path Correction
             "clearance_correction_per_point": False,
+            "collision_resolution": 0.5,   # collision scan step (mm) — Process tab
+            "exit_arc_angle": 0.0,          # exit arc tangent-chord angle (deg) — Process tab
 
             # Working Area (Workspace)
             "gcode_resolution": 2.0,
@@ -127,6 +129,16 @@ class SpinningApp:
             "workspace_x_max": 300.0,
             "workspace_z_min": 0.0,
             "workspace_z_max": 500.0,
+
+            # Clamp / counter-press zone (TODO #62). The base region of the part is
+            # held between the counter-press and the mandrel and is NOT machined.
+            #   clamp_zone_length   = per-part override (mm, measured UP from the
+            #                         mandrel base). 0 = inherit the machine baseline.
+            #   clamp_zone_baseline = machine-level default (machine profile key).
+            # Effective length = override if > 0 else baseline (see path_generator
+            # .effective_clamp_length). Phase 1 = warning + 3D band only (no clipping).
+            "clamp_zone_length": 0.0,
+            "clamp_zone_baseline": 0.0,
 
             # Cylinder
             "cylinder_show": True,
@@ -153,7 +165,11 @@ class SpinningApp:
             # UI Language
             "language": "EN",
         }
-        
+
+        # Pristine factory defaults (before merging the user's saved settings.json).
+        # Used by the UI to show each field's default value as a faded hint.
+        self.factory_defaults = dict(default_params)
+
         base_path = self.get_base_path()
         json_path = os.path.join(base_path, "settings.json")
         
@@ -301,6 +317,109 @@ class SpinningApp:
                 logger.warning("Tool %s: calibrated r_tool=%.3f < disc radius=%.3f — possible "
                                "mis-calibration, roller may gouge the part.",
                                op.get("tool_id"), lib_r, float(radius))
+
+    def check_angled_clearance(self):
+        """ADVISORY ONLY (2026-07-03) — never alters a toolpath.
+
+        The scalar r_tool clearance model is exact on cylindrical surfaces but
+        drifts on slopes, because the real roller is a tilted disc, not a sphere:
+
+          radial branch (plain roughing):
+              true gap = (blank+clr)*cos(theta) - blank - delta(theta)
+          normal branch (finishing / conformal roughing):
+              true gap = r_tool*(1-cos(theta)) + clr - delta(theta)
+
+        where theta = surface-normal tilt from radial and delta(theta) = roller-body
+        penetration measured from the tool's STEP mesh (get_support_table). This
+        method samples each enabled op's Z range and warns (log + one popup per
+        recipe signature) when |true gap - commanded clearance| exceeds
+        `angled_clearance_warn_threshold` (default 0.5 mm). On a near-cylindrical
+        mandrel every deviation is ~0 and it stays silent.
+        """
+        try:
+            if self.mandrel_mgr is None or self.mandrel_mgr.props.get("min_z") is None:
+                return
+            lib = {tl.get("id"): tl for tl in (self.tool_library or [])}
+            if not lib:
+                return
+            thr = float(self.params.get("angled_clearance_warn_threshold", 0.5))
+            blank = float(self.params.get("final_part_thickness_on_mandrel", 0.0))
+            side = 1.0 if self.params.get("roller_positive_x_side", True) else -1.0
+            m_min_z = float(self.mandrel_mgr.props.get("min_z"))
+            m_top_z = float(self.mandrel_mgr.props.get("top_z", m_min_z))
+            global_conformal = self.params.get("conformal_clearance_all_operations", False)
+
+            findings = []
+            for op in self.params.get("operations", []):
+                if not op.get("enabled", True):
+                    continue
+                op_type = op.get("type", "roughing")
+                if op_type not in ("roughing", "finishing"):
+                    continue
+                tl = lib.get(op.get("tool_id"))
+                if tl is None:
+                    continue
+                table = self.tool_step_loader.get_support_table(tl, side)
+                if table is None:
+                    continue
+                angles, deltas = table
+                r_tool = float(op.get("r_tool", tl.get("r_tool") or tl.get("radius") or 25.0))
+                clr = float(op.get("clearance", 0.0))
+                is_normal_model = (op_type == "finishing") or op.get(
+                    "conformal_clearance_operation_specific", global_conformal)
+
+                z0 = min(float(op.get("start_z", m_min_z)), float(op.get("end_z", m_top_z)))
+                z1 = max(float(op.get("start_z", m_min_z)), float(op.get("end_z", m_top_z)))
+                if op_type == "roughing":
+                    z1 += max(0.0, float(op.get("p2_z_extend", 0.0)))
+                z0, z1 = max(z0, m_min_z), min(z1, m_top_z)
+                if z1 - z0 < 0.5:
+                    continue
+
+                worst_dev, worst_z, worst_tilt = 0.0, z0, 0.0
+                for z in np.linspace(z0, z1, 120):
+                    nx, nz = self.mandrel_mgr.get_normal_at_z(float(z))
+                    tilt = math.degrees(math.atan2(nz, nx))
+                    delta = float(np.interp(tilt, angles, deltas))
+                    if is_normal_model:
+                        dev = r_tool * (1.0 - nx) - delta      # true gap - commanded clr
+                    else:
+                        dev = (blank + clr) * (nx - 1.0) - delta
+                    if abs(dev) > abs(worst_dev):
+                        worst_dev, worst_z, worst_tilt = dev, float(z), tilt
+
+                if abs(worst_dev) > thr:
+                    model_name = "normal" if is_normal_model else "radial"
+                    findings.append((op.get("name") or op_type, op.get("tool_id"),
+                                     model_name, worst_dev, worst_z, worst_tilt))
+
+            if not findings:
+                self._angled_clearance_sig = None
+                return
+
+            lines = []
+            for name, tid, model_name, dev, z, tilt in findings:
+                line = (f"  • {name} ({tid}, {model_name}): "
+                        f"{dev:+.2f} mm at Z={z:.1f} (surface tilt {tilt:+.0f}°)")
+                lines.append(line)
+                logger.warning("Angled-surface clearance deviation: %s", line.strip())
+
+            sig = tuple((tid, round(dev, 2)) for _, tid, _, dev, _, _ in findings)
+            if sig == getattr(self, "_angled_clearance_sig", None):
+                return                                   # already shown for this recipe
+            self._angled_clearance_sig = sig
+            if not self.headless:
+                try:
+                    from tkinter import messagebox
+                    from i18n import t
+                    messagebox.showwarning(
+                        t("angled_clearance_warn_title"),
+                        t("angled_clearance_warn_intro") + "\n\n" + "\n".join(lines)
+                        + "\n\n" + t("angled_clearance_warn_legend"))
+                except Exception:
+                    pass                                 # never let the advisory break a calc
+        except Exception:
+            logger.exception("check_angled_clearance failed (advisory only, ignored)")
 
     def calculate_async(self, roller_pos=None):
         """
@@ -576,6 +695,25 @@ class SpinningApp:
                 except Exception as e:
                     logger.warning(f"Workspace render failed: {e}")
 
+            # Clamp / counter-press zone (#62): translucent red band over the base
+            # region that must NOT be machined. Length = per-part override or machine
+            # baseline (effective_clamp_length). Purely visual; no toolpath impact.
+            if self.actors.get("clamp_zone"):
+                self.plotter.remove_actor(self.actors["clamp_zone"])
+            self.actors["clamp_zone"] = None
+            _clamp_len = effective_clamp_length(self.params)
+            if _clamp_len > 0:
+                try:
+                    _cz_min = float(self.mandrel_mgr.props.get("min_z", 0.0))
+                    _cz_mid = _cz_min + _clamp_len * 0.5
+                    _cz_r = self.mandrel_mgr.get_radius_fast(_cz_mid) + 5.0
+                    band = pv.Cylinder(center=(0, 0, _cz_mid), direction=(0, 0, 1),
+                                       radius=_cz_r, height=_clamp_len, resolution=48)
+                    self.actors["clamp_zone"] = self.plotter.add_mesh(
+                        band, color='red', opacity=0.18, style='surface')
+                except Exception as e:
+                    logger.warning(f"Clamp-zone render failed: {e}")
+
             # Cylinder (T-shape) — stem extends from z_base downward toward roller/blank
             # Head (flange) is at the low-Z end, always facing toward the roller.
             for key in ("cylinder_stem", "cylinder_head"):
@@ -664,7 +802,8 @@ class SpinningApp:
                 else:
                     self.sync_operation_r_tools()   # ops pull r_tool from library before calc
                     paths, projs, cps, devs, rapids, debug_lines = self.path_gen.calculate_paths(self.params, self.gui_pass_overrides, self.mandrel_mgr, visual_roller_pos=roller_pos)
-                
+                self.check_angled_clearance()   # advisory only, never alters paths
+
                 # Build per-path type list. Must mirror calculate_paths' toolpath
                 # order exactly: skip disabled ops, cutting/bending = 1 path,
                 # back_pass_enabled inserts a back entry after each forward pass.
@@ -1369,7 +1508,17 @@ class SpinningApp:
             try:
                 with open(filepath, "r") as f:
                     d = json.load(f)
-                    self.params.update(d.get("params", {}))
+                    # The Basic/Advanced view switch is a global app preference,
+                    # not a per-program setting — preserve it across a load.
+                    _show_adv = self.params.get("op_view_show_advanced", False)
+                    loaded_params = d.get("params", {})
+                    self.params.update(loaded_params)
+                    self.params["op_view_show_advanced"] = _show_adv
+                    # Customize-View column/tag config IS per program: if the
+                    # loaded file has none, drop any stale in-memory config so
+                    # the resolver falls back to sensible defaults.
+                    if "op_view_config" not in loaded_params:
+                        self.params.pop("op_view_config", None)
                     try:
                         from config_schema import migrate_clearance
                         migrate_clearance(self.params)

@@ -9,6 +9,25 @@ from OCC.Core.GeomAPI import GeomAPI_PointsToBSpline
 from logger_config import logger
 from kinematics import get_kinematics
 
+
+def effective_clamp_length(params):
+    """Clamp / counter-press zone length in effect (mm, measured UP from the mandrel
+    base). TODO #62. The per-part override ``clamp_zone_length`` wins when > 0; otherwise
+    the machine-level ``clamp_zone_baseline`` applies. 0 = no clamp zone.
+
+    Note: 0 for the per-part value means "inherit the machine baseline", so a per-part
+    value cannot force-disable a non-zero baseline in phase 1 (documented tradeoff)."""
+    def _f(v):
+        try:
+            return float(v or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+    v = _f(params.get("clamp_zone_length", 0.0))
+    if v <= 0.0:
+        v = _f(params.get("clamp_zone_baseline", 0.0))
+    return max(0.0, v)
+
+
 class PathGenerator:
     def __init__(self):
         self.last_calculated_paths = []
@@ -16,6 +35,7 @@ class PathGenerator:
         self.last_tilt_angles = None       # per-path tilt arrays (tilt_arm machines) or None
         self.last_kinematic_warnings = []  # reachability issues from last G-code generation
         self._path_op_map = []             # toolpath index → op dict (parallel to last_calculated_paths)
+        self.last_op_end_z = {}            # op-index → CAM Z the op's last forming pass reaches (incl. p2_z_extend)
 
     def _ensure_ops_dict(self, params):
         if "operations" in params and isinstance(params["operations"], list) and len(params["operations"]) > 0:
@@ -73,9 +93,18 @@ class PathGenerator:
         self.last_back_pass_meta = {}  # {path_list_index: {"feed": ...}}
         self.last_render_split_idx = {}  # {path_list_index: (line_end_idx, arc_end_idx)}
         self._path_op_map = []  # toolpath index → op dict, synced as paths are appended
-        
+        self.last_op_end_z = {}  # op-index → CAM Z the op's last forming pass actually reaches
+        self.last_op_reach = {}       # op-index → exit reach magnitude of last forming pass (#61)
+        self.last_op_end_angle = {}   # op-index → exit angle (deg from +X) of last forming pass (#61)
+        self.last_clamp_warnings = []  # ops whose start_z sits inside the clamp zone (#62)
+
         props = mandrel_mgr.props
         top_z = props["top_z"]
+
+        # Clamp / counter-press zone (#62): the base region held by the counter-press is
+        # not machined. Phase 1 = warning only (no clipping); flag ops that start inside it.
+        clamp_len = effective_clamp_length(params)
+        clamp_top_z = (props.get("min_z", 0.0) + clamp_len) if clamp_len > 0 else None
         center_x = params.get("mandrel_pos_x_offset", 0.0)
         blank_thick = params.get("final_part_thickness_on_mandrel", 2.0)
         shell_offset = params.get("shell_thickness", 0.0)
@@ -133,9 +162,9 @@ class PathGenerator:
              if add_homing:
                  current_pt = step2
 
-        for op in operations:
+        for op_index, op in enumerate(operations):
             if not op.get("enabled", True): continue
-            
+
             count = int(op.get("count", 1))
             is_finish = (op.get("type") == "finishing")
             r_tool = float(op.get("r_tool", 25.0))
@@ -210,6 +239,8 @@ class PathGenerator:
 
                 while len(self._path_op_map) < len(toolpaths):
                     self._path_op_map.append(op)
+                # Cutting/bending "reach" is the plunge Z.
+                self.last_op_end_z[op_index] = z_pos
                 global_pass_idx += 1
                 continue
 
@@ -218,11 +249,36 @@ class PathGenerator:
             def_p3_x = float(op.get("p3_x", def_p1_x))
             def_p3_z = float(op.get("p3_z", -20.0)); def_rot = float(op.get("rot", 0.0))
             start_h = float(op.get("start_z", 10.0))
+
+            # Clamp-zone advisory (#62): warn (do not clip) if this op begins inside the
+            # counter-press region. Uses a small epsilon so a start exactly at the top edge
+            # is fine.
+            if clamp_top_z is not None and start_h < clamp_top_z - 1e-6:
+                self.last_clamp_warnings.append({
+                    "op_index": op_index,
+                    "op_type": op.get("type", "roughing"),
+                    "start_z": start_h,
+                    "clamp_top_z": clamp_top_z,
+                })
+
             # end_z operasyona özeldir; tanımlıysa kullan, yoksa mandrel tepesine git
             op_end_z = op.get("end_z", None)
             end_h = float(op_end_z) if op_end_z is not None else top_z
-            
-            
+
+            # Record the CAM Z where this op's LAST forming pass actually reaches,
+            # for the Program-tab "Real End Z" column. This mirrors the per-pass
+            # target_z/contact_z math below (lines ~294-300) for the last pass:
+            #   roughing: contact = target_z + p2_z_extend, where target_z is
+            #             start_h for a single pass, else end_h (the last pass).
+            #   finishing: sweeps the whole zone start_h→end_h, so its end is end_h
+            #             (no p2_z_extend — it is forced to 0 for finishing).
+            if is_finish:
+                self.last_op_end_z[op_index] = end_h
+            else:
+                _last_target_z = start_h if count <= 1 else end_h
+                self.last_op_end_z[op_index] = _last_target_z + float(op.get("p2_z_extend", 0.0))
+
+
             # Auto-Align Feature: Read from params
             auto_align = params.get("auto_calc_angle", True)
             
@@ -246,6 +302,18 @@ class PathGenerator:
                 # convenience but _create_and_store_pass now uses it signed (+ = forward in Z).
                 p3_z = abs(p3_z)
 
+                # Reach (#61): single authoritative exit-stroke magnitude |P2→P3|. Unset or
+                # <=0 keeps the legacy behavior EXACTLY (magnitude implied by p3_x/p3_z).
+                # When set, direction comes from pass_angle (below) or, in raw mode, from the
+                # p3_x/p3_z ratio (which is scaled to this length, ratio preserved).
+                _reach_v = op.get("reach", None)
+                try:
+                    _reach_v = float(_reach_v) if _reach_v not in (None, "") else None
+                except (TypeError, ValueError):
+                    _reach_v = None
+                if _reach_v is not None and _reach_v <= 0:
+                    _reach_v = None
+
                 # Pass Angle override — Option B: L3 = |P2→P3| preserved, only direction rotates.
                 # θ_A = angle of P2→P1 from +X in XZ. θ_B = θ_A + pass_angle. p3 = L3 * (cos θ_B, sin θ_B).
                 # linear_approach/linear_full: θ_A is always -90° (pure -Z entry).
@@ -253,8 +321,26 @@ class PathGenerator:
                 if _pa_deg is not None:
                     _eff_angle = float(_pa_deg)
                     if op.get("progressive_angle_enabled", False) and count > 1:
-                        _eff_angle += i * (180.0 - _eff_angle) / (count - 1)
-                    _L3 = math.sqrt(p3_x ** 2 + abs(p3_z) ** 2)
+                        # Fan target: last pass reaches progressive_angle_end
+                        # (default 180° = laid along the surface). Any end value
+                        # is allowed — smaller than 180 stops the fan early,
+                        # smaller than pass_angle fans downward.
+                        try:
+                            _prog_end = float(op.get("progressive_angle_end", 180.0))
+                        except (TypeError, ValueError):
+                            _prog_end = 180.0
+                        _eff_angle += i * (_prog_end - _eff_angle) / (count - 1)
+                    _L3 = _reach_v if _reach_v is not None else math.sqrt(p3_x ** 2 + abs(p3_z) ** 2)
+                    # Progressive reach: sweep the P2→P3 stroke length across passes,
+                    # independent of the direction sweep (progressive_angle). First pass
+                    # keeps the current reach, last pass reaches progressive_reach_end.
+                    # Orthogonal to the angle fan: θ_B sets direction, _L3 sets length.
+                    if op.get("progressive_reach_enabled", False) and count > 1:
+                        try:
+                            _reach_end = float(op.get("progressive_reach_end", _L3))
+                        except (TypeError, ValueError):
+                            _reach_end = _L3
+                        _L3 = max(_L3 + i * (_reach_end - _L3) / (count - 1), 0.0)
                     if _L3 > 0.001:
                         _shape = op.get("pass_shape", "spline")
                         if _shape in ("linear_approach", "linear_full"):
@@ -272,6 +358,23 @@ class PathGenerator:
                             f"θ_A={math.degrees(_theta_A):.1f}° + {_pa_deg:.1f}° = θ_B={math.degrees(_theta_B):.1f}° | "
                             f"P3 offset → X={p3_x:+.2f}mm Z={p3_z:+.2f}mm{_dbg_warn}"
                         )
+                else:
+                    # Raw exit mode (no pass angle): reach scales the (p3_x, p3_z) vector
+                    # length, preserving its X/Z ratio (direction). Unset reach → unchanged.
+                    if _reach_v is not None:
+                        _cur = math.sqrt(p3_x ** 2 + p3_z ** 2)
+                        if _cur > 1e-6:
+                            _s = _reach_v / _cur
+                            p3_x *= _s
+                            p3_z *= _s
+
+                # Record this pass's exit reach + angle for the LAST forming pass so the
+                # Program tab can show end-reach / end-angle beside Real End Z (#61).
+                if not is_finish and i == count - 1:
+                    _fr = math.sqrt(p3_x ** 2 + p3_z ** 2)
+                    self.last_op_reach[op_index] = _fr
+                    self.last_op_end_angle[op_index] = (
+                        math.degrees(math.atan2(p3_z, p3_x)) if _fr > 1e-6 else 0.0)
 
                 if count <= 1:
                     target_z = start_h
@@ -292,7 +395,22 @@ class PathGenerator:
                 else:
                     p2_x = center_x + r_contact + total_off
                     p2_z = contact_z
-                
+
+                # Reach is clearance-independent (#61, user 2026-07-05): when reach is set,
+                # anchor the exit END to the ZERO-clearance contact reference so two passes
+                # with the same reach land at the SAME absolute P3 regardless of clearance.
+                # P2 carries the clearance standoff (radial in non-conformal, along the normal
+                # in conformal); shifting the P3 offset inward by that clearance component
+                # cancels it out of the endpoint. NOTE: exact for base_rot=0 (linear approach
+                # / rotation off); auto-rotated splines rotate P3 about P2, so it is
+                # approximate there (documented; verify per case).
+                if _reach_v is not None:
+                    if conformal:
+                        p3_x -= op_clearance * nx
+                        p3_z -= op_clearance * nz
+                    else:
+                        p3_x -= op_clearance
+
                 pass_label = f"{op.get('type').capitalize()} {i+1}"
                 
                 prev_paths_len = len(toolpaths)
@@ -554,6 +672,13 @@ class PathGenerator:
             ]
         else:
             self.last_tilt_angles = None
+
+        if self.last_clamp_warnings:
+            _w = self.last_clamp_warnings[0]
+            logger.warning(
+                f"[CLAMP] {len(self.last_clamp_warnings)} op(s) start inside the clamp zone "
+                f"(top Z={_w['clamp_top_z']:.1f}); first: op #{_w['op_index'] + 1} "
+                f"'{_w['op_type']}' start_z={_w['start_z']:.1f}")
 
         self.last_calculated_paths = toolpaths
         self.last_calculated_sequence = sequence

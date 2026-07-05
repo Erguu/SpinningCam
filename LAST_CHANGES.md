@@ -5,6 +5,789 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-05 — Operasyonu Parçalara Böl (Split…) — birebir üreten bitişik parçalar (TODO #64)
+
+### Ne (kısa)
+Çok-paslı bir parametrik operasyon (örn. 20 kaba pas, Z 10→60, açı 90→180) görsel bir
+pencerede BİTİŞİK parçalara bölünebiliyor (örn. 1·1·5·5·4·2·2). Her parça, o pasları
+BİREBİR üreten bağımsız bir operasyon olur. Sonra parçalar sıralanıp aralarına ters pas
+operasyonları konabilir. Kullanıcı isteği: "20 pası ayır, aralarına ters pas koy, ama
+op'u bozma." Parçalar first-class op olduğu için ayrı ayrı düzenlenebilir.
+
+### Neden birebir çalışıyor (matematik)
+Pas Z / pass_angle(→progressive_angle_end) / reach(→progressive_reach_end) / interp-tilt
+hepsi pas indeksinde DOĞRUSAL ilerler. [a..b] parçası için alt-aralık uç değerleri (Z, açı,
+reach, tilt) ayarlanınca parça, o dilimi aynen üretir. Tek-paslı parçalar yelpazeyi sabit
+değere indirger. Diğer tüm alanlar kopyalanır. Güvenlik-düzeltmesi pas-başına deterministik
+→ sıradan bağımsız → parçalarda da aynı.
+
+### Nasıl / nerede
+- `ui/tabs/program_tab.py` `_split_op(op, sizes, end_z_fallback)` — SAF (statik) dilimleme;
+  `_pass_previews(op, end_z_fallback)` — diyalog için pas başına {z, angle}.
+- `open_split_op()` — seçim/tip/count kontrolü, diyalog, onayda op yerine parçalar
+  (`ops[idx:idx+1]=chunks`), #56 dersine göre editör-saver temizliği, refresh+recalc.
+- `ui/dialogs/split_op_dialog.py` `SplitOpDialog` — kaydırmalı pas listesi, paslar arası
+  tıklanabilir bölücü (✂), canlı "Parçalar (n): …" özeti, OK/İptal.
+- Araç çubuğu `btn_split` (Continue'dan sonra). i18n `btn_split`, `msg_split_*`,
+  `split_help`, `split_summary` (EN/TR/ES).
+
+### Doğrulama / durum
+- Headless: `_test_split.py` GEÇTİ — orijinal tek-op ile parça-op'lar BİREBİR aynı forming
+  toolpath'leri üretiyor: progressive açı+reach [1,1,5,5,4,2,2] ve [10,10], sabit açı+reach,
+  raw p3 modu, açık-uçlu (end_z=None→mandrel tepesi). count'a eşit olmayan sizes reddediliyor.
+  compile OK, i18n format OK.
+- Diyalog/düğme/akış **GUI smoke BEKLİYOR.** COMMIT EDİLMEDİ.
+
+---
+
+## 2026-07-05 — "Öncekinden Devam" (Continue ⤵) — tek-seferlik doldurma (TODO #61 adım 2)
+
+### Ne (kısa)
+Program tab'e **Devam ⤵** düğmesi: seçili operasyonu, ÜSTÜNDEKİ opun SON pasının bitiş
+durumundan tek seferlik doldurur. Kopyalanan: Başlangıç Z (önceki bitiş), çıkış açısı
+(pass_angle; yelpaze varsa `progressive_angle_end`; raw modda p3_x/p3_z oranı), reach ve
+clearance. Takım KOPYALANMAZ. Doldurduktan sonra op bağımsızdır (ör. Yön=Ters yapılır).
+Kullanıcı senaryosu: "önceki opun son pasıyla aynı konum/açıda ters pas" — artık elle
+5. pasın değerini hesaplamak yok.
+
+### Nasıl / nerede (ui/tabs/program_tab.py)
+- `_continue_fill_values(prev, prev_end_z, prev_reach)` — SAF (statik) hesap: doldurulacak
+  alan sözlüğü. Bağımsız test edilebilir. Motorun hesapladığı `last_op_end_z`/`last_op_reach`
+  tercih edilir; hesap yoksa önceki opun parametrelerine düşer.
+- `continue_from_previous()` — seçim/ilk-op kontrolü (messagebox uyarıları), fill uygular,
+  tree+editör yeniler, `_start_async_calc` ile yeniden hesaplar, durum çubuğuna özet.
+- Araç çubuğu düğmesi (toggle'dan önce). i18n `btn_continue_prev`, `msg_continue_*`.
+- `messagebox` import edildi (program_tab).
+
+### Doğrulama / durum
+- Headless: `_test_continue.py` GEÇTİ — yelpaze bitiş açısı kopyalama, düz pass_angle,
+  raw p3 oranı, hesap-yok fallback. program_tab/i18n compile OK, i18n format OK.
+- GUI (düğme/messagebox/fill akışı) **GUI smoke BEKLİYOR.** COMMIT EDİLMEDİ.
+
+---
+
+## 2026-07-05 — Tek "Erişim" (reach) parametresi — pas çıkış uzunluğu (TODO #61 adım 1)
+
+### Ne (kısa)
+Pasın çıkış kolu (P2→P3) artık TEK bir "reach" (erişim) değeriyle ifade edilebilir:
+büyüklük = reach, yön = (Pass Angle varsa ondan; yoksa p3_x/p3_z oranından). Operatör
+açıyı bozmadan pası uzatıp kısaltabilir. `p3_x`/`p3_z` KALDIRILMADI — yön/oran onlardan
+gelir, reach sadece uzunluğu ölçekler. Boş/0/geçersiz reach = ESKİ davranış (tam uyumlu).
+
+### Motor (path_generator.py, geriye tam uyumlu)
+- `_reach_v = op.get("reach")` parse (None/""/≤0 → None = legacy).
+- Pass-angle modunda: `_L3 = _reach_v if set else sqrt(p3_x²+p3_z²)` — reach, _L3'ü
+  (büyüklüğü) override eder; progressive_reach hâlâ paslar arası _L3'ü süpürür.
+- Raw modda (Pass Angle yok): reach set ise `(p3_x, p3_z)` vektörü oranı korunarak
+  reach uzunluğuna ölçeklenir.
+- Okunabilir çıktı: `last_op_reach` + `last_op_end_angle` (son forming pasın büyüklüğü ve
+  +X'ten açısı, derece) — RealEndZ ile aynı zamanlamada kaydedilir.
+
+### Reach CLEARANCE'TEN BAĞIMSIZ (kullanıcı kararı 2026-07-05)
+Kullanıcı: "aynı reach + farklı clearance → aynı MUTLAK bitiş noktası." Bu yüzden reach set
+iken çıkış UCU (P3), sıfır-clearance temas referansına sabitlenir: P2 clearance standoff'unu
+taşır (radyal / conformal'da normal boyunca), P3 offset'inden bu clearance bileşeni ÇIKARILIR
+→ endpoint clearance'tan bağımsız. `path_generator.py` p2_x/p2_z bloğundan hemen sonra:
+`if _reach_v: p3_x -= op_clearance*(nx conformal else 1); p3_z -= op_clearance*nz(conformal)`.
+- **UYARILAR (test edildi):**
+  1. **base_rot=0 için TAM** (linear approach / rotation kapalı). Auto-rotate spline'da P3,
+     P2 etrafında döndüğü için YAKLAŞIK — gerekiyorsa vaka bazında doğrula.
+  2. **DÜŞÜK clearance'ta güvenlik önceliklidir:** sabitlenmiş çıkış gouge yapacaksa
+     safety-floor (collision) yolu dışarı iter ve ankraj geçersiz olur — bu DOĞRU/güvenli
+     davranış. Test bunu düşük clearance'ta gözlemledi (P3 kontrol noktası yine de aynıydı).
+- Readout (last_op_reach/end_angle) compensation ÖNCESİ yakalanır → End Reach = kullanıcının
+  girdiği reach (niyet), End Angle = yön. Geometri compensation SONRASI (clearance-bağımsız uç).
+
+### UI
+- Program tab özellik editörü: yeni **reach** alanı (p3_z'den sonra), i18n `lbl_reach`.
+  OP_PARAM_UNIVERSE["roughing"] + OP_PARAM_LABELS + SECTION_KEYS["path_shape"]'e eklendi
+  (Customize View §21 senkron).
+- İki yeni SABİT sütun (RealEndZ gibi): **End Reach** + **End Angle** — `last_op_reach`/
+  `last_op_end_angle`'dan; i18n `col_end_reach`/`col_end_angle`. Finish/cut/bend → "—".
+
+### Doğrulama / durum
+- Headless: `_test_reach.py` GEÇTİ — reach unset/None/0/junk BİREBİR AYNI geometri
+  (backward-compat), raw modda büyüklük ölçekleniyor + açı korunuyor (25→50 @36.87°),
+  pass-angle modda reach _L3'ü override ediyor (25→40). `_test_planner_e2e.py` regresyon
+  GEÇTİ (path sayıları/gcode/fan-end/passivate değişmedi). program_tab/i18n compile OK,
+  UI wiring doğrulandı.
+- **NOT yapıldı (sonraki rafinman):** iki-yönlü canlı bağ (reach yazınca p3_x/p3_z kutuları
+  güncellensin ve tersi). Şu an reach alanı bağımsız yazılıyor; motor yön'ü p3'ten alıyor.
+- 3B/GUI görünümü (alan + iki sütun) **GUI smoke BEKLİYOR.** COMMIT EDİLMEDİ.
+
+---
+
+## 2026-07-05 — Kıskaç/karşı-baskı bölgesi (counter-press) — Faz 1: UYARI + 3B bant (TODO #62)
+
+### Ne (kısa)
+Mandrel tabanındaki bölge karşı baskı (counter-press) ile mandrel arasında sıkışır ve
+İŞLENMEZ. Şimdiye kadar operatör ilk operasyonun `start_z`'sini elle (örn. 10) girip bu
+bölgeyi atlıyordu. Faz 1: bu bölge artık **parametreyle tanımlanıyor**, 3B sahnede
+**yarı saydam kırmızı bant** olarak gösteriliyor ve bir operasyon bu bölgede başlarsa
+**UYARI loglanıyor** (yol yine de üretilir — kırpma YOK, o Faz 2).
+
+### Parametreler (iki katman — makine varsayılanı + program override)
+- `clamp_zone_baseline` (MAKİNE profili anahtarı) — `machine_loader.MACHINE_PROFILE_KEYS`,
+  `machines/ID111-1.json` + `ID112-1.json` (0.0), `config_schema.MachineProfileSchema`.
+  Makine sekmesinde düzenlenir → `autosave_machine_profile` ile profile yazılır.
+- `clamp_zone_length` (program/.ssp override) — `main.py load_settings` (0.0 = varsayılanı
+  devral). Process sekmesi spinbox.
+- **Etkin uzunluk** = `path_generator.effective_clamp_length(params)`: override > 0 ise o,
+  değilse baseline. TABANDAN YUKARI mm. `clamp_top_z = mandrel min_z + etkin_uzunluk`.
+  ⚠️ Bilinen tradeoff: override=0 "devral" demek → sıfır olmayan baseline'ı program bazında
+  0'a çekip KAPATMAK Faz 1'de mümkün değil.
+
+### Nasıl / nerede
+- `path_generator.py`: modül düzeyi `effective_clamp_length()`; `calculate_paths` başında
+  `self.last_clamp_warnings = []` + `clamp_top_z` hesabı; op döngüsünde `start_h < clamp_top_z`
+  ise uyarı dict'i eklenir; sonda log. Sadece forming op'lar (roughing/finishing start_z);
+  cutting/bending Faz 1'de kontrol edilmiyor.
+- `main.py update_scene`: workspace bloğundan sonra `clamp_zone` aktörü — `pv.Cylinder`
+  (kırmızı, opacity 0.18) min_z→clamp_top_z, yarıçap = mandrel taban yarıçapı + 5mm.
+  `effective_clamp_length` main.py'ye import edildi.
+- UI: Process `sp_clamp_zone`, Machine `lbl_clamp_baseline` (workspace frame'inde add_ws_entry).
+  i18n EN/TR/ES. help_window "Clamp Zone Default" bölümü.
+- **UYARININ GÖRÜNÜRLÜĞÜ (2026-07-05 düzeltme):** İlk sürümde uyarı SADECE log'a
+  yazılıyordu → operatör görmüyordu. Eklendi: `main_window.refresh_clamp_status()` durum
+  çubuğunu (`lbl_info`) amber renkte günceller. HER İKİ hesap yolundan çağrılır:
+  program_tab `_poll_calc_queue` (async "⟳ Hesapla"/auto) VE process_tab `force_calc`
+  ("GÜNCELLE/YOLLARI HESAPLA" düğmesi, senkron). i18n `status_clamp_warn`.
+  ⚠ Uyarı SADECE bir op gerçekten bölge içinde başlarsa (start_z < min_z+len) tetiklenir;
+  op'lar bandın üstünde başlıyorsa uyarı ÇIKMAZ (doğru davranış).
+- **POP-UP + iki düğme (2026-07-05, kullanıcı isteği):** `refresh_clamp_status` durum
+  çubuğuna EK olarak `_show_clamp_popup()` ile özel modal Toplevel gösterir. İki düğme:
+  **Onayla** (kapatır; sonraki hesapta tekrar çıkabilir) ve **Tekrar gösterme**
+  (`self._clamp_popup_suppressed=True` → oturum boyunca susturur; durum çubuğu kalıcı
+  gösterge olarak kalır). Susturma SADECE oturumluk — güvenlik uyarısı bir sonraki açılışta
+  tekrar uyarsın diye kalıcı DEĞİL (istenirse settings'e taşınabilir). Her ihlalli hesapta
+  çıkar (susturulmadıysa). i18n `msg_clamp_warn_title/op/body`, `btn_confirm`,
+  `btn_dont_show_again` (EN/TR/ES).
+
+### Doğrulama / durum
+- Headless: `_test_clamp_zone.py` GEÇTİ — effective_clamp_length çözümü (override/baseline/
+  junk-safe), uyarı bölge içinde başlayınca tetikleniyor, üstünde/bölge yokken tetiklenmiyor,
+  override=0 baseline'ı devralıyor, override baseline'ı yeniyor. 8 dosya py_compile OK
+  (spinning_cam env).
+- 3B bant görsel olarak headless test EDİLEMEDİ (plotter gerekir) → **GUI smoke BEKLİYOR.**
+- **COMMIT EDİLMEDİ.** Geri alma: bu blokta adı geçen ekler kaldırılırsa özellik tamamen kalkar.
+
+---
+
+## 2026-07-04 — Operasyon tablosuna "Gerçek Bitiş Z" sütunu + yatay kaydırma
+
+### Ne (kısa)
+İki değişiklik:
+1. **"Gerçek Bitiş Z" sütunu** (sabit) — her operasyonun SON ileri pasının Z'de
+   gerçekte ulaştığı yeri (en derin temas P2) gösterir. Zone End Z'den farkı:
+   `p2_z_extend` son pası planlanan bölge bitişinin ötesine iter → Gerçek Bitiş Z =
+   Zone End Z + p2_z_extend. Değer, hesaplanan takım yolundan RAW CAM Z olarak okunur
+   (makine dönüşümü YOK) → Zone Start/End Z ile AYNI referans, doğrudan zincirlenebilir.
+2. **Yatay kaydırma çubuğu** — tabloda sadece dikey çubuk vardı; çok sütunda sağdakiler
+   kırpılıp ulaşılamıyordu.
+
+### Neden
+Kullanıcı: "Zone Z, son pasın başlangıcı; ama p2_z_extend yüzünden gerçek Z daha ileride —
+gerçek değeri görmek istiyorum." Zone End Z (op parametresi) bunu göstermiyor; asıl temas
+`contact_z = target_z + p2_z_extend` (path_generator.py:300). Toolpath P2 (min-X) noktası
+bunu otomatik yakalar (count==1, conformal, finishing dâhil). İLK deneme makine Z gösteriyordu
+(yanlış referans) — RAW CAM Z'ye çevrildi.
+
+### Nasıl / nerede — DEĞER PATH GENERATOR'DA HESAPLANIR (UI tahmin etmez)
+- `path_generator.py` `calculate_paths`:
+  - Yeni `self.last_op_end_z = {}` (op-index → son forming pasın ulaştığı CAM Z).
+  - Döngü `for op_index, op in enumerate(operations):` (operations == params["operations"],
+    aynı sıra/index → UI satır index'iyle birebir).
+  - `end_h` belirlendikten sonra tek hesap: roughing `= (count<=1 ? start_h : end_h) +
+    p2_z_extend` (satır ~294-300'deki target_z/contact_z ile birebir); finishing `= end_h`
+    (tüm bölgeyi süpürür, extend=0); cutting/bending `= z_pos`.
+- `ui/tabs/program_tab.py`:
+  - `_compute_op_end_z()` artık SADECE `path_gen.last_op_end_z`'i okur (min-X sezgisi ÇÖPE).
+  - `rebuild_tree_columns` + `_create_widgets` tree: base sütunlara `"RealEndZ"`.
+  - `refresh_ops_tree`: değeri hücreye (yol yoksa "—").
+  - `_create_widgets`: `tree_ops`'a `sb_x` yatay Scrollbar + `xscrollcommand`.
+- `ui/main_window.py`: `update_scene` hook'u `refresh_pass_info` yanında `refresh_ops_tree`.
+- `i18n.py`: `col_real_end_z` (EN "Real End Z" / TR "Gerçek Bitiş Z" / ES "Fin Real Z").
+
+### Neden min-X sezgisi TERK EDİLDİ
+İlk deneme UI'de yolun min-X (merkeze en yakın) noktasının Z'sini alıyordu = P2 sanılıyordu.
+Ama `linear_approach` yaklaşım kolu, P2 ile AYNI X'te dikey bir çizgi (Z ≈ -37…+16 arası);
+`argmin` kolun EN ALT-Z ucunu döndürüp op0 için ~10 gösteriyordu (kullanıcı bug'ı). Ayrıca
+UI'nin `_get_pass_type_list` yol↔op eşlemesi otoriter değildi. Doğru kaynak: path generator'ın
+zaten hesapladığı `contact_z` (satır 300). Headless PARAM_DEBUG doğruladı: op0 son pas
+P2 Z=16.00 (=13+3), UI 16 gösteriyor.
+
+### Not / doğrulama
+SADECE görüntü — değer/takım yolu değişmez. Byte-compile OK; entegrasyon testi (gerçek
+`calculate_paths`) op0=16 / op1=18.5 / finishing=30 GEÇTİ; toolbar smoke GEÇTİ; gerçek pencere
+GUI smoke BEKLİYOR (kullanıcı uygulamayı yeniden başlatmalı).
+
+---
+
+## 2026-07-04 — Op Aç/Kapat artık UI'yi dondurmuyor (auto-calc arka plana alındı)
+
+### Ne (kısa)
+Bir operasyonu aktif/pasif yaptığında (veya bir op alanını düzenlediğinde) tetiklenen
+otomatik yeniden hesap artık ARKA PLAN thread'inde çalışıyor — turuncu "Hızlı Hesapla"
+düğmesiyle aynı yol. Eskiden bu, ana thread'de senkron `calculate_paths` çağırıp tüm
+program yeniden hesaplanana kadar arayüzü donduruyordu.
+
+### Neden
+Kullanıcı gözlemi: "op'ları aç/kapat yapmak yavaş." Kök neden = `_fire_auto_calc`
+→ `update_scene("paths")` → `path_generator.calculate_paths` ANA THREAD'de senkron
+(main.py:775). "Hızlı Hesapla" düğmesi ise zaten `calculate_async` (arka plan) kullanıyordu.
+NOT: pasif op'lar zaten HER YERDE atlanıyor (calculate_paths:137, generate_gcode:1461,
+calculate_estimated_time:1888, main.update_scene:464) — çok sayıda pasif op hesaplamayı
+yavaşlatmıyor; sorun tek bir toggle'ın senkron tam-hesap tetiklemesiydi.
+
+### Nasıl / nerede
+- `ui/tabs/program_tab.py`:
+  - Yeni `_start_async_calc()` metodu — busy-state + roller_pos + `calculate_async` +
+    `_poll_calc_queue` mantığı buraya taşındı (eskiden nested `_quick_calc` içindeydi).
+  - `_quick_calc` artık sadece `self._start_async_calc()` çağırıyor (davranış aynı).
+  - `_fire_auto_calc` artık senkron `update_scene("paths")` yerine `_start_async_calc()`
+    kullanıyor + `auto_calculate_paths` kapalıysa erken dönüyor (toggle sadece listeyi
+    tazeler, hesap yapmaz — ayarla tutarlı). Hızlı ardışık toggle'lar 300 ms debounce +
+    `_calc_running` retry ile tek arka-plan hesaba birleşiyor.
+  - Gereksiz property-editor yeniden-kurulumu kaldırıldı: `toggle_op_enabled` zaten
+    seçili satırı tekrar `selection_set` ediyordu → `on_op_select` (tüm editör panelini
+    baştan kurar) boşuna yeniden tetikleniyordu. `_on_tree_double_click` de aynı satırı
+    yeniden seçiyordu. İkisi de artık seçim GERÇEKTEN değiştiyse set ediyor → çift-tık
+    başına 1-2 tam panel yeniden-kurulumu tasarrufu.
+
+### Beklenen / test
+- Auto-calc AÇIK: op aç/kapat → arayüz donmaz, "Hesaplanıyor…" göstergesi, bitince render.
+- Auto-calc KAPALI: op aç/kapat → yalnız liste güncellenir, hesap yok (Hesapla ile).
+- Headless syntax doğrulandı; GERÇEK PENCERE GUI SMOKE TEST BEKLİYOR; commit EDİLMEDİ.
+- Geri alma: `_fire_auto_calc` içinde `_start_async_calc()` yerine `self.app.update_scene("paths")`
+  yaz ve auto-calc guard'ını kaldır.
+
+---
+
+## 2026-07-04 — Exe builder drift koruması: manifest + otomatik kontrol + exe öz-testi
+
+### Ne (kısa)
+Exe derleyicinin uygulamanın gerisinde SESSİZCE kalmasını önleyen bir doğrulama
+katmanı eklendi. Artık tek bir build reçetesi (`build_exe.py`) var; ne paketleneceği
+tek bir yerde tanımlı (`packaging_manifest.py`); ve her build sonunda otomatik bir
+kontrol (`check_packaging.py --post-build`) exe'nin eksiksiz olduğunu kanıtlıyor.
+
+### Neden
+Üç ayrı build reçetesi (`build_exe.py` + `SpinningCam.spec` + `EMS_SoftSpinner.spec`)
+birbirinden sapmıştı: sadece `.spec` `cryptography`'yi (lisans backend'i) paketliyordu,
+asıl çalıştırılan reçete paketlemiyordu; yeni veri dosyaları (`materials.json`,
+`machines/ID112-1.json`) hiç gönderilmiyordu; `--add-data` dosyaları uygulamanın hiç
+okumadığı `_internal/`'e koyuyordu (`get_base_path()` == exe klasörü). Hatalar sessizdi.
+
+### Nasıl / nerede
+- **`packaging_manifest.py` (YENİ)** — tek doğruluk kaynağı:
+  - `SHIP_NEXT_TO_EXE` — exe'nin YANINA konması gereken dosyalar (settings.json,
+    tools.json, materials.json, machines/, logo.* opsiyonel).
+  - `MUST_NOT_SHIP` — asla gönderilmemesi gerekenler (`license_private_key.pem`,
+    `admin.lic`) → post-build sızıntı kontrolü.
+  - `NOT_SHIPPED` — bilerek hariç tutulanlar (license.lic, layout.json, log, .nc).
+  - `CRITICAL_MODULES` — frozen exe'de import edilebilmesi ZORUNLU modüller.
+  - `run_selfcheck()` — GUI açmadan bütünlük kanıtı.
+- **`main_tk.py`** — `--selfcheck` bayrağı eklendi: kritik modülleri import eder,
+  lisans public key'ini kurar (cryptography backend'ini yüklemeye zorlar), veri
+  dosyalarını exe yanında çözer, 0/1 döner.
+- **`check_packaging.py` (YENİ)** — statik kontroller (kaynak var mı, modüller
+  import oluyor mu, + KAYNAK TARAMASI: kodda okunan ama manifest'te olmayan veri
+  dosyası için UYARI) ve `--post-build` (dosyalar exe yanında mı, sır sızmış mı,
+  exe `--selfcheck` 0 mı).
+- **`build_exe.py`** — artık TEK reçete. `--collect-all=cryptography` eklendi;
+  kullanılmayan `images/` (uygulama okumuyor, dev ekran görüntüleri) çıkarıldı;
+  build sonrası manifest exe yanına kopyalanıyor; sonra `check_packaging --post-build`
+  çalışıp başarısızsa build'i düşürüyor.
+- **`SpinningCam.spec` + `EMS_SoftSpinner.spec` SİLİNDİ** (git geçmişi koruyor).
+
+### Geri alma / dikkat
+- `spinning_cam` conda env'de çalıştır (OCC/fpdf/cryptography orada; sistem python'da
+  import'lar başarısız olur — bkz HANDOVER_2026-07-01b).
+- Yeni bir runtime veri dosyası eklersen `SHIP_NEXT_TO_EXE`'ye ekle; unutursan
+  kaynak tarayıcı uyarır ama build'i düşürmez.
+- Gerçek frozen rebuild (`build_exe.bat`, 2026-07-04) `BUILD SUCCESSFUL and VERIFIED`
+  ile bitti: built exe'nin kendi `--selfcheck`'i tüm kritik modül + lisans crypto +
+  veri dosyalarını exe yanında doğruladı. (Bütünlük/açılabilirlik doğrular; GUI
+  render veya lisans mantığı doğruluğu DEĞİL.)
+
+---
+
+## 2026-07-04 — Program tab "Görünümü Özelleştir": yapılandırılabilir sütunlar + Temel/Gelişmiş
+
+### Ne (kısa)
+Program sekmesine iki kontrol eklendi: (1) **"Özelleştir…"** düğmesi → her operasyon
+tipi için bir sekme içeren pencere; her parametre için **Sütun** (operasyon tablosuna
+sütun ekle) ve **Gelişmiş** (editörden gizle) işaretlenebilir. (2) Araç çubuğunda
+**Gelişmiş** kutusu → kapalıyken editör yalnızca temel (gelişmiş-olmayan) alanları
+gösterir; açıkken hepsi görünür (klasik davranış). **Varsayılan: KAPALI = ilk açılışta Temel görünüm.**
+
+### Neden
+Çok parametreli programlarda editör çok uzun ve programlar arası fark takibi zor.
+Sütunlar operasyonları bir bakışta karşılaştırmayı sağlar; Temel/Gelişmiş nadiren
+dokunulan alanları gizler. Endüstri deseni: progressive disclosure + özelleştirilebilir
+sütunlar (Fusion/Mastercam).
+
+### Nasıl / nerede
+- **Veri modeli** (`params`): `op_view_config` = {op_type: {columns:[...], advanced:[...]}}
+  (program başına, .ssp içinde taşınır). `op_view_show_advanced` = global anahtar.
+- **`ui/tabs/program_tab.py`:**
+  - Modül tabloları: `OP_PARAM_UNIVERSE` (tip başına renderlanabilir tüm parametreler —
+    `on_op_select` ile ELLE eşzamanlı tutulmalı), `OP_PARAM_LABELS`, `GROUP_DEPS`,
+    `SECTION_KEYS`, `_DEFAULT_BASIC/_DEFAULT_COLUMNS`, `_default_cfg()`.
+  - Çözücü/görünürlük: `_universe_for` (tilt-arm değilse tilt_* düşer), `_view_cfg`
+    (yoksa default), `_hidden_keys` (grup bağımlılıklarını genişletir),
+    `_apply_field_visibility` (ileri alanları + boş kalan bölüm başlıklarını gizler —
+    değerlere dokunmaz), `_add_section_header`.
+  - Sütunlar: `rebuild_tree_columns` (base + union), `refresh_ops_tree` genişletildi,
+    `_cell_value` (uygulanamayan tip → "—"), `_column_union`.
+  - Alan satırları `_pkey` ile etiketlendi (helper'lar + inline blok'lar), bölüm
+    başlıkları `_section` ile.
+  - Araç çubuğu: "Özelleştir…" + "Gelişmiş" kutusu.
+- **`ui/dialogs/view_customizer.py`** (YENİ): sekmeli diyalog, Uygula/Sıfırla/Kapat.
+- **`main.py` `load_project`:** global Gelişmiş anahtarı korunur; .ssp'de
+  `op_view_config` yoksa bayat bellek temizlenir (default'a düşer).
+- **`i18n.py`:** yeni EN/TR/ES anahtarları.
+- **`help_window.py`:** Operasyonlar sekmesine "GÖRÜNÜMÜ ÖZELLEŞTİRME" bölümü (EN+TR).
+
+### Güvenlik / geri alma
+Tamamen görünüm-katmanı: gizli alanın değeri ve takım yolu DEĞİŞMEZ. Path generator'a
+dokunulmadı. Geri almak için `params`'tan `op_view_config`/`op_view_show_advanced`
+silinebilir; kod eski davranışa (hepsi görünür) düşer.
+
+### Durum
+Headless mantık testleri (9/9) GEÇTİ, tüm dosyalar derleniyor. GUI kullanıcı
+tarafından ONAYLANDI (2026-07-04, "güzel görünüyor"). Commit HÂLÂ EDİLMEDİ
+(kullanıcı onayı bekliyor). TODO #59.
+
+---
+
+## 2026-07-04 — Kalibrasyon "Challenger Rr" (eksen-fit erişim) — SADECE OPT-IN TEST
+
+### Ne (kısa)
+Kalibrasyon penceresine, mevcut hesabı DEĞİŞTİRMEDEN, alternatif bir takım erişim
+değeri (`r_tool`) gösteren bir "challenger" eklendi. Amaç: farklı takımla kalibre
+edip başka takımla çalışınca kalan ~1 mm boşluğun kaynağını FİZİKSEL test etmek.
+
+### Neden (sorunun kökü)
+Mevcut `get_contact_radius` = `max|XZ|/2` (kiriş/2). Disk eğik olduğu için "en uzak
+nokta" ~45° sapıyor; bu ölçüm disk yarıçapı ile eğimi karıştırıyor ve takımdan
+takıma ~0.5–1 mm farklı çıkıyor. Bir takımla kalibre edip diğerini çalıştırınca bu
+tutarsızlık = gördüğün kalan boşluk. Challenger, diskin dönme eksenini fit edip o
+eksene göre maks jant yarıçapını döndürür (eğimden bağımsız).
+
+### Doğrulanan sayılar (headless, spinning_cam env)
+| Takım | Mevcut (kiriş/2) | Challenger (eksen) |
+|-------|------------------|--------------------|
+| T0101 | 73.793 | 74.908 |
+| T0102 | 77.528 | 77.528 |
+| T0103 | 74.308 | 74.905 |
+
+KRİTİK: göreli erişim. Mevcut: T0103−T0101 = **+0.52 mm** (103'e fazla erişim →
+101 ile kalibre edilince 103 boşluk bırakıyor). Challenger: T0103−T0101 = **≈0.00 mm**
+(iki disk aynı erişim). Hipotez: challenger ile boşluk ~0'a iner. FİZİKSEL TEST BEKLİYOR.
+
+### Nerede (dosya:değişiklik)
+1. **`tool_step_loader.py`** ~189: YENİ `get_contact_radius_axis()` metodu. Mevcut
+   `get_contact_radius` BYTE-BYTE AYNI, hiç dokunulmadı. Yeni metot yalnızca
+   diyalog ekranından çağrılıyor; path-gen / tool_manager hâlâ eskisini kullanıyor.
+2. **`ui/dialogs/touch_calibration.py`**:
+   - Rr satırının altına salt-okunur "Challenger Rr (axis)" etiketi + Δ + "Use ▸" düğmesi.
+   - `_refresh_challenger(tool)`: seçili takım için challenger değerini hesaplar/gösterir.
+   - `_use_challenger_rt()`: değeri SADECE diyalogdaki editable Rr alanına yazar.
+   - `_on_tool_selected` ve `_load_last_session` bu etiketi tazeler.
+
+### GÜVENLİK — DOĞRULANDI (kullanıcı bunu özellikle sordu)
+- "Use ▸" düğmesi HİÇBİR takım değerini KAYDETMEZ. Yalnızca diyalogdaki Rr alanını
+  doldurur. `tools.json` bu diyalogda ASLA yazılmaz (yalnızca satır 199'da okunur).
+- Diyalogdaki iki `json.dump` da **settings.json**'a yazar (calibration_last_session
+  ve calibration_view) — takım kütüphanesine değil.
+- 5 Apply düğmesi yalnızca home_x / mandrel_pos_x_offset / final_part_thickness /
+  home_z / machine_gcode_offset_z yazar. HİÇBİRİ r_tool'a dokunmaz. Yani challenger
+  ile kalibre edip Apply'a bassan bile T0101/T0103 tools.json değerleri (73.79/74.31)
+  DEĞİŞMEZ; sadece home_x gibi kalibrasyon çıktıları değişir.
+- `get_contact_radius_axis` sadece okur (STEP mesh), hiçbir dosya/parametre yazmaz.
+
+### Geri alma
+Tek yaptığı ekleme; kaldırmak için `tool_step_loader.py`'deki yeni metodu ve
+`touch_calibration.py`'deki challenger satır/metotlarını sil. Mevcut davranış aynen döner.
+
+### Test prosedürü (yarın için)
+1. T0101 seç → "Use ▸" (Rr→74.91) → gerçek dokunma DRO gir → Calculate → home_x Apply.
+2. T0103 seç → "Use ▸" (Rr→74.91) → onun gerçek DRO'sunu gir → Calculate.
+3. Delta X'e bak: ~0 → challenger kazandı (tools.json'a taşı). Hâlâ ~1 mm → eksen-fit
+   yetmiyor, sıradaki adım eğim-projeksiyonlu erişim.
+
+### Bekleyen
+Fiziksel A/B testi (kullanıcı). Kazanırsa: `tools.json` r_tool'ları güncelle +
+opsiyonel olarak path-gen'i bayrakla challenger'a çevir. Bkz. TODO #56.
+
+---
+
+## 2026-07-04 — Kademeli Uzunluk (progressive reach): pas başına P3 çıkış stroku
+
+### Ne
+Kaba operasyonlarda, mevcut **Kademeli Açı** yelpazesinin yanında yeni bir
+opt-in **Kademeli Uzunluk** seçeneği. Açı P3 çıkışının *yönünü* paslar boyunca
+çevirirken, uzunluk P3 çıkış kolunun *uzunluğunu* (L3 = √(P3x²+P3z²)) mevcut
+değerden **Uzunluk Bitiş (mm)** değerine lineer interpolasyonla değiştirir.
+İlk pas mevcut uzunluğu korur (interp ağırlığı 0), son pas bitiş değerine ulaşır.
+
+İkisi diktir ve birlikte çalışır: P3 kutupsal formda (uzunluk × yön) üretildiği
+için açı yönü, uzunluk uzunluğu ayarlar — çakışma yok. Mandrel yukarı çıktıkça
+kalan flanş küçülür; uzunluğu kısaltmak çıkışı blank kenarına yakın tutar
+(malzeme modeli gerekmez, gözle ayarla).
+
+**Bağımlılık (kafa karışıklığı noktası):** Reach, **Pass Angle DEĞERİ girili** iken
+çalışır — Progressive Angle *fan checkbox*'ına bağlı DEĞİL. Fan kapalı + reach açık
+geçerli (yön sabit, uzunluk küçülür). Pass Angle BOŞ ise P3 ham (p3_x, p3_z) offset
+olarak kullanılır ve `_L3` hiç hesaplanmaz → progress edecek "uzunluk" yok; bu yüzden
+reach o modda devre dışıdır. Saf P3 X/Z modunda reach (Pass Angle kapalı) kullanıcı
+kararıyla ERTELENDİ (2026-07-04) — gerekirse p3_x/p3_z orantılı küçültme ile eklenir.
+
+### Nerede
+1. **`path_generator.py`** ~265: `_L3` hesabından hemen sonra, `progressive_reach_enabled`
+   açıksa ve `count > 1` iken `_L3 = max(_L3 + i*(reach_end - _L3)/(count-1), 0.0)`.
+   Sadece `pass_angle` tanımlıysa çalışır (blok o koşulun içinde). Trig (cos/sin θ_B)
+   bu güncellenmiş `_L3`'ü kullanır.
+2. **`ui/tabs/program_tab.py`**: defaults sözlüğüne `progressive_reach_end: 30`;
+   Kademeli Açı satırının altına (aynı `pass_angle is not None and count > 1` guard)
+   `progressive_reach_enabled` checkbox + açıkken `progressive_reach_end` alanı.
+3. **`i18n.py`**: `lbl_progressive_reach`, `lbl_reach_end` (EN/TR/ES).
+4. **`ui/dialogs/help_window.py`**: `ops` bölümüne "PROGRESSIVE ANGLE & REACH" /
+   "KADEMELİ AÇI VE UZUNLUK" paragrafı (EN+TR).
+
+### Test
+`_test_progressive_reach.py` — 3 kontrol GEÇTİ: (1) reach_end == mevcut reach → sıfır
+değişim; (2) daha küçük reach_end sadece son pasları kısaltır, ilk pas dokunulmaz;
+(3) reach, açı yelpazesinden bağımsız çalışır. Log doğrulaması: reach_end=10 ile
+reach 44.7 → 33.2 → 21.6 → 10.0 lineer iniyor, yön θ_B=30° sabit.
+
+### Geri alma
+`path_generator.py` insert bloğunu, `program_tab.py` checkbox+alan bloğunu ve
+defaults satırını, i18n 2 satırını, help paragraflarını sil. Eski reçeteler
+etkilenmez (varsayılan `enabled=False` → sıfır davranış değişimi).
+
+### Durum
+Headless doğrulandı; derleme OK. Gerçek pencere GUI smoke test BEKLİYOR
+(checkbox'ın Pas Açısı ayarlıyken göründüğü ve alanı açıp/kapadığı doğrulanmalı);
+commit EDİLMEDİ.
+
+---
+
+## 2026-07-04 — Giriş alanlarında soluk "varsayılan + aralık" ipucu (tüm sekmeler)
+
+### Ne
+Her sayısal giriş alanının yanında, soluk gri küçük bir metin: alanın
+**fabrika varsayılanı** ve (Process/Machine için) **değiştirilebilir aralığı**.
+Kullanıcı boş bıraktığında hangi değerin geçerli olacağını ve hangi yöne
+değiştirebileceğini kutuyu doldurmadan görebiliyor. Örn: `varsayılan 2  ·  0 - 20`.
+
+### Ne değişti
+1. **`main.py`** — `load_settings()`, kullanıcının `settings.json`'u ile birleşmeden
+   ÖNCE saf varsayılanları `self.factory_defaults`'a kopyalıyor (ipucu buradan okur).
+   Ayrıca `collision_resolution` (0.5) ve `exit_arc_angle` (0.0) defaults dict'e
+   eklendi — önceden yoktular, bu yüzden Process sekmesinde sadece aralık görünüyordu.
+2. **`ui/helpers_ui.py`** — `_fmt_num()` yardımcı + `_field_hint_text()` /
+   `_add_field_hint()`. `add_spinbox` ve `add_scale` ipucu etiketini **başlık
+   satırının sağına** yerleştiriyor (alta DEĞİL — düzeni aşağı kaydırmaz).
+   Latin-5-güvenli karakterler (cp1254 konsol sorunu olmasın); egzotik glif yok.
+   Stil sabitleri: `HINT_COLOR`, `HINT_FONT`.
+3. **`i18n.py`** — `hint_default` anahtarı (EN "default" / TR "varsayılan" / ES "predet.").
+4. **`ui/tabs/program_tab.py`** — op alanları paylaşılan helper'ı kullanmıyor;
+   modül düzeyinde **`OP_PARAM_DEFAULTS`** tablosu (defaults `path_generator.py`
+   fallback'lerinden BİREBİR alındı → davranışla asla çelişmez). `_add_prop_entry`
+   ipucu etiketini **en sağa** koyar (entry genişliği korunur). Sabit defaults +
+   değişken defaults (`= P1 X`, `= Feed`, `= mandrel top`, `= center + 50`),
+   `pass_angle` → `off`. Op tipine bağlı `clearance` için `_add_prop_entry`'ye
+   opsiyonel `default_hint` argümanı eklendi (roughing `= target clr`,
+   finishing `= allow.+safety`).
+
+### Kapsam
+- Process/Machine spinbox+scale: 12/12 alan (default + aralık).
+- Program op alanları: 30/31 alan. TEK istisna `exit_curve_tension` — path
+  generation'dan KALDIRILMIŞ (ölü alan), dürüst bir varsayılanı yok → ipuçsuz.
+  (İleride gizlenebilir; bu oturumun kapsamı dışında.)
+- Machine sekmesindeki KENDİ entry widget'larıyla kurulan alanlar kapsam dışı
+  (kullanıcı özellikle Program tab istedi).
+
+### Doğrulama
+`py_compile` OK (main.py, helpers_ui.py, i18n.py, program_tab.py). İpucu metin
+üretimi headless doğrulandı + kapsam denetim script'i (kaynaktan tüm alan
+anahtarlarını çıkarıp tablolarla diff — 2 eksik Process anahtarı böyle bulundu).
+GERÇEK PENCERE GUI smoke testi BEKLİYOR: dar panelde en-sağ ipucunun sıkışıp
+sıkışmadığını göz kontrolü. Commit EDİLMEDİ.
+
+### Bekleyen
+- `help_window.py` `_C` dict + (gerekirse) CODE_NAVIGATION.md bu özellik için
+  GÜNCELLENMEDİ (help-window politikası gereği güncellenmeli).
+- İsteğe bağlı: ipucu için Aç/Kapat ayarı (şimdilik daima açık).
+
+### Geri alma
+`main.py`: `self.factory_defaults` satırı + iki yeni default anahtarı sil.
+`helpers_ui.py`: `_add_field_hint` çağrılarını ve yardımcıları kaldır.
+`program_tab.py`: `OP_PARAM_DEFAULTS`, import, `_add_prop_entry` ipucu bloğu +
+`default_hint` argümanı ve iki `clearance` çağrısındaki `default_hint=` sil.
+`i18n.py`: `hint_default` anahtarı sil.
+
+---
+
+## 2026-07-04 — Operasyon silince ikinci set varsayılana dönüyor fix (Program tab)
+
+### Sorun
+İki (veya daha fazla) kaba/bitirme seti oluşturulup ikincisi varsayılandan
+üretilip düzenlendikten sonra, **ilk set silinince ikinci set varsayılan
+değerlere geri dönüyordu** (yaptığın düzenlemeler kayboluyordu).
+
+### Kök neden
+Özellik editöründeki her giriş alanının `save` closure'ı ve widget
+`<FocusOut>`/`<Return>` binding'i, operasyona **pozisyonel index** ile yazar
+(`operations[op_idx][key] = ...`, `program_tab.py:1194`). Bu closure'lar
+`self._active_entry_savers` içinde toplanır ve bir sonraki etkileşimde
+`_flush_entries()` ile tekrar oynatılır.
+
+`del_op()` operasyonu `pop` ediyor ama **`_active_entry_savers`'ı temizlemiyor
+ve editör widget'larını yok etmiyordu**. Silinen op0 (çoğu zaman hâlâ ekranda
+duran varsayılan set) için kayıtlı bayat saver'lar index `0`'a bağlı kalıyor
+ve op0'ın widget değerlerini tutuyordu. Sıradaki `_flush_entries()` (kalan op'a
+tıklayınca ya da bir combobox değişince) bu bayat varsayılan değerleri
+`operations[0]`'a — artık senin düzenlediğin ikinci set olan slota — yazıyordu.
+
+### Ne değişti (`ui/tabs/program_tab.py`)
+1. **`del_op()`** — `pop`'tan ÖNCE `_active_entry_savers` temizleniyor,
+   `_active_op_idx=None`, ve `f_prop_editor` çocuk widget'ları yok ediliyor
+   (bayat index binding'leri de ölür). Sonra `refresh_ops_tree` + o index'e
+   gelen op için editör `on_op_select(None, _flush=False)` ile yeniden kuruluyor
+   (liste boşsa editör temiz bırakılıyor).
+2. **`move_op()`** — AYNI kök nedene sahip latent bozulma vardı (swap sonrası
+   flush, taşınan op'un widget değerlerini yeni index'e gelen op'un üstüne
+   yazardı). Artık önce `_flush_entries()` ile bekleyen düzenlemeler kaydedilir,
+   sonra saver'lar temizlenip swap yapılır, yeni seçim için editör yeniden kurulur.
+
+### Doğrulama
+`program_tab.py` `ast.parse` ile derlendi (OK). Bu GUI-durum mantığı headless
+test paketlerinde kapsanmıyor → GERÇEK PENCERE GUI smoke testi BEKLİYOR:
+varsayılan kaba+bitirme oluştur → ikinci (düzenlenmiş) kaba ekle → ilkini sil →
+ikinci set düzenlemelerini korumalı. Aynı şekilde ▲/▼ ile sıra değiştir.
+
+### Geri alma
+`del_op` ve `move_op`'u eski (kısa) hallerine döndür: saver temizleme /
+widget yok etme / yeniden seçim satırlarını sil.
+
+---
+
+## 2026-07-03d — Durum çubuğu (info banner) zıplama/glitch fix
+
+### Sorun
+Sürüklenebilir panel (7-03c) sonrası: imleç yan panelde gezinirken alttaki
+info çubuğu sürekli boyut değiştiriyor, tıklanmak istenen kontroller zıplıyordu.
+
+### Kök neden
+`frame_status` `height=30` ile oluşturulmuş ama **`pack_propagate(False)` YOK** →
+gerçek yüksekliği içindeki `lbl_info` metnine bağlıydı. Çok satırlı tooltip'ler
+(`\n` içeren) `<Enter>` ile banner'a yazılınca çubuk 2-3 satıra büyüyor, `<Leave>`
+ile "Ready…" tek satıra dönünce küçülüyordu. 7-03c'de pack sırası değiştiği için
+(status → paned) büyüyen çubuk artık **3D görünümden değil, paned alandan** (yani
+yan panelden de) yer çalıyor → kontroller imlecin altında zıplıyor. Bug latent'ti;
+yeni layout onu yan panele yönlendirdi.
+
+### Ne değişti
+1. `main_window.py` `_setup_layout`: `frame_status.pack_propagate(False)` eklendi —
+   yükseklik 30px'e kilitlendi; tooltip metni artık çubuğu büyütemez.
+2. `helpers_ui.py` `bind_tooltip`: `flat = " ".join(text.split())` — newline/boşluk
+   dizileri tek boşluğa indirgeniyor, sabit yükseklikli çubuk temiz tek satır gösterir.
+
+### Doğrulama
+Her iki dosya `ast.parse` ile derlendi. GERÇEK PENCERE GUI smoke testi BEKLİYOR
+(imleci yan panelde gezdir → banner sabit kalmalı, kontroller zıplamamalı).
+
+### Bilinen ikincil konu (bu fix kapsamı DIŞINDA)
+`program_tab.py:406` `txt_pass_info` (contact zone/pas bilgisi) `height=10` ister ama
+`fill="both", expand=True` → dar pencerede istenen yüksekliğin altına sıkışabilir.
+Banner artık şişmediği için daha az belirgin; gerekirse takip: Text'e minsize.
+
+### Geri alma
+`main_window.py`'den `frame_status.pack_propagate(False)` satırını sil;
+`helpers_ui.py` `bind_tooltip` içinde `flat` yerine tekrar ham `text` kullan.
+
+---
+
+## 2026-07-03c — Sürüklenebilir panel ayırıcı + yelpaze bitiş açısı + TODO #54/#55
+
+### Ne değişti (kullanıcı istekleri)
+1. **Yan panel genişliği ayarlanabilir** — `main_window.py` `_setup_layout`:
+   sabit `width=350` sidebar yerine `tk.PanedWindow` (yatay, 6px sash).
+   Ayırıcı sürüklenince panel VE 3D görünüm yeniden boyutlanır; embedded
+   PyVista zaten `plot_frame <Configure>` → `MoveWindow` ile takip ediyordu,
+   yani mekanizma güvenli (programı bozmaz). Genişlik `params["sidebar_width"]`
+   olarak sash bırakılınca settings.json'a kaydedilir; min panel 280px,
+   min 3D 300px. NOT: durum çubuğu artık tam genişlik (pack sırası değişti).
+   Bu, "▼ düğmesini göremiyorum" şikayetini kökten çözer.
+2. **Yelpaze bitiş açısı (`progressive_angle_end`)** — `path_generator.py`
+   ~255: kademeli açı artık sabit 180° yerine op'un
+   `progressive_angle_end` değerine (varsayılan 180) doğru interpolasyon:
+   `_eff_angle += i*(end−_eff_angle)/(count−1)`. Boş/None → 180 (eski davranış,
+   mevcut reçeteler birebir aynı). Op editöründe "Yelpaze Bitiş Açısı" alanı
+   (yalnızca Kademeli işaretliyken görünür; checkbox toggle artık editörü
+   yeniden çizer). Önerici 180.0'ı açıkça yazar; öneri önizlemesi
+   "X° → end°" gösterir. Doğrulama: end=120 ile son pas θ_B 128.7°→68.7°,
+   ilk pas değişmedi (e2e assert).
+3. **TODO.md #54/#55 eklendi** — önerici yol haritası: #54 daha fazla
+   parametre önerisi (zones, contact feed, reverse, tilt, çok kademeli) +
+   her birine WHY satırı; #55 daha isabetli öneri için ek girdiler
+   (temper, tolerans, rijitlik, tavlama imkânı, rulo profili, adet).
+
+### Doğrulama
+Tüm 4 test paketi GEÇTİ (`_test_planner.py` 37 kontrol, dialog, e2e + yelpaze
+bitiş açısı ve pasifleştirme, toolbar). `main_window.py` derlendi; PanedWindow
+gerçek pencere GUI smoke testi BEKLİYOR.
+
+### Geri alma
+`main_window.py` `_setup_layout` sidebar/plot_frame packing'i eski haline
+(sabit 350px); `path_generator.py` 180.0 sabitine; `program_tab.py`
+`progressive_angle_end` alanı + `on_op_select` çağrısı; `i18n.py`
+`lbl_progressive_end`; TODO #54/#55 blokları.
+
+---
+
+## 2026-07-03b — Önerici v2 (kullanıcı geri bildirimi): toolbar düzeni, On/Off, WHY bölümü
+
+### Ne değişti (kullanıcı istekleri)
+1. **Program sekmesi toolbar sadeleştirildi** — 4 ayrı "+ Kaba/+ Bitirme/+ Kes/+ Kıv"
+   düğmesi yerine tek **"+ Ekle ▾" Menubutton** (op tipleri adapter'dan menüye).
+   ✨Öner artık açık sarı `tk.Button` (görünürlük şikayeti üzerine).
+2. **Operasyon pasifleştirme (silmeden karşılaştırma)** — tree'ye "Aktif" sütunu
+   (✓/—), pasif satırlar gri (`op_disabled` tag). Yeni **Aç/Kapat** düğmesi +
+   satıra **çift tıklama** toggle eder (`toggle_op_enabled`,
+   `_on_tree_double_click`). `enabled=False` zaten calculate_paths/generate_gcode
+   tarafından atlanıyordu — sadece UI eksikti. Toggle sonrası `_schedule_auto_calc()`.
+3. **Öneri diyaloğu**: buton çubuğu `side="bottom"` ile ÖNCE pack ediliyor →
+   pencere küçültülünce ekleme düğmesi asla kırpılmaz. Etiket netleştirildi:
+   **"➕ Yeni operasyon olarak ekle"** (yeşilimsi tk.Button).
+4. **Önerici daha fazla parametre öneriyor** — `direction: "forward"` (açık),
+   `back_pass_enabled`: duvar açısı > 45° (BACK_PASS_BEND_THRESHOLD_DEG) ise
+   AÇIK (kırışma riski, ütüleme), değilse açıkça False; `back_pass_feed` =
+   kaba besleme, arc'lar 0.
+5. **"BU DEĞERLER NEDEN BÖYLE" bölümü** — planner artık `notes` listesi döner
+   (i18n `sug_note_*`, 8 satır): paso sayısı formülü, paso açısı yelpazesi,
+   RPM hesabı, mm/dev→mm/dak, sac çapı alan korunumu, clearance mantığı,
+   geri pas kararı (açık/kapalı gerekçesiyle), bitirme pası notu.
+   Önizlemede gri (dim) satırlar olarak gösterilir.
+
+### Doğrulama
+- `_test_planner.py` 36 kontrol (yeni: back pass eşiği, direction, not anahtarları
+  + EN/TR/ES template'lerin kwargs ile format edilebilirliği). GEÇTİ.
+- `_test_suggester_dialog.py`: WHY bölümü render + buton çubuğu bottom-anchored. GEÇTİ.
+- `_test_planner_e2e.py`: geri paslı 7 yol → 489 satır G-code (PLC<1000);
+  op `enabled=False` yapılınca yolları düşüyor (karşılaştırma iş akışı). GEÇTİ.
+- `_test_program_tab_toolbar.py` (YENİ): MagicMock app ile gerçek ProgramTab —
+  Aktif sütunu, toggle, çift-tık, dropdown 4 tip, Öner düğmesi. GEÇTİ.
+- Gerçek pencere GUI smoke test HÂLÂ BEKLİYOR.
+
+### Geri alma
+`program_tab.py`: `_create_widgets` toolbar bloğu + `toggle_op_enabled`/
+`_on_tree_double_click` + tree cols eski haline; `process_planner.py`:
+`BACK_PASS_BEND_THRESHOLD_DEG`, notes, direction/back_pass alanları çıkar;
+`op_suggester.py`: pack sırası + WHY bölümü; `i18n.py`: `btn_add_op`,
+`btn_toggle_op`, `col_on`, `sug_i_backpass/on/off`, `sug_h_why`, `sug_note_*`.
+
+---
+
+## 2026-07-03 — Operasyon Önerici (✨Öner): kural-tabanlı otomatik operasyon önerisi
+
+### Ne değişti
+Operatör know-how eksikliğinde başlangıç noktası vermek için Program sekmesine
+tavsiye niteliğinde (advisory, opt-in) operasyon önerici eklendi. Hiçbir şey
+otomatik uygulanmaz — öneri önizlenir, kullanıcı Uygula'ya basarsa eklenir.
+
+1. **`process_planner.py` (YENİ)** — kural-tabanlı planlayıcı:
+   - `analyze_profile(mandrel_mgr)`: profil önbelleğinden yükseklik, Ø maks/min,
+     maks duvar açısı (radyal düzlemden; düz sac=0°, silindir=90°), yüzey
+     uzunluğu, alan-eşdeğeri sac yarıçapı (`πR² = πr_min² + 2π∫r ds`).
+   - `suggest_operations(...)`: 1 kaba op (count = ceil(bükme_açısı /
+     malzeme_açı_per_paso), maks 12; `pass_angle` = −θ_A + açı_per_paso,
+     `progressive_angle_enabled=True` → yelpaze 180°'ye yayılır) + 1 bitirme op.
+     RPM = yüzey hızı / (π·Ø_maks), makine `max_spin_rpm` ve PLC 2550 ile
+     kırpılır; besleme = mm/dev × RPM, PLC 3000 mm/dak ile kırpılır.
+     Takım seçimi `add_op` ile aynı semantik (kalibre `r_tool` explicit-None,
+     yoksa `radius`). Sıvama oranı β = Ø_sac / Ø_mandrel_MAJÖR (uç değil!).
+   - Uyarılar (key, kwargs) çifti döner → i18n `sug_warn_*` anahtarları:
+     oran aşımı, RPM/besleme kırpma, çalışma alanı X, STEP yok, >12 paso.
+2. **`materials.json` (YENİ, ilk kullanımda otomatik oluşur)** — 6 malzemelik
+   sezgisel tablo (Al yumuşak/5xxx, DC04, 304, bakır, pirinç): açı/paso,
+   yüzey hızı, mm/dev kaba+bitirme, maks sıvama oranı, clearance'lar.
+   TÜM sabitler burada — saha deneyimiyle kod değişikliği olmadan ayarlanır.
+   Dosya yoksa `DEFAULT_MATERIALS` gömülü tablo kullanılır (tek-exe paketleme).
+3. **`ui/dialogs/op_suggester.py` (YENİ)** — `OpSuggesterDialog`: malzeme
+   combobox, sac kalınlığı (params'tan ön dolu) + sac çapı (alan-eşdeğeri
+   tahminle ön dolu) girişleri, önizleme (analiz + op listesi + uyarılar),
+   Uygula onay sorusu ile ekler. Kalınlık değiştirildiyse Uygula
+   `on_param_change("final_part_thickness_on_mandrel", …)` üzerinden geçirir
+   (önizlemede uyarı satırı gösterilir).
+4. **`ui/tabs/program_tab.py`** — Tools düğmesinden sonra `✨Öner` düğmesi
+   (adapter `roughing`+`finishing` destekliyorsa; her iki mevcut adapter de
+   destekler). `open_op_suggester()` + `_apply_suggested_ops()` eklendi.
+5. **`i18n.py`** — `btn_suggest_ops` + `sug_*` anahtarları (EN/TR/ES).
+6. **`ui/dialogs/help_window.py`** — ops bölümüne "Operation Suggester"
+   alt bölümü (EN+TR).
+
+### Doğrulama
+- `_test_planner.py`: 27 kontrol — profil analizi (koni: bend 63.4°, Ø tahmin),
+  paso sayısı formülü, takım r_tool fallback'i, PLC/makine limit kırpmaları,
+  oran/çalışma-alanı/RPM uyarı tetikleri. HEPSİ GEÇTİ.
+- `_test_suggester_dialog.py`: widget smoke — önizleme render, malzeme
+  değişince yeniden hesap, Apply callback. GEÇTİ.
+- `_test_planner_e2e.py`: önerilen op'lar → `calculate_paths` → 4 yol →
+  `generate_gcode` → 320 satır (PLC 1000 sınırı altında). GEÇTİ.
+- GUI smoke test (gerçek pencerede düğme + diyalog) HENÜZ YAPILMADI.
+
+### Geri alma
+`process_planner.py`, `ui/dialogs/op_suggester.py`, `materials.json` sil;
+`program_tab.py`'den `btn_suggest` bloğu + iki metodu, `i18n.py`'den `sug_*`
+anahtarlarını, help_window'dan iki alt bölümü çıkar. Öneri mekanizması mevcut
+hesaplama/yol üretim koduna hiç dokunmaz.
+
+---
+
+## 2026-07-03 — Açılı yüzey boşluk UYARISI (yalnızca bilgilendirme) + T0103 r_tool düzeltmesi
+
+### Ne değişti
+2026-07-02 araştırması: skaler r_tool boşluk modeli silindirik yüzeylerde tam,
+eğimli yüzeylerde hatalı (radyal dal → dalma riski, normal dal → aşırı boşluk).
+Kullanıcı kararı: şimdilik DÜZELTME YOK, sadece uyarı — mevcut mandrel
+(18 konik kap) silindire yakın olduğundan uyarı sessiz kalmalı.
+
+1. **`tools.json`** — T0103 `r_tool` 79.5 → **74.31** (saha kanıtı: T0101 ile
+   kalibrasyon sonrası T0103 ~5 mm uzak kaldı; 79.5−74.31=5.19 mm birebir
+   eşleşiyor; STEP mesh üç bağımsız ölçümle 74.31'i doğruladı).
+2. **`tool_step_loader.py` `get_support_table()` (YENİ)** — takım STEP mesh'inden
+   destek fonksiyonu δ(θ) tablosu: yüzey normali radyalden θ kadar eğildiğinde
+   rulo gövdesinin uç teğet düzlemini ne kadar aştığı. [−89°,+89°], 179 nokta,
+   taban düzeltmeli (δ(0)=0), mtime'lı cache, `side<0` açı işaretini aynalar.
+3. **`main.py` `check_angled_clearance()` (YENİ)** — SADECE UYARI, yolu asla
+   değiştirmez. Her etkin roughing/finishing op'un Z aralığını 120 noktada
+   örnekler; model seçimi op'un gerçek dalıyla eşleşir (finishing + conformal
+   → normal modeli `r_tool·(1−nx)−δ`; düz roughing → radyal `(blank+clr)·(nx−1)−δ`).
+   |sapma| > `angled_clearance_warn_threshold` (varsayılan 0.5 mm) ise
+   `logger.warning` + reçete imzası başına BİR popup (headless'ta popup yok).
+   Tüm gövde try/except — advisory hesaplamayı asla bozamaz.
+   Çağrı yeri: `update_scene`, `calculate_paths`/önbellek dalından hemen sonra.
+4. **`i18n.py`** — `angled_clearance_warn_title/intro/legend` (EN/TR/ES).
+5. **`help_window.py`** — Sorun Giderme'ye "Boşluk Uyarısı — Açılı Yüzeyler"
+   bölümü (EN+TR): + = uzak kalır, − = yaklaşır (dalma riski).
+
+### Geri alma
+`update_scene`'deki `self.check_angled_clearance()` satırını sil — özellik
+tamamen devre dışı kalır (metotlar ölü kod olarak zararsız). T0103 için eski
+değere dönüş: `tools.json` r_tool = 79.5 (ÖNERİLMEZ — saha kanıtıyla yanlış).
+
+### Doğrulama durumu
+Headless doğrulandı: mevcut reçetede (silindirimsi mandrel) uyarı SESSİZ,
+sentetik açılı senaryoda tetikleniyor. Commit EDİLMEDİ; GUI smoke test bekliyor.
+İlk T0103 çalıştırması ~5.2 mm daha yakın gelecek — kuru paso veya geçici
+0.5–1 mm clearance ile doğrula.
+
+---
+
 ## 2026-07-03 — Interp eğim modu artık Z-bazlı (pas-bazlı değil)
 
 ### Ne değişti

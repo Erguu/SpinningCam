@@ -1,6 +1,11 @@
 import PyInstaller.__main__
 import os
+import shutil
+import subprocess
+import sys
 import time
+
+import packaging_manifest as M
 
 # Kill any running instances to prevent PermissionError
 print("Killing existing SpinningCam instances...")
@@ -10,14 +15,13 @@ time.sleep(1)
 print("Starting Build Process for SpinningCam...")
 
 base_path = os.path.dirname(os.path.abspath(__file__))
-sep = os.pathsep  # ';' on Windows
+dist_dir = os.path.join(base_path, "dist", "SpinningCam")
 
-# Data files/folders to bundle into the exe folder
-data_files = [
-    f"settings.json{sep}.",
-    f"tools.json{sep}.",
-    f"images{sep}images",
-]
+# NOTE: app data (settings.json, tools.json, machines/, materials.json, logo.*)
+# is NOT passed to --add-data. The app reads it from get_base_path() == the exe
+# folder, but --add-data lands files in _internal/ which the app never reads.
+# Instead we COPY the packaging manifest next to the exe after the build (below).
+# Single source of truth for that list: packaging_manifest.SHIP_NEXT_TO_EXE.
 
 args = [
     "main_tk.py",              # Entry point (what SpinningCam.bat runs)
@@ -25,9 +29,6 @@ args = [
     "--onedir",                # Folder mode — reliable with heavy libs like OCC and PyVista
     "--noconsole",             # No terminal window
     "--clean",                 # Clean PyInstaller cache before build
-
-    # Bundle data files
-    *[f"--add-data={d}" for d in data_files],
 
     # Collect ALL modules, DLLs, and data for heavy packages
     "--collect-all=pyvista",
@@ -37,6 +38,7 @@ args = [
     "--collect-all=fpdf",
     "--collect-all=pydantic",
     "--collect-all=pydantic_core",
+    "--collect-all=cryptography",   # Ed25519 license verification — compiled backend
 
     # Hidden imports PyInstaller may miss
     "--hidden-import=tkinter",
@@ -50,27 +52,6 @@ args = [
     "--hidden-import=fpdf",
     "--hidden-import=pydantic",
 
-    # ui/ package and all submodules (PyInstaller won't auto-discover these)
-    "--hidden-import=ui",
-    "--hidden-import=ui.main_window",
-    "--hidden-import=ui.helpers_ui",
-    "--hidden-import=ui.tabs",
-    "--hidden-import=ui.tabs.machine_tab",
-    "--hidden-import=ui.tabs.process_tab",
-    "--hidden-import=ui.tabs.program_tab",
-    "--hidden-import=ui.tabs.scrollable_tab_base",
-    "--hidden-import=ui.dialogs",
-    "--hidden-import=ui.dialogs.tool_manager",
-    "--hidden-import=ui.dialogs.zone_manager",
-    "--hidden-import=ui.dialogs.machine_selector",
-    "--hidden-import=ui.dialogs.license_generator",
-    "--hidden-import=license_manager",
-    "--hidden-import=machine_info",
-    "--hidden-import=hmac",
-    "--hidden-import=hashlib",
-    "--hidden-import=uuid",
-    "--hidden-import=winreg",
-
     # Exclude Qt bindings — not used in the Tkinter UI stack
     "--exclude-module=PySide6",
     "--exclude-module=PySide2",
@@ -80,15 +61,49 @@ args = [
     "--exclude-module=pyvistaqt",
 ]
 
+# Critical modules from the manifest, added as hidden-imports (belt-and-suspenders;
+# most are auto-discovered, but this keeps the builder honest as features are added).
+for mod in M.CRITICAL_MODULES:
+    if not mod.startswith("cryptography"):  # already collected in full above
+        args.append(f"--hidden-import={mod}")
+
 print("Running PyInstaller... This will take several minutes.")
 print("Output will be in: dist/SpinningCam/\n")
 
 try:
     PyInstaller.__main__.run(args)
-    print("\n" + "=" * 55)
-    print("BUILD SUCCESSFUL!")
-    print("Folder: dist/SpinningCam/")
-    print("Run:    dist/SpinningCam/SpinningCam.exe")
-    print("=" * 55)
 except Exception as e:
     print(f"\nBUILD FAILED: {e}")
+    sys.exit(1)
+
+# ── Copy the packaging manifest NEXT TO the exe (where the app actually looks) ──
+print("\nCopying shipped data files next to the exe...")
+for name, optional in M.SHIP_NEXT_TO_EXE:
+    src = os.path.join(base_path, name)
+    dst = os.path.join(dist_dir, name)
+    if not os.path.exists(src):
+        print(f"  - skip (optional, not present): {name}" if optional
+              else f"  ! WARNING: required '{name}' not found in project — build will be incomplete")
+        continue
+    if os.path.isdir(src):
+        shutil.copytree(src, dst, dirs_exist_ok=True)
+    else:
+        shutil.copy2(src, dst)
+    print(f"  + {name}")
+
+# ── Verify the build matches the app (static + post-build + exe --selfcheck) ──
+print("\nRunning packaging check...")
+check = subprocess.run(
+    [sys.executable, os.path.join(base_path, "check_packaging.py"), "--post-build", dist_dir]
+)
+
+print("\n" + "=" * 55)
+if check.returncode == 0:
+    print("BUILD SUCCESSFUL and VERIFIED!")
+    print("Folder: dist/SpinningCam/")
+    print("Run:    dist/SpinningCam/SpinningCam.exe")
+else:
+    print("BUILD COMPLETED but PACKAGING CHECK FAILED (see above).")
+    print("The exe may be incomplete — fix before shipping.")
+print("=" * 55)
+sys.exit(check.returncode)

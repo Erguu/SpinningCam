@@ -1,8 +1,188 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from ui.dialogs.zone_manager import ZoneManager
 from ui.dialogs.tool_manager import ToolManager
+from ui.helpers_ui import _fmt_num
 from i18n import t
+
+# Accurate default each op-parameter field falls back to when left empty.
+# Sourced from the op.get(key, DEFAULT) fallbacks in path_generator.py so the
+# faded hint is guaranteed to match real behaviour. A number is shown as
+# "default <n>"; a string is shown verbatim (used for relative defaults that
+# fall back to another field, e.g. "= Feed").
+# clearance is handled per-op-type via the default_hint argument at its two call
+# sites (roughing = target_clearance, finishing = allowance+safety).
+# exit_curve_tension is intentionally absent: it was removed from path
+# generation, so the field no longer has any effect (no honest default to show).
+OP_PARAM_DEFAULTS = {
+    # ── Fixed-constant defaults ──────────────────────────────────────────
+    "count": 1,
+    "z_pos": 0,
+    "start_z": 10,
+    "p1_x": 40,
+    "p1_z": 50,
+    "p3_z": -20,
+    "rot": 0,
+    "pass_angle": "off",            # empty = angle feature disabled
+    "progressive_angle_end": 180,
+    "progressive_reach_end": 30,
+    "p2_z_extend": 0,
+    "p2_radius": 0,
+    "exit_mid_t": 0.5,
+    "exit_mid_rotation": 0,
+    "proj_extend_bottom": 0,
+    "proj_extend_top": 0,
+    "contact_zone_mm": 0,
+    "tilt_start": 0,
+    "tilt_end": 0,
+    "tilt_offset": 0,
+    "back_pass_arc_x": 0,
+    "back_pass_arc_z": 0,
+    "speed": 200,                   # falls back to global surface_speed_m_min
+    "feed": 300,                    # falls back to global feed_rate_mm_min
+    # ── Variable defaults — fall back to another value ───────────────────
+    "p3_x": "= P1 X",
+    "feed_contact": "= Feed",
+    "feed_contact_end": "= Feed Contact",
+    "back_pass_feed": "= Feed",
+    "end_z": "= mandrel top",
+    "plunge_x": "= center + 50",
+}
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Customize View — configurable columns + Basic/Advanced field visibility.
+#
+# These tables drive the "Customize View" dialog and the Program-tab op editor.
+# OP_PARAM_UNIVERSE is the master list of every parameter each op *type* can
+# render — it is hand-kept in sync with on_op_select() (same maintenance
+# contract as OP_PARAM_DEFAULTS above). If you add/remove a field in
+# on_op_select, mirror it here or it won't be taggable/columnable.
+#
+# OP_PARAM_LABELS maps each key to an i18n label key (reused for both the
+# customize rows and the tree column headers). _DEFAULT_BASIC / _DEFAULT_COLUMNS
+# seed a program that has no saved op_view_config yet (per-program config lives
+# in params["op_view_config"]; see _view_cfg / _default_cfg).
+# ══════════════════════════════════════════════════════════════════════════
+
+_UNIVERSE_COMMON = ["speed_mode", "speed", "feed_mode", "feed"]
+
+OP_PARAM_UNIVERSE = {
+    "roughing": _UNIVERSE_COMMON + [
+        "tool_id", "count", "direction",
+        "tilt_mode", "tilt_start", "tilt_end", "tilt_offset",
+        "start_z", "end_z", "p2_z_extend", "proj_extend_bottom", "proj_extend_top",
+        "pass_shape", "p2_radius", "exit_curve_tension", "exit_mid_rotation",
+        "exit_mid_t", "conformal_clearance_operation_specific",
+        "approach_follow_surface", "p1_x", "p1_z", "p3_x", "p3_z", "reach",
+        "pass_angle", "progressive_angle_enabled", "progressive_angle_end",
+        "progressive_reach_enabled", "progressive_reach_end",
+        "clearance", "rot",
+        "contact_zone_mm", "feed_contact", "feed_contact_end",
+        "back_pass_enabled", "back_pass_swapped", "back_pass_feed",
+        "back_pass_arc_x", "back_pass_arc_z",
+    ],
+    "finishing": _UNIVERSE_COMMON + [
+        "tool_id", "count", "direction",
+        "tilt_mode", "tilt_start", "tilt_end", "tilt_offset",
+        "start_z", "end_z", "proj_extend_bottom", "proj_extend_top",
+        "clearance", "pass_shape", "straight_line_mode",
+    ],
+    "cutting":  _UNIVERSE_COMMON + ["tool_id", "z_pos", "plunge_x"],
+    "bending":  _UNIVERSE_COMMON + ["tool_id", "z_pos", "plunge_x"],
+}
+
+# Tilt fields only exist on tilt-arm machines; filtered out otherwise.
+_TILT_KEYS = ("tilt_mode", "tilt_start", "tilt_end", "tilt_offset")
+
+# key -> i18n label key (customize rows + column headers).
+OP_PARAM_LABELS = {
+    "speed_mode": "lbl_speed_mode", "speed": "vp_speed",
+    "feed_mode": "lbl_feed_mode",   "feed": "vp_feed",
+    "tool_id": "lbl_tool_id", "count": "lbl_pass_count", "direction": "lbl_direction",
+    "tilt_mode": "lbl_tilt_mode", "tilt_start": "lbl_tilt_start",
+    "tilt_end": "lbl_tilt_end", "tilt_offset": "lbl_tilt_offset",
+    "start_z": "lbl_zone_start", "end_z": "lbl_zone_end",
+    "p2_z_extend": "lbl_p2z_extend",
+    "proj_extend_bottom": "lbl_proj_bottom", "proj_extend_top": "lbl_proj_top",
+    "z_pos": "lbl_z_pos", "plunge_x": "lbl_plunge_x",
+    "clearance": "lbl_clearance", "pass_shape": "lbl_shape_mode",
+    "straight_line_mode": "lbl_straight_line",
+    "p2_radius": "lbl_p2_radius", "exit_curve_tension": "lbl_exit_tension",
+    "exit_mid_rotation": "lbl_exit_mid_rot", "exit_mid_t": "lbl_exit_mid_t",
+    "conformal_clearance_operation_specific": "lbl_conformal_clr",
+    "approach_follow_surface": "lbl_approach_surf",
+    "p1_x": "lbl_p1x", "p1_z": "lbl_p1z", "p3_x": "lbl_p3x", "p3_z": "lbl_p3z",
+    "reach": "lbl_reach",
+    "pass_angle": "lbl_pass_angle",
+    "progressive_angle_enabled": "lbl_progressive",
+    "progressive_angle_end": "lbl_progressive_end",
+    "progressive_reach_enabled": "lbl_progressive_reach",
+    "progressive_reach_end": "lbl_reach_end",
+    "rot": "lbl_rotation",
+    "contact_zone_mm": "lbl_zone_size", "feed_contact": "lbl_feed_contact",
+    "feed_contact_end": "lbl_feed_contact_end",
+    "back_pass_enabled": "vp_back_pass", "back_pass_swapped": "lbl_swap_order",
+    "back_pass_feed": "lbl_back_feed",
+    "back_pass_arc_x": "lbl_back_arc_x", "back_pass_arc_z": "lbl_back_arc_z",
+}
+
+# Group toggles → dependent keys. When a toggle is hidden (advanced) its
+# dependents are hidden too, so no orphaned sub-fields are left behind.
+GROUP_DEPS = {
+    "back_pass_enabled": ["back_pass_swapped", "back_pass_feed",
+                          "back_pass_arc_x", "back_pass_arc_z"],
+    "progressive_angle_enabled": ["progressive_angle_end"],
+    "progressive_reach_enabled": ["progressive_reach_end"],
+}
+
+# Section header id -> keys under it. A header is hidden when none of its keys
+# are currently visible (avoids stray empty section titles in Basic view).
+SECTION_KEYS = {
+    "speed_feed": ["speed_mode", "speed", "feed_mode", "feed"],
+    "path_shape": ["pass_shape", "p2_radius", "exit_curve_tension",
+                   "exit_mid_rotation", "exit_mid_t",
+                   "conformal_clearance_operation_specific",
+                   "approach_follow_surface", "p1_x", "p1_z", "p3_x", "p3_z", "reach"],
+    "pass_angle": ["pass_angle", "progressive_angle_enabled",
+                   "progressive_angle_end", "progressive_reach_enabled",
+                   "progressive_reach_end", "clearance", "rot"],
+    "contact_zone": ["contact_zone_mm", "feed_contact", "feed_contact_end"],
+    "back_pass": ["back_pass_enabled", "back_pass_swapped", "back_pass_feed",
+                  "back_pass_arc_x", "back_pass_arc_z"],
+}
+
+# Per-type "basic" seed (everything else in the universe is advanced by default).
+_DEFAULT_BASIC = {
+    "roughing":  {"speed_mode", "speed", "feed_mode", "feed", "tool_id", "count",
+                  "direction", "start_z", "end_z", "clearance", "pass_shape"},
+    "finishing": {"speed_mode", "speed", "feed_mode", "feed", "tool_id", "count",
+                  "direction", "start_z", "end_z", "clearance", "pass_shape",
+                  "straight_line_mode"},
+    "cutting":   {"speed_mode", "speed", "feed_mode", "feed", "tool_id",
+                  "z_pos", "plunge_x"},
+    "bending":   {"speed_mode", "speed", "feed_mode", "feed", "tool_id",
+                  "z_pos", "plunge_x"},
+}
+
+# Per-type default column picks (subset of the universe).
+_DEFAULT_COLUMNS = {
+    "roughing":  ["count", "start_z", "end_z"],
+    "finishing": ["count", "start_z", "end_z"],
+    "cutting":   ["z_pos", "plunge_x"],
+    "bending":   ["z_pos", "plunge_x"],
+}
+
+
+def _default_cfg(op_type):
+    """Resolved fallback config for an op type with no saved op_view_config."""
+    uni = OP_PARAM_UNIVERSE.get(op_type, [])
+    basic = _DEFAULT_BASIC.get(op_type, set(uni))
+    return {
+        "columns":  [k for k in _DEFAULT_COLUMNS.get(op_type, []) if k in uni],
+        "advanced": [k for k in uni if k not in basic],
+    }
+
 
 class ProgramTab:
     def __init__(self, parent_frame, app, ui_root, ui_helper):
@@ -58,6 +238,15 @@ class ProgramTab:
             self.btn_step.config(state="normal", bg="#4caf50")
         else:
             self.btn_step.config(state="disabled", bg="#b0bec5")
+
+    def _compute_op_end_z(self):
+        """Map op-index -> the CAM Z the op's last forming pass actually reaches,
+        including p2_z_extend (which pushes the last pass past the planned Zone
+        End Z). The value is computed authoritatively by the path generator
+        while it builds the paths (path_generator.last_op_end_z), in the SAME
+        CAM Z reference as the Zone Start/End Z the user sets — so the two
+        columns line up. Empty until the toolpaths are calculated."""
+        return dict(getattr(self.app.path_gen, "last_op_end_z", {}) or {})
 
     def refresh_pass_info(self):
         """Rebuild the pass-info text box from last_calculated_paths."""
@@ -216,55 +405,235 @@ class ProgramTab:
             except:
                 pass
 
+    # ------------------------------------------------------------------
+    # Customize View — config resolver, field visibility, dynamic columns
+    # ------------------------------------------------------------------
+
+    def _universe_for(self, op_type):
+        """Master parameter list for an op type, with tilt fields dropped on
+        non-tilt-arm machines (they aren't rendered there)."""
+        uni = OP_PARAM_UNIVERSE.get(op_type, [])
+        adapter = getattr(self.app, "active_adapter", None)
+        is_tilt = adapter is not None and adapter.get_kinematics() == "tilt_arm"
+        if is_tilt:
+            return list(uni)
+        return [k for k in uni if k not in _TILT_KEYS]
+
+    def _view_cfg(self, op_type):
+        """Per-program view config for an op type, falling back to defaults.
+        Never mutates params — the config is only materialised when the user
+        edits it in the Customize dialog."""
+        stored = self.app.params.get("op_view_config", {}).get(op_type)
+        if not stored:
+            return _default_cfg(op_type)
+        return {"columns":  list(stored.get("columns", [])),
+                "advanced": list(stored.get("advanced", []))}
+
+    def _hidden_keys(self, op_type):
+        """Set of param keys to hide from the editor for this op type given the
+        global Advanced toggle. Expands group toggles to their dependents."""
+        if self.app.params.get("op_view_show_advanced", False):
+            return set()
+        hidden = set(self._view_cfg(op_type)["advanced"])
+        for parent, deps in GROUP_DEPS.items():
+            if parent in hidden:
+                hidden.update(deps)
+        return hidden
+
+    def _apply_field_visibility(self, op_type):
+        """Hide advanced field rows (and now-empty section headers) from the
+        property editor. Non-destructive: values are untouched, only hidden."""
+        hidden = self._hidden_keys(op_type)
+        children = self.f_prop_editor.winfo_children()
+        if hidden:
+            for w in children:
+                pk = getattr(w, "_pkey", None)
+                if pk is not None and pk in hidden:
+                    w.pack_forget()
+        # Section headers: hide when none of their member keys stay visible.
+        rendered = {getattr(w, "_pkey", None) for w in children}
+        rendered.discard(None)
+        visible = rendered - hidden
+        for w in children:
+            sec = getattr(w, "_section", None)
+            if sec is not None:
+                keys = SECTION_KEYS.get(sec, [])
+                if not any(k in visible for k in keys):
+                    w.pack_forget()
+
+    def _add_section_header(self, section_id, text, separator=True):
+        """A section header frame tagged for visibility control. Returns the
+        inner frame so callers can add extra widgets (e.g. a help button)."""
+        fr = ttk.Frame(self.f_prop_editor)
+        fr._section = section_id
+        fr.pack(fill="x")
+        if separator:
+            ttk.Separator(fr, orient="horizontal").pack(fill="x", pady=(6, 2))
+        inner = ttk.Frame(fr)
+        inner.pack(fill="x")
+        ttk.Label(inner, text=text, font=("Arial", 8, "bold"),
+                  foreground="#004488").pack(side="left", anchor="w",
+                                             padx=10, pady=(0, 2))
+        return inner
+
+    def _param_label(self, key):
+        return t(OP_PARAM_LABELS.get(key, key))
+
+    def _column_union(self):
+        """Ordered, de-duped union of every type's selected columns."""
+        seen = []
+        for ot in ("roughing", "finishing", "cutting", "bending"):
+            uni = self._universe_for(ot)
+            for k in self._view_cfg(ot)["columns"]:
+                if k in uni and k not in seen:
+                    seen.append(k)
+        return seen
+
+    def _cell_value(self, op, key, op_type):
+        """Text for one configurable column cell. '—' when the parameter does
+        not apply to this op type."""
+        if key not in self._universe_for(op_type):
+            return "—"
+        if key not in op:
+            dv = OP_PARAM_DEFAULTS.get(key)
+            return _fmt_num(dv) if isinstance(dv, (int, float)) and not isinstance(dv, bool) else ""
+        val = op[key]
+        if isinstance(val, bool):
+            return "✓" if val else ""
+        if isinstance(val, float):
+            return _fmt_num(val)
+        return str(val)
+
+    def rebuild_tree_columns(self):
+        """(Re)configure the ops-table columns: fixed base + configured extras."""
+        extra = self._column_union()
+        base = ("Idx", "On", "Type", "Count", "Tool", "RealEndZ", "EndReach", "EndAngle")
+        cols = base + tuple(f"x_{k}" for k in extra)
+        self.tree_ops.configure(columns=cols)
+        self.tree_ops.heading("Idx", text="#"); self.tree_ops.column("Idx", width=30, anchor="w")
+        self.tree_ops.heading("On", text=t("col_on")); self.tree_ops.column("On", width=35, anchor="center")
+        self.tree_ops.heading("Type", text=t("col_type")); self.tree_ops.column("Type", width=70)
+        self.tree_ops.heading("Count", text=t("col_count")); self.tree_ops.column("Count", width=40)
+        self.tree_ops.heading("Tool", text=t("col_tool")); self.tree_ops.column("Tool", width=50)
+        self.tree_ops.heading("RealEndZ", text=t("col_real_end_z")); self.tree_ops.column("RealEndZ", width=75, anchor="center")
+        self.tree_ops.heading("EndReach", text=t("col_end_reach")); self.tree_ops.column("EndReach", width=70, anchor="center")
+        self.tree_ops.heading("EndAngle", text=t("col_end_angle")); self.tree_ops.column("EndAngle", width=65, anchor="center")
+        for k in extra:
+            self.tree_ops.heading(f"x_{k}", text=self._param_label(k))
+            self.tree_ops.column(f"x_{k}", width=75, anchor="center")
+        self._extra_cols = list(extra)
+
+    def after_view_config_changed(self):
+        """Called by the Customize dialog after it materialises op_view_config."""
+        self.rebuild_tree_columns()
+        self.refresh_ops_tree()
+        if self.tree_ops.selection():
+            self.on_op_select(None, _flush=False)
+        self.app.save_settings_json()
+
+    def open_view_customizer(self):
+        from ui.dialogs.view_customizer import ViewCustomizerDialog
+        ViewCustomizerDialog(self.frame.winfo_toplevel(), self.app, self)
+
     def _create_widgets(self):
         self._active_entry_savers = []
         # Frame for Treeview
         f_tree = ttk.Frame(self.frame)
         f_tree.pack(fill="both", expand=True, padx=5, pady=5)
 
-        cols = ("Idx", "Type", "Count", "Tool")
+        cols = ("Idx", "On", "Type", "Count", "Tool", "RealEndZ", "EndReach", "EndAngle")
         self.tree_ops = ttk.Treeview(f_tree, columns=cols, show="headings", height=6)
         self.tree_ops.heading("Idx", text="#"); self.tree_ops.column("Idx", width=30)
+        self.tree_ops.heading("On", text=t("col_on")); self.tree_ops.column("On", width=35, anchor="center")
         self.tree_ops.heading("Type", text=t("col_type")); self.tree_ops.column("Type", width=70)
         self.tree_ops.heading("Count", text=t("col_count")); self.tree_ops.column("Count", width=40)
         self.tree_ops.heading("Tool", text=t("col_tool")); self.tree_ops.column("Tool", width=50)
-        self.tree_ops.pack(side="left", fill="both", expand=True)
+        self.tree_ops.heading("RealEndZ", text=t("col_real_end_z")); self.tree_ops.column("RealEndZ", width=75, anchor="center")
+        self.tree_ops.heading("EndReach", text=t("col_end_reach")); self.tree_ops.column("EndReach", width=70, anchor="center")
+        self.tree_ops.heading("EndAngle", text=t("col_end_angle")); self.tree_ops.column("EndAngle", width=65, anchor="center")
+        self.tree_ops.tag_configure("op_disabled", foreground="#9e9e9e")
 
+        # Vertical + horizontal scrollbars. The table can carry many configured
+        # columns (Zone Start/End Z, clearance, feeds…) — without the horizontal
+        # bar the rightmost columns are clipped off the narrow sidebar with no
+        # way to reach them. Pack the bars first so the tree fills what's left.
         sb = ttk.Scrollbar(f_tree, orient="vertical", command=self.tree_ops.yview)
         sb.pack(side="right", fill="y")
-        self.tree_ops.configure(yscrollcommand=sb.set)
+        sb_x = ttk.Scrollbar(f_tree, orient="horizontal", command=self.tree_ops.xview)
+        sb_x.pack(side="bottom", fill="x")
+        self.tree_ops.configure(yscrollcommand=sb.set, xscrollcommand=sb_x.set)
+        self.tree_ops.pack(side="left", fill="both", expand=True)
         self.tree_ops.bind("<<TreeviewSelect>>", self.on_op_select)
+        self.tree_ops.bind("<Double-1>", self._on_tree_double_click)
 
         # Toolbar
         f_tools = ttk.Frame(self.frame)
         f_tools.pack(fill="x", padx=5, pady=2)
 
-        # Actions — op-type buttons come from the active machine adapter so a
-        # machine type can offer a different operation set (TODO.md #48/#51).
-        _op_buttons = {
-            "roughing":  (t("btn_add_rough"), 7,
-                          "Yeni kaba işlem (roughing) operasyonu ekle. "
-                          "Kaba işlem, malzemeyi mandrel profiline yaklaştırmak için birden fazla pas kullanır."),
-            "finishing": (t("btn_add_finish"), 7,
-                          "Yeni bitirme (finishing) operasyonu ekle. "
-                          "Bitirme, kaba işlemden sonra mandrel profilini takip ederek yüzey kalitesini artırır."),
-            "cutting":   (t("btn_add_cut"), 6,
-                          "Yeni kesme (cutting) operasyonu ekle. "
-                          "Mandrel ucunda bıçakla tek geçişli radyal kesim yapar."),
-            "bending":   (t("btn_add_bend"), 6,
-                          "Yeni kıvırma (bending) operasyonu ekle. "
-                          "Mandrel ucunda kenarı kıvırmak için tek geçişli radyal baskı yapar."),
+        # Actions — op types come from the active machine adapter so a machine
+        # type can offer a different operation set (TODO.md #48/#51). One
+        # dropdown instead of a button per type: the toolbar stays usable as
+        # the op set grows and leaves room for Suggest/On-Off.
+        _op_menu_labels = {
+            "roughing":  t("btn_add_rough"),
+            "finishing": t("btn_add_finish"),
+            "cutting":   t("btn_add_cut"),
+            "bending":   t("btn_add_bend"),
         }
         adapter = getattr(self.app, "active_adapter", None)
-        op_types = adapter.get_available_op_types() if adapter else list(_op_buttons.keys())
+        op_types = adapter.get_available_op_types() if adapter else list(_op_menu_labels.keys())
+
+        mb_add = ttk.Menubutton(f_tools, text=t("btn_add_op"), width=8)
+        _add_menu = tk.Menu(mb_add, tearoff=0)
         for op_type in op_types:
-            if op_type not in _op_buttons:
+            if op_type not in _op_menu_labels:
                 continue  # op types without UI support yet (future hot ops)
-            label, width, tip = _op_buttons[op_type]
-            btn = ttk.Button(f_tools, text=label, width=width,
-                             command=lambda ot=op_type: self.add_op(ot))
-            btn.pack(side="left", padx=1)
-            self.helper.bind_tooltip(btn, tip)
+            _add_menu.add_command(label=_op_menu_labels[op_type].lstrip("+ "),
+                                  command=lambda ot=op_type: self.add_op(ot))
+        mb_add["menu"] = _add_menu
+        mb_add.pack(side="left", padx=1)
+        self.helper.bind_tooltip(mb_add, "Listeye yeni operasyon ekle: kaba, bitirme, kesme, kıvırma. "
+                                         "Tip seçmek için tıkla.")
+
+        # Advisory operation suggester — only for machines that support the
+        # roughing/finishing op pair (both current adapters do).
+        if "roughing" in op_types and "finishing" in op_types:
+            btn_suggest = tk.Button(f_tools, text=t("btn_suggest_ops"),
+                                    bg="#fff3cd", activebackground="#ffe69c",
+                                    relief="raised", bd=1, padx=6,
+                                    command=self.open_op_suggester)
+            btn_suggest.pack(side="left", padx=4)
+            self.helper.bind_tooltip(btn_suggest,
+                "Mandrel profiline ve malzemeye göre kaba + bitirme operasyonu ÖNERİR. "
+                "Öneri yalnızca başlangıç noktasıdır — uygulamadan önce gözden geçirilir, "
+                "hiçbir şey otomatik eklenmez.")
+
+        btn_continue = ttk.Button(f_tools, text=t("btn_continue_prev"), width=10,
+                                  command=self.continue_from_previous)
+        btn_continue.pack(side="left", padx=1)
+        self.helper.bind_tooltip(btn_continue,
+            "Seçili operasyonu, ÜSTÜNDEKİ operasyonun SON pasının bitiş durumundan DOLDUR: "
+            "Başlangıç Z = önceki opun bitiş Z'si, açı = son pasın açısı (yelpaze bitişi dâhil), "
+            "reach = son pasın reach'i, ayrıca clearance. Tek seferlik: doldurur, sonra "
+            "operasyon bağımsızdır. Örn. önceki opun son pasıyla AYNI konum/açıda ters pas "
+            "eklemek için kullan — sonra Yön'ü 'Ters' yap. (Takım kopyalanmaz.)")
+
+        btn_split = ttk.Button(f_tools, text=t("btn_split"), width=6,
+                               command=self.open_split_op)
+        btn_split.pack(side="left", padx=1)
+        self.helper.bind_tooltip(btn_split,
+            "Seçili çok-paslı operasyonu, aralarına bölücü koyarak BİTİŞİK parçalara böl "
+            "(örn. 20 pası 1·1·5·5·4·2·2). Her parça, orijinali BİREBİR üreten bağımsız bir "
+            "operasyon olur — sonra aralarına ters pas operasyonları yerleştirmek için "
+            "sırala. Kesme/kıvırma bölünemez.")
+
+        btn_toggle = ttk.Button(f_tools, text=t("btn_toggle_op"), width=8,
+                                command=self.toggle_op_enabled)
+        btn_toggle.pack(side="left", padx=1)
+        self.helper.bind_tooltip(btn_toggle,
+            "Seçili operasyonu pasifleştir / aktifleştir (silmeden). Pasif operasyonlar "
+            "hesaplamaya ve G-code'a girmez — alternatifleri yan yana tutup karşılaştırmak "
+            "için kullan. Listede çift tıklama da aynı işi yapar.")
 
         btn_del = ttk.Button(f_tools, text=t("btn_del_op"), width=4, command=self.del_op)
         btn_del.pack(side="left", padx=1)
@@ -274,6 +643,34 @@ class ProgramTab:
         btn_tools.pack(side="left", padx=5)
         self.helper.bind_tooltip(btn_tools, "Takım kütüphanesini aç. "
                                             "Rulo geometrilerini (ID, yarıçap) buradan tanımlayabilirsin.")
+
+        # Customize View: choose table columns + tag parameters basic/advanced.
+        btn_customize = ttk.Button(f_tools, text=t("btn_customize_view"),
+                                   command=self.open_view_customizer)
+        btn_customize.pack(side="left", padx=1)
+        self.helper.bind_tooltip(btn_customize,
+            "Görünümü özelleştir: operasyon tablosunda hangi parametrelerin sütun olarak "
+            "gösterileceğini seç ve her operasyon tipi için parametreleri temel/gelişmiş "
+            "olarak işaretle. Ayarlar programa (.ssp) kaydedilir; değerlere dokunmaz.")
+
+        # Global Basic/Advanced view switch — hides advanced-tagged fields from
+        # the property editor. View-only: hiding a field never changes its value
+        # or the toolpath. State is app-wide (not per program).
+        self.var_show_adv = tk.BooleanVar(value=bool(self.app.params.get("op_view_show_advanced", False)))
+        def _on_toggle_adv():
+            self.app.params["op_view_show_advanced"] = self.var_show_adv.get()
+            self.app.save_settings_json()
+            if self.tree_ops.selection():
+                self.on_op_select(None, _flush=False)
+        chk_adv = ttk.Checkbutton(f_tools, text=t("chk_show_advanced"),
+                                  variable=self.var_show_adv, command=_on_toggle_adv)
+        chk_adv.pack(side="left", padx=4)
+        self.helper.bind_tooltip(chk_adv,
+            "Açık: tüm parametreler görünür (bugünkü davranış).\n"
+            "Kapalı: yalnızca 'temel' işaretli parametreler görünür — nadiren "
+            "değiştirdiğin alanlar gizlenir.\n"
+            "Sadece görünümü etkiler: gizli bir alanın değeri ve takım yolu DEĞİŞMEZ. "
+            "Uygulama genelinde geçerlidir, programa özel değildir.")
 
         # Navigation & Info (Right side)
         btn_up = ttk.Button(f_tools, text="▲", width=3, command=lambda: self.move_op(-1))
@@ -316,6 +713,7 @@ class ProgramTab:
 
         if "operations" not in self.app.params:
              self.app.params["operations"] = self.app.path_gen._ensure_ops_dict(self.app.params)
+        self.rebuild_tree_columns()
         self.refresh_ops_tree()
 
         # --- Quick Actions (anchored to bottom) ---
@@ -323,30 +721,7 @@ class ProgramTab:
         f_actions.pack(fill="x", side="bottom", padx=5, pady=(2, 5))
 
         def _quick_calc():
-            if self.app._calc_running:
-                return
-            # Compute roller_pos from current params (same logic as update_scene header)
-            _side = 1.0 if self.app.params.get("roller_positive_x_side", True) else -1.0
-            _r = 25.0
-            try:
-                ops = self.app.params.get("operations", [])
-                if ops:
-                    _r = float(ops[0].get("r_tool", 25.0))
-            except Exception:
-                pass
-            _rx = self.app.params.get("home_x", 300.0) + _side * _r
-            _rz = self.app.params.get("home_z", 150.0)
-            import numpy as _np
-            roller_pos = _np.array([_rx, 0, _rz])
-
-            # Busy state
-            self.btn_qcalc.config(state="disabled", text=t("status_calculating"))
-            self.ui_root.config(cursor="watch")
-            self.ui_root.lbl_info.config(text=t("status_calculating"))
-            self.ui_root.update_idletasks()
-
-            self.app.calculate_async(roller_pos=roller_pos)
-            self._poll_calc_queue()
+            self._start_async_calc()
 
         btn_qsim = tk.Button(f_actions, text=t("btn_q_run_sim"), bg="#00bcd4",
                              font=("Arial", 9, "bold"), command=self.ui_root.run_sim)
@@ -432,18 +807,72 @@ class ProgramTab:
         ops = self.app.params.get("operations", [])
         existing_items = self.tree_ops.get_children()
 
+        # Real Z each op's last forward pass actually reaches (P2, incl.
+        # p2_z_extend) — blank until the toolpaths are calculated.
+        end_z_map = self._compute_op_end_z()
+        # End reach + end angle of each op's last forming pass (#61) — same source
+        # timing as RealEndZ (path generator records them during calculate_paths).
+        reach_map = dict(getattr(self.app.path_gen, "last_op_reach", {}) or {})
+        angle_map = dict(getattr(self.app.path_gen, "last_op_end_angle", {}) or {})
+
+        extra_cols = getattr(self, "_extra_cols", [])
         for i, op in enumerate(ops):
-            vals = (i+1, op.get("type", "?").upper(), op.get("count", 1), op.get("tool_id", "?"))
+            _on = op.get("enabled", True)
+            _ot = op.get("type", "roughing")
+            _rz = end_z_map.get(i)
+            _rr = reach_map.get(i)
+            _ra = angle_map.get(i)
+            vals = [i+1, "✓" if _on else "—", op.get("type", "?").upper(),
+                    op.get("count", 1), op.get("tool_id", "?"),
+                    _fmt_num(_rz) if _rz is not None else "—",
+                    _fmt_num(_rr) if _rr is not None else "—",
+                    (f"{_ra:.1f}°" if _ra is not None else "—")]
+            for k in extra_cols:
+                vals.append(self._cell_value(op, k, _ot))
+            vals = tuple(vals)
+            tags = () if _on else ("op_disabled",)
             if i < len(existing_items):
-                self.tree_ops.item(existing_items[i], values=vals)
+                self.tree_ops.item(existing_items[i], values=vals, tags=tags)
             else:
-                self.tree_ops.insert("", "end", iid=str(i), values=vals)
+                self.tree_ops.insert("", "end", iid=str(i), values=vals, tags=tags)
 
         if len(existing_items) > len(ops):
             for i in range(len(ops), len(existing_items)):
                 self.tree_ops.delete(existing_items[i])
 
         self.update_time_estimate()
+
+    def toggle_op_enabled(self):
+        """Passivate/reactivate the selected op without deleting it. Disabled
+        ops are skipped by calculate_paths and generate_gcode (op.get("enabled"))
+        so alternatives can be kept side by side and compared."""
+        sel = self.tree_ops.selection()
+        if not sel:
+            return
+        try:
+            idx = int(sel[0])
+            op = self.app.params["operations"][idx]
+        except (ValueError, IndexError):
+            return
+        op["enabled"] = not op.get("enabled", True)
+        self.refresh_ops_tree()
+        # refresh_ops_tree updates rows in place (op count unchanged), so the
+        # selection is preserved — only re-select if it was somehow lost, to
+        # avoid re-firing on_op_select (a full property-editor rebuild) for nothing.
+        if self.tree_ops.selection() != (str(idx),):
+            self.tree_ops.selection_set(str(idx))
+        self._schedule_auto_calc()
+
+    def _on_tree_double_click(self, event):
+        # Double-click anywhere on a row toggles its enabled state.
+        row = self.tree_ops.identify_row(event.y)
+        if row:
+            # A single-click already selected the row; only set selection if the
+            # double-click landed on a different row, so we don't rebuild the
+            # property editor twice per toggle.
+            if self.tree_ops.selection() != (row,):
+                self.tree_ops.selection_set(row)
+            self.toggle_op_enabled()
 
     def _schedule_auto_calc(self, delay_ms=300):
         """Debounced auto-calc: resets the timer on every call; fires once after delay_ms of silence."""
@@ -453,11 +882,47 @@ class ProgramTab:
 
     def _fire_auto_calc(self):
         self._auto_calc_debounce_id = None
+        # Respect the auto-calc setting: with it off, toggling / editing ops
+        # only refreshes the list (done by the caller) and never recomputes.
+        if not self.app.params.get("auto_calculate_paths", False):
+            return
         if self.app._calc_running:
             # Calc already in progress — retry after it finishes
             self._schedule_auto_calc(delay_ms=150)
             return
-        self.app.update_scene("paths")
+        # Run in the background thread so toggling an op or editing a field
+        # never freezes the UI. Previously this called update_scene("paths"),
+        # which ran calculate_paths synchronously on the main thread.
+        self._start_async_calc()
+
+    def _start_async_calc(self):
+        """Kick off a background path calculation, then re-render when it lands.
+        Shared by the Quick-Calc button and the debounced auto-calc so both stay
+        off the main thread. No-op if a calculation is already running."""
+        if self.app._calc_running:
+            return
+        # Compute roller_pos from current params (same logic as update_scene header)
+        _side = 1.0 if self.app.params.get("roller_positive_x_side", True) else -1.0
+        _r = 25.0
+        try:
+            ops = self.app.params.get("operations", [])
+            if ops:
+                _r = float(ops[0].get("r_tool", 25.0))
+        except Exception:
+            pass
+        _rx = self.app.params.get("home_x", 300.0) + _side * _r
+        _rz = self.app.params.get("home_z", 150.0)
+        import numpy as _np
+        roller_pos = _np.array([_rx, 0, _rz])
+
+        # Busy state
+        self.btn_qcalc.config(state="disabled", text=t("status_calculating"))
+        self.ui_root.config(cursor="watch")
+        self.ui_root.lbl_info.config(text=t("status_calculating"))
+        self.ui_root.update_idletasks()
+
+        self.app.calculate_async(roller_pos=roller_pos)
+        self._poll_calc_queue()
 
     def _poll_calc_queue(self):
         """Poll the background calculation queue every 50 ms; render when done."""
@@ -484,7 +949,13 @@ class ProgramTab:
 
         self.btn_qcalc.config(state="normal", text=t("btn_q_calculate"))
         self.ui_root.config(cursor="")
-        self.ui_root.lbl_info.config(text=t("status_ready"))
+
+        # Clamp-zone advisory (#62): surface it in the status bar so the operator
+        # actually sees it (path_gen only logs it). Persists until the next calc.
+        if status == "ok":
+            self.ui_root.refresh_clamp_status()
+        else:
+            self.ui_root.lbl_info.config(text=t("status_ready"), fg="#ddd")
 
     def update_time_estimate(self):
         try:
@@ -597,8 +1068,7 @@ class ProgramTab:
             ttk.Separator(self.f_prop_editor, orient="horizontal").pack(fill="x", pady=(4, 2))
 
         # --- Speed & Feed ---
-        ttk.Label(self.f_prop_editor, text=t("lbl_speed_feed"),
-                  font=("Arial", 8, "bold"), foreground="#004488").pack(anchor="w", padx=10, pady=(6, 0))
+        self._add_section_header("speed_feed", t("lbl_speed_feed"), separator=False)
         # Speed
         self._add_prop_combo(idx, "speed_mode", t("lbl_speed_mode"), ["CSS", "RPM"], op,
                              "CSS (G96): Sabit yüzey hızı — mil devri çapa göre otomatik ayarlanır, yüzey kalitesi daha düzgün. "
@@ -630,6 +1100,7 @@ class ProgramTab:
 
             # Tool ID
             f_tool = ttk.Frame(self.f_prop_editor)
+            f_tool._pkey = "tool_id"
             f_tool.pack(fill="x", padx=10, pady=2)
             tk.Label(f_tool, text=t("lbl_tool_id")).pack(side="left")
             tool_ids = [tl["id"] for tl in self.ui_root.tool_library]
@@ -673,6 +1144,7 @@ class ProgramTab:
                                  tooltip="Takımın plunge yapacağı hedef X koordinatı (mm, global koordinat). "
                                          "Mandrel merkezinden itibaren radyal mesafe. "
                                          "Takım bu X'e kadar besleme hızında ilerler.")
+            self._apply_field_visibility(op_type)
             return
 
         # Zones Button
@@ -691,6 +1163,7 @@ class ProgramTab:
         # Common Props
         # Tool ID Selector
         f_tool = ttk.Frame(self.f_prop_editor)
+        f_tool._pkey = "tool_id"
         f_tool.pack(fill="x", padx=10, pady=2)
         tk.Label(f_tool, text=t("lbl_tool_id")).pack(side="left")
 
@@ -743,6 +1216,7 @@ class ProgramTab:
         # Reverse flips only the cut traversal of each pass (geometry unchanged);
         # the pass-to-pass progression order stays the same.
         f_dir = ttk.Frame(self.f_prop_editor)
+        f_dir._pkey = "direction"
         f_dir.pack(fill="x", padx=10, pady=2)
         ttk.Label(f_dir, text=t("lbl_direction"), width=15).pack(side="left")
         _dir_map = {t("opt_forward"): "forward", t("opt_reverse"): "reverse"}
@@ -769,6 +1243,7 @@ class ProgramTab:
         _adapter = getattr(self.app, "active_adapter", None)
         if _adapter is not None and _adapter.get_kinematics() == "tilt_arm":
             f_tm = ttk.Frame(self.f_prop_editor)
+            f_tm._pkey = "tilt_mode"
             f_tm.pack(fill="x", padx=10, pady=2)
             ttk.Label(f_tm, text=t("lbl_tilt_mode"), width=15).pack(side="left")
             _tm_map = {t("opt_tilt_normal"): "normal", t("opt_tilt_interp"): "interp"}
@@ -844,16 +1319,13 @@ class ProgramTab:
                                      "Lineer şekillerde pozitif değer gir, küresel şekillerde 0 bırak.")
 
         if op_type == "roughing":
-            ttk.Separator(self.f_prop_editor, orient="horizontal").pack(fill="x", pady=(6, 2))
-            f_shape_hdr = ttk.Frame(self.f_prop_editor)
-            f_shape_hdr.pack(fill="x", padx=10, pady=(0, 2))
-            ttk.Label(f_shape_hdr, text=t("lbl_path_shape_hdr"),
-                      font=("Arial", 8, "bold"), foreground="#004488").pack(side="left")
-            ttk.Button(f_shape_hdr, text=" ? ", width=3,
+            _hdr = self._add_section_header("path_shape", t("lbl_path_shape_hdr"))
+            ttk.Button(_hdr, text=" ? ", width=3,
                        command=lambda _op=op: self._show_pass_diagram(_op)).pack(side="right", padx=(4, 0))
 
             # Pass shape mode
             f_shape = ttk.Frame(self.f_prop_editor)
+            f_shape._pkey = "pass_shape"
             f_shape.pack(fill="x", padx=2, pady=1)
             ttk.Label(f_shape, text=t("lbl_shape_mode"), width=15).pack(side="left")
             _shape_opts = ["spline", "linear_approach", "linear_full"]
@@ -910,6 +1382,7 @@ class ProgramTab:
                                              "0.05–0.95 arasına sınırlanır. Sadece Exit Mid Rot ≠ 0 iken etkilidir.")
 
             f_conf = ttk.Frame(self.f_prop_editor)
+            f_conf._pkey = "conformal_clearance_operation_specific"
             f_conf.pack(fill="x", padx=2, pady=1)
             ttk.Label(f_conf, text=t("lbl_conformal_clr"), width=15).pack(side="left")
             conf_var = tk.BooleanVar(value=bool(op.get("conformal_clearance_operation_specific", False)))
@@ -925,6 +1398,7 @@ class ProgramTab:
 
             if is_linear:
                 f_afs = ttk.Frame(self.f_prop_editor)
+                f_afs._pkey = "approach_follow_surface"
                 f_afs.pack(fill="x", padx=2, pady=1)
                 ttk.Label(f_afs, text=t("lbl_approach_surf"), width=15).pack(side="left")
                 afs_var = tk.BooleanVar(value=bool(op.get("approach_follow_surface", False)))
@@ -959,10 +1433,14 @@ class ProgramTab:
                                  tooltip="Spline çıkış noktasının (P3) temas noktasından Z eksenindeki uzaklığı (mm). "
                                          "Negatif değer = rulo temas sonrası mandrel'in içine doğru ilerler (pas uzunluğu). "
                                          "Tipik: -10 ile -40 mm arası.")
+            self._add_prop_entry(idx, "reach", t("lbl_reach"), op, is_float=True,
+                                 tooltip="Çıkış kolu uzunluğu |P2→P3| (mm) — tek 'erişim' parametresi (#61). "
+                                         "Boş/0 = eski davranış: uzunluk p3_x/p3_z'den gelir. "
+                                         "Değer girilince yön KORUNUR (Pass Angle varsa ondan, yoksa p3_x/p3_z "
+                                         "oranından) ve yalnızca uzunluk bu değere ölçeklenir. "
+                                         "Böylece açıyı bozmadan pası uzatıp kısaltabilirsin.")
 
-            ttk.Separator(self.f_prop_editor, orient="horizontal").pack(fill="x", pady=(6, 2))
-            ttk.Label(self.f_prop_editor, text=t("lbl_pass_angle_hdr"),
-                      font=("Arial", 8, "bold"), foreground="#004488").pack(anchor="w", padx=10, pady=(0, 2))
+            self._add_section_header("pass_angle", t("lbl_pass_angle_hdr"))
 
             self._add_prop_entry(idx, "pass_angle", t("lbl_pass_angle"), op, is_float=True, rebuild=True,
                                  tooltip="P2 temas noktasındaki iç açı (derece). "
@@ -974,21 +1452,64 @@ class ProgramTab:
 
             if op.get("pass_angle", None) is not None and count > 1:
                 f_prog = ttk.Frame(self.f_prop_editor)
+                f_prog._pkey = "progressive_angle_enabled"
                 f_prog.pack(fill="x", padx=2, pady=1)
                 ttk.Label(f_prog, text=t("lbl_progressive"), width=15).pack(side="left")
                 prog_var = tk.BooleanVar(value=bool(op.get("progressive_angle_enabled", False)))
                 def toggle_progressive(i=idx):
                     self.app.params["operations"][i]["progressive_angle_enabled"] = prog_var.get()
+                    # Re-render the editor so the fan end-angle field appears/hides
+                    self.on_op_select(None)
                     if self.app.params.get("calc_active", False):
                         self.app.update_scene("paths")
                 ttk.Checkbutton(f_prog, variable=prog_var, command=toggle_progressive).pack(side="right")
                 self.helper.bind_tooltip(f_prog,
-                    "Açıyı paslar boyunca Pass Angle'dan 180°'ye doğru lineer artır.\n"
+                    "Açıyı paslar boyunca Pass Angle'dan yelpaze bitiş açısına doğru lineer artır.\n"
                     "İlk pas: Pass Angle değerini kullanır.\n"
-                    "Son pas: 180° (düz geçiş).\n"
+                    "Son pas: Yelpaze Bitiş Açısı (varsayılan 180° = düz geçiş).\n"
                     "Ara paslar: lineer interpolasyon.\n"
                     "Pass Angle boşsa bu ayar etkisizdir.")
+                if op.get("progressive_angle_enabled", False):
+                    self._add_prop_entry(idx, "progressive_angle_end", t("lbl_progressive_end"), op,
+                                         is_float=True,
+                                         tooltip="Yelpazenin SON pasta ulaşacağı açı (derece). "
+                                                 "Boş = 180° (malzeme yüzey boyunca yatırılır). "
+                                                 "Daha küçük bir değer yelpazeyi erken durdurur — "
+                                                 "her pası 180°'ye kadar bükmek istemediğinde kullan. "
+                                                 "Pass Angle'dan küçük değer yelpazeyi ters yöne açar.")
+
+                # Progressive Reach: shorten (or lengthen) the P2→P3 stroke per pass.
+                # Independent of the angle fan above — angle sets direction, this sets
+                # length (L3). Both can run together.
+                f_reach = ttk.Frame(self.f_prop_editor)
+                f_reach._pkey = "progressive_reach_enabled"
+                f_reach.pack(fill="x", padx=2, pady=1)
+                ttk.Label(f_reach, text=t("lbl_progressive_reach"), width=15).pack(side="left")
+                reach_var = tk.BooleanVar(value=bool(op.get("progressive_reach_enabled", False)))
+                def toggle_reach(i=idx):
+                    self.app.params["operations"][i]["progressive_reach_enabled"] = reach_var.get()
+                    self.on_op_select(None)
+                    if self.app.params.get("calc_active", False):
+                        self.app.update_scene("paths")
+                ttk.Checkbutton(f_reach, variable=reach_var, command=toggle_reach).pack(side="right")
+                self.helper.bind_tooltip(f_reach,
+                    "P2→P3 kol uzunluğunu (stroke) paslar boyunca lineer değiştir.\n"
+                    "İlk pas: mevcut P3 uzunluğunu kullanır.\n"
+                    "Son pas: Uzunluk Bitiş değerine ulaşır (kısaltmak için daha küçük gir).\n"
+                    "Ara paslar: lineer interpolasyon.\n"
+                    "Açı yelpazesinden bağımsızdır — yön açıyla, uzunluk bununla ayarlanır; "
+                    "ikisi birlikte çalışır.\n"
+                    "Pass Angle boşsa bu ayar etkisizdir.")
+                if op.get("progressive_reach_enabled", False):
+                    self._add_prop_entry(idx, "progressive_reach_end", t("lbl_reach_end"), op,
+                                         is_float=True,
+                                         tooltip="P2→P3 kolunun SON pasta ulaşacağı uzunluk (mm). "
+                                                 "İlk pas mevcut P3 uzunluğunu (√(P3x²+P3z²)) kullanır, "
+                                                 "son pas bu değere iner/çıkar. "
+                                                 "Mandrel yukarı çıktıkça kalan flanş küçülür — "
+                                                 "her pasta çıkış strokunu kısaltmak için kullan.")
             self._add_prop_entry(idx, "clearance", t("lbl_clearance"), op, is_float=True,
+                                 default_hint="= target clr",
                                  tooltip="Rulo temas noktasının blank yüzeyinden boşluğu (mm). "
                                          "Tüm pas tiplerinde aynı anlam: 0 = yüzeye temas (r_tool + part kalınlığı), "
                                          "pozitif = yüzeyden o kadar uzak. min_safety_gap güvenlik tabanıdır.")
@@ -997,9 +1518,7 @@ class ProgramTab:
                                          "Auto-Calc Angle açıksa bu değer otomatik hesaplanır. "
                                          "Manuel modda: 0° = Z eksenine paralel, pozitif değer = mandrel'e dönük.")
 
-            ttk.Separator(self.f_prop_editor, orient="horizontal").pack(fill="x", pady=(6, 2))
-            ttk.Label(self.f_prop_editor, text=t("lbl_contact_zone_hdr"),
-                      font=("Arial", 8, "bold"), foreground="#004488").pack(anchor="w", padx=10, pady=(0, 2))
+            self._add_section_header("contact_zone", t("lbl_contact_zone_hdr"))
             self._add_prop_entry(idx, "contact_zone_mm", t("lbl_zone_size"), op, is_float=True,
                                  tooltip="P2 etrafındaki yavaş besleme bölgesinin yarıçapı (mm). "
                                          "Bu mesafe içinde normal Feed yerine Feed Contact kullanılır. "
@@ -1012,10 +1531,9 @@ class ProgramTab:
                                      tooltip="Son pastaki temas bölgesi besleme hızı. Feed Contact'tan bu değere interpolasyon. "
                                              "Default: boş = Feed Contact sabit kalır.")
 
-            ttk.Separator(self.f_prop_editor, orient="horizontal").pack(fill="x", pady=(6, 2))
-            ttk.Label(self.f_prop_editor, text=t("lbl_back_pass_hdr"),
-                      font=("Arial", 8, "bold"), foreground="#004488").pack(anchor="w", padx=10, pady=(0, 2))
+            self._add_section_header("back_pass", t("lbl_back_pass_hdr"))
             f_bp = ttk.Frame(self.f_prop_editor)
+            f_bp._pkey = "back_pass_enabled"
             f_bp.pack(fill="x", padx=2, pady=1)
             ttk.Label(f_bp, text=t("lbl_enable"), width=15).pack(side="left")
             bp_var = tk.BooleanVar(value=bool(op.get("back_pass_enabled", False)))
@@ -1033,6 +1551,7 @@ class ProgramTab:
 
             if op.get("back_pass_enabled", False):
                 f_bps = ttk.Frame(self.f_prop_editor)
+                f_bps._pkey = "back_pass_swapped"
                 f_bps.pack(fill="x", padx=2, pady=1)
                 ttk.Label(f_bps, text=t("lbl_swap_order"), width=15).pack(side="left")
                 bps_var = tk.BooleanVar(value=bool(op.get("back_pass_swapped", False)))
@@ -1065,12 +1584,14 @@ class ProgramTab:
                                              "(çarpışma riski yok).")
         else:
             self._add_prop_entry(idx, "clearance", t("lbl_clearance"), op, is_float=True,
+                                 default_hint="= allow.+safety",
                                  tooltip="Finishing pasının mandrel yüzeyinden ekstra uzaklığı (mm). "
                                          "0 = tam yüzey teması (r_tool + part_thickness). "
                                          "Pozitif değer = paso yüzeyden bu kadar daha uzakta kalır.")
 
             # Pass shape mode
             f_shape = ttk.Frame(self.f_prop_editor)
+            f_shape._pkey = "pass_shape"
             f_shape.pack(fill="x", padx=2, pady=1)
             ttk.Label(f_shape, text=t("lbl_shape_mode"), width=15).pack(side="left")
             _shape_opts = ["spline", "linear_approach", "linear_full"]
@@ -1090,6 +1611,7 @@ class ProgramTab:
 
             # Straight Line Mode
             f_sl = ttk.Frame(self.f_prop_editor)
+            f_sl._pkey = "straight_line_mode"
             f_sl.pack(fill="x", padx=2, pady=1)
             ttk.Label(f_sl, text=t("lbl_straight_line"), width=15).pack(side="left")
             sl_var = tk.BooleanVar(value=bool(op.get("straight_line_mode", False)))
@@ -1104,8 +1626,14 @@ class ProgramTab:
                                            "iki nokta arası tek düz G1 hamlesi olarak oluştur. "
                                            "Basit konik veya düz yüzeyler için idealdir.")
 
+        # Basic/Advanced gating: hide advanced-tagged fields (and now-empty
+        # section headers) unless the global Advanced toggle is on. Runs for
+        # both the roughing and finishing branches.
+        self._apply_field_visibility(op_type)
+
     def _add_prop_combo(self, op_idx, key, label, values, op_dict, tooltip=""):
         f = ttk.Frame(self.f_prop_editor)
+        f._pkey = key
         f.pack(fill="x", padx=2, pady=1)
         ttk.Label(f, text=label, width=15).pack(side="left")
 
@@ -1124,10 +1652,23 @@ class ProgramTab:
         self.helper.bind_tooltip(cb, tooltip)
         self.helper.bind_tooltip(f, tooltip)
 
-    def _add_prop_entry(self, op_idx, key, label, op_dict, is_int=False, is_float=False, tooltip="", rebuild=False):
+    def _add_prop_entry(self, op_idx, key, label, op_dict, is_int=False, is_float=False, tooltip="", rebuild=False,
+                        default_hint=None):
         f = ttk.Frame(self.f_prop_editor)
+        f._pkey = key
         f.pack(fill="x", padx=2, pady=1)
         ttk.Label(f, text=label, width=15).pack(side="left")
+
+        # Faded default hint at the far right (packed before the entry so the
+        # entry still expands to fill the space between label and hint).
+        # default_hint overrides the table for fields whose default depends on
+        # op type (e.g. clearance).
+        _dflt = default_hint if default_hint is not None else OP_PARAM_DEFAULTS.get(key)
+        if _dflt is not None:
+            _dtxt = _dflt if isinstance(_dflt, str) else _fmt_num(_dflt)
+            tk.Label(f, text=f"{t('hint_default')} {_dtxt}",
+                     fg=self.helper.HINT_COLOR, font=self.helper.HINT_FONT,
+                     anchor="e").pack(side="right", padx=(4, 2))
 
         val = op_dict.get(key, "")
         var = tk.StringVar(value=str(val))
@@ -1827,6 +2368,233 @@ class ProgramTab:
 
     # ── Operations ────────────────────────────────────────────────────────
 
+    def open_op_suggester(self):
+        from ui.dialogs.op_suggester import OpSuggesterDialog
+        OpSuggesterDialog(self.ui_root, self.app, self.ui_root.tool_library,
+                          self._apply_suggested_ops)
+
+    def _apply_suggested_ops(self, ops, blank_thickness):
+        """Callback from OpSuggesterDialog Apply: insert the reviewed ops and,
+        if the user changed the blank thickness in the dialog, route it through
+        on_param_change so it persists like any other Process-tab edit."""
+        cur = float(self.app.params.get("final_part_thickness_on_mandrel", 2.0))
+        if blank_thickness and abs(float(blank_thickness) - cur) > 1e-9:
+            self.app.on_param_change("final_part_thickness_on_mandrel", float(blank_thickness))
+        if "operations" not in self.app.params:
+            self.app.params["operations"] = []
+        self.app.params["operations"].extend(ops)
+        self.refresh_ops_tree()
+
+    @staticmethod
+    def _split_op(op, sizes, end_z_fallback):
+        """Split a multi-pass op into contiguous chunk-ops that reproduce it EXACTLY (#64).
+
+        `sizes` = list of chunk pass-counts (each >=1, must sum to op count).
+        `end_z_fallback` = the Z the engine uses when end_z is None (mandrel top_z), so an
+        open-ended op can still be sliced into concrete chunks. Returns a list of op dicts.
+
+        Exact because Z, pass_angle (→progressive_angle_end), reach (→progressive_reach_end)
+        and interp-tilt all progress LINEARLY across passes, so a chunk covering passes
+        [a..b] with its endpoints set to the a/b sub-range values reproduces that slice.
+        Single-pass chunks collapse the fan to a fixed value. Everything else is copied.
+        """
+        C = int(op.get("count", 1))
+        sizes = [int(s) for s in sizes]
+        if any(s < 1 for s in sizes) or sum(sizes) != C:
+            raise ValueError(f"chunk sizes {sizes} must be >=1 and sum to count {C}")
+
+        def lerp(v0, v1, i):
+            return v0 if C <= 1 else v0 + (i / (C - 1)) * (v1 - v0)
+
+        Zs = float(op.get("start_z", 10.0))
+        Ze = float(op["end_z"]) if op.get("end_z") is not None else float(end_z_fallback)
+
+        has_pa = op.get("pass_angle") is not None
+        As = float(op.get("pass_angle")) if has_pa else None
+        prog_a = has_pa and bool(op.get("progressive_angle_enabled", False)) and C > 1
+        Ae = float(op.get("progressive_angle_end", 180.0)) if prog_a else As
+
+        rv = op.get("reach", None)
+        try:
+            rv = float(rv) if rv not in (None, "") else None
+        except (TypeError, ValueError):
+            rv = None
+        if rv is not None and rv <= 0:
+            rv = None
+        prog_r = has_pa and bool(op.get("progressive_reach_enabled", False)) and C > 1
+        if prog_r:
+            import math
+            Rbase = rv if rv is not None else math.hypot(
+                float(op.get("p3_x", 0.0) or 0.0), abs(float(op.get("p3_z", -20.0) or 0.0)))
+            Rend = float(op.get("progressive_reach_end", Rbase))
+
+        interp_tilt = op.get("tilt_mode") == "interp"
+        Ts = float(op.get("tilt_start", 0.0)) if interp_tilt else None
+        Te = float(op.get("tilt_end", 0.0)) if interp_tilt else None
+
+        chunks, a = [], 0
+        for m in sizes:
+            b = a + m - 1
+            ch = dict(op)
+            ch["count"] = m
+            ch["start_z"] = round(lerp(Zs, Ze, a), 6)
+            ch["end_z"] = round(lerp(Zs, Ze, b), 6)
+            if prog_a:
+                ch["pass_angle"] = round(lerp(As, Ae, a), 6)
+                ch["progressive_angle_enabled"] = m > 1
+                if m > 1:
+                    ch["progressive_angle_end"] = round(lerp(As, Ae, b), 6)
+            elif has_pa:
+                ch["pass_angle"] = As
+            if prog_r:
+                ch["reach"] = round(lerp(Rbase, Rend, a), 6)
+                ch["progressive_reach_enabled"] = m > 1
+                if m > 1:
+                    ch["progressive_reach_end"] = round(lerp(Rbase, Rend, b), 6)
+            elif rv is not None:
+                ch["reach"] = rv
+            if interp_tilt:
+                ch["tilt_start"] = round(lerp(Ts, Te, a), 6)
+                ch["tilt_end"] = round(lerp(Ts, Te, b), 6)
+            chunks.append(ch)
+            a = b + 1
+        return chunks
+
+    @staticmethod
+    def _pass_previews(op, end_z_fallback):
+        """Per-pass {z, angle} for the split dialog (same linear formulas as _split_op)."""
+        C = int(op.get("count", 1))
+
+        def lerp(v0, v1, i):
+            return v0 if C <= 1 else v0 + (i / (C - 1)) * (v1 - v0)
+
+        Zs = float(op.get("start_z", 10.0))
+        Ze = float(op["end_z"]) if op.get("end_z") is not None else float(end_z_fallback)
+        has_pa = op.get("pass_angle") is not None
+        As = float(op.get("pass_angle")) if has_pa else None
+        prog_a = has_pa and bool(op.get("progressive_angle_enabled", False)) and C > 1
+        Ae = float(op.get("progressive_angle_end", 180.0)) if prog_a else As
+        return [{"z": lerp(Zs, Ze, i), "angle": (lerp(As, Ae, i) if prog_a else As)}
+                for i in range(C)]
+
+    def open_split_op(self):
+        """Split the selected multi-pass op into contiguous chunk-ops (#64). Opens the
+        visual divider dialog; on confirm replaces the op in-place with the chunks (which
+        reproduce it exactly). The chunks are ordinary ops — reorder them (Move Up/Down /
+        drag) to interleave reverse passes between."""
+        sel = self.tree_ops.selection()
+        if not sel:
+            messagebox.showinfo(t("msg_split_title"), t("msg_split_noselect"))
+            return
+        try:
+            idx = int(sel[0])
+        except (ValueError, IndexError):
+            return
+        ops = self.app.params.get("operations", [])
+        if idx >= len(ops):
+            return
+        op = ops[idx]
+        if op.get("type") in ("cutting", "bending"):
+            messagebox.showinfo(t("msg_split_title"), t("msg_split_badtype"))
+            return
+        if int(op.get("count", 1)) < 2:
+            messagebox.showinfo(t("msg_split_title"), t("msg_split_toosmall"))
+            return
+
+        top_z = float(self.app.mandrel_mgr.props.get("top_z", op.get("end_z") or 0.0))
+        from ui.dialogs.split_op_dialog import SplitOpDialog
+        top = self.frame.winfo_toplevel()
+        dlg = SplitOpDialog(top, int(op.get("count", 1)), self._pass_previews(op, top_z))
+        top.wait_window(dlg)
+        sizes = dlg.result
+        if not sizes or len(sizes) < 2:
+            return  # cancelled or no divider set
+
+        chunks = self._split_op(op, sizes, top_z)
+        # Discard stale property-editor state before mutating operations (see del_op / #56).
+        self._active_entry_savers = []
+        self._active_op_idx = None
+        for w in self.f_prop_editor.winfo_children():
+            w.destroy()
+        ops[idx:idx + 1] = chunks
+        self.refresh_ops_tree()
+        self.tree_ops.selection_set(str(idx))
+        self.on_op_select(None, _flush=False)
+        self._start_async_calc()
+        try:
+            self.ui_root.lbl_info.config(text=t("msg_split_done").format(n=len(chunks)), fg="#ddd")
+        except Exception:
+            pass
+
+    @staticmethod
+    def _continue_fill_values(prev, prev_end_z, prev_reach):
+        """Pure computation for continue_from_previous (#61 step 2): the fields to copy
+        into the next op from the previous op's LAST-pass end-state. `prev_end_z` /
+        `prev_reach` are the path generator's computed values (or None → param fallback).
+        Returns a dict; tool is deliberately excluded."""
+        out = {}
+        end_z = prev_end_z if prev_end_z is not None else prev.get("end_z", prev.get("start_z"))
+        if end_z is not None:
+            out["start_z"] = round(float(end_z), 3)
+        # exit angle / direction of the previous op's last pass
+        if prev.get("pass_angle") is not None:
+            if prev.get("progressive_angle_enabled") and int(prev.get("count", 1)) > 1:
+                out["pass_angle"] = float(prev.get("progressive_angle_end", 180.0))
+            else:
+                out["pass_angle"] = float(prev.get("pass_angle"))
+        else:
+            # raw mode: copy the exit direction (p3_x/p3_z ratio) so the angle matches
+            if prev.get("p3_x") is not None:
+                out["p3_x"] = prev.get("p3_x")
+            if prev.get("p3_z") is not None:
+                out["p3_z"] = prev.get("p3_z")
+        reach = prev_reach if prev_reach is not None else prev.get("reach")
+        if reach is not None:
+            out["reach"] = round(float(reach), 3)
+        if prev.get("clearance") is not None:
+            out["clearance"] = prev.get("clearance")
+        return out
+
+    def continue_from_previous(self):
+        """One-shot: fill the selected op's start-state from the op ABOVE it (#61 step 2).
+
+        Copies the previous op's LAST forming pass end-state into the selected op so the
+        new op begins where the previous one finished — Start Z (where it ended), the exit
+        angle/direction (pass angle incl. progressive fan end, or the raw p3_x/p3_z ratio),
+        the reach, and clearance. Then the op is INDEPENDENT (edit freely, e.g. flip
+        Direction to Reverse). Prefers the path generator's computed end-state
+        (last_op_end_z / last_op_reach — needs a prior calculation); falls back to the
+        previous op's parameters when paths were not calculated yet. Tool is NOT copied.
+        """
+        sel = self.tree_ops.selection()
+        if not sel:
+            messagebox.showinfo(t("msg_continue_title"), t("msg_continue_noselect"))
+            return
+        try:
+            idx = int(sel[0])
+        except (ValueError, IndexError):
+            return
+        ops = self.app.params.get("operations", [])
+        if idx <= 0 or idx >= len(ops):
+            messagebox.showinfo(t("msg_continue_title"), t("msg_continue_nofirst"))
+            return
+        prev, cur = ops[idx - 1], ops[idx]
+        pg = self.app.path_gen
+        cur.update(self._continue_fill_values(
+            prev,
+            getattr(pg, "last_op_end_z", {}).get(idx - 1),
+            getattr(pg, "last_op_reach", {}).get(idx - 1)))
+
+        self.refresh_ops_tree()
+        self.tree_ops.selection_set(str(idx))
+        self.on_op_select(None, _flush=False)
+        self._start_async_calc()
+        try:
+            self.ui_root.lbl_info.config(
+                text=t("msg_continue_done").format(idx=idx + 1, prev=idx), fg="#ddd")
+        except Exception:
+            pass
+
     def add_op(self, mode):
         if "operations" not in self.app.params:
             self.app.params["operations"] = []
@@ -1910,20 +2678,51 @@ class ProgramTab:
 
     def del_op(self):
         sel = self.tree_ops.selection()
-        if sel:
-            idx = int(sel[0])
-            self.app.params["operations"].pop(idx)
-            self.refresh_ops_tree()
+        if not sel:
+            return
+        idx = int(sel[0])
+        # Discard the current property-editor state BEFORE removing the op.
+        # The entry-savers are bound to positional indices and still hold the
+        # deleted op's widget values; if left in place, the next
+        # _flush_entries() would write them into whichever op now occupies
+        # that index (deleting the first set would clobber the second with
+        # the first's values). Destroying the widgets also kills their own
+        # FocusOut/Return bindings, which reference the stale index too.
+        self._active_entry_savers = []
+        self._active_op_idx = None
+        for w in self.f_prop_editor.winfo_children():
+            w.destroy()
+
+        self.app.params["operations"].pop(idx)
+        self.refresh_ops_tree()
+
+        # Rebuild the editor for whatever op now sits at (or before) idx.
+        ops = self.app.params.get("operations", [])
+        if ops:
+            new_sel = min(idx, len(ops) - 1)
+            self.tree_ops.selection_set(str(new_sel))
+            self.on_op_select(None, _flush=False)
 
     def move_op(self, d):
         sel = self.tree_ops.selection()
-        if sel:
-            idx = int(sel[0])
-            new_idx = idx + d
-            if 0 <= new_idx < len(self.app.params["operations"]):
-                self.app.params["operations"][idx], self.app.params["operations"][new_idx] = self.app.params["operations"][new_idx], self.app.params["operations"][idx]
-                self.refresh_ops_tree()
-                self.tree_ops.selection_set(str(new_idx))
+        if not sel:
+            return
+        idx = int(sel[0])
+        new_idx = idx + d
+        if not (0 <= new_idx < len(self.app.params["operations"])):
+            return
+        # Commit pending edits for the selected op first (savers are still
+        # bound to its current index), then discard them so the reselect
+        # below can't write the moved op's old widget values into the op
+        # that swaps into this index.
+        self._flush_entries()
+        self._active_entry_savers = []
+        self._active_op_idx = None
+        ops = self.app.params["operations"]
+        ops[idx], ops[new_idx] = ops[new_idx], ops[idx]
+        self.refresh_ops_tree()
+        self.tree_ops.selection_set(str(new_idx))
+        self.on_op_select(None, _flush=False)
 
     def rebuild(self):
         for widget in self.frame.winfo_children():

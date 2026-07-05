@@ -12,5 +12,11 @@ logging.basicConfig(
 logger = logging.getLogger("SpinningCam")
 
 if __name__ == "__main__":
+    # Packaging self-test: proves a frozen build is complete without opening the GUI.
+    # Used by check_packaging.py --post-build (see packaging_manifest.run_selfcheck).
+    if "--selfcheck" in sys.argv:
+        from packaging_manifest import run_selfcheck
+        sys.exit(run_selfcheck())
+
     app = SpinningCamWindow()
     app.mainloop()
