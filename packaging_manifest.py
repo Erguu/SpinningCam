@@ -43,6 +43,7 @@ NOT_SHIPPED = [
     "layout.json",       # window layout, regenerated at runtime, optional
     "spinning_cam.log",  # runtime log
     "spinning_output.nc",# generated g-code output
+    "ops_library.json",  # user's operation library (#71), created at runtime
 ]
 
 # ── Modules that MUST be importable in the frozen exe ───────────────────────────
@@ -67,6 +68,9 @@ CRITICAL_MODULES = [
     "ui.dialogs.view_customizer",
     "ui.dialogs.touch_calibration",
     "ui.dialogs.help_window",
+    "ops_library",                    # op library core (#71), lazily imported
+    "ui.dialogs.op_library_dialog",   # op library UI (#71), lazily imported
+    "ui.dialogs.batch_edit_dialog",   # batch edit UI (#67), lazily imported
 ]
 
 

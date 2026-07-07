@@ -107,6 +107,47 @@ for i, (old, _new) in changes.items():
     assert app.params["operations"][i].get("count", 1) == old, "batch undo failed"
 print("Batch targets/compute/apply + single-step undo OK")
 
+# --- #69 Copy: multi-target duplicate as a block after the last target ---
+tab._batch_checked.clear()
+n0 = len(app.params["operations"])
+app.params["operations"][0]["name"] = "my rough"     # named op -> suffixed copy
+tab.refresh_ops_tree()
+tab._batch_checked.update({0, 1})
+tab.copy_ops()
+assert len(app.params["operations"]) == n0 + 2, "copy did not add 2 clones"
+assert app.params["operations"][2] == {**app.params["operations"][0],
+                                       "name": app.params["operations"][2]["name"]}, \
+    "first clone content differs"
+assert app.params["operations"][2]["name"].startswith("my rough ("), \
+    "named copy not suffixed"
+assert not tab._batch_checked, "ticks must clear after copy (indices shifted)"
+tab.undo_op_action()
+assert len(app.params["operations"]) == n0, "undo did not remove the copies"
+print("Copy (multi, block insert, name suffix, undo) OK")
+
+# --- #70 Name shown in Type column ---
+tab.refresh_ops_tree()
+assert tab.tree_ops.item("0")["values"][3] == "my rough", "custom name not shown"
+assert str(tab.tree_ops.item("1")["values"][3]).startswith("FINISH"), \
+    "unnamed op must show its type"
+print("Name display in Type column OK")
+
+# --- #71 Library insert: fresh op after anchor + r_tool re-sync called ---
+import ops_library as ol
+entry_ops = []
+ol.add_entry(entry_ops, "lib rough", {"type": "roughing", "count": 4,
+                                      "tool_id": "T0101", "r_tool": 999.0})
+n1 = len(app.params["operations"])
+tab.tree_ops.selection_set("0")
+tab._insert_from_library(entry_ops[0])
+assert len(app.params["operations"]) == n1 + 1, "library insert missing"
+ins = app.params["operations"][1]
+assert ins["name"] == "lib rough" and ins["count"] == 4 and ins["enabled"] is True
+app.sync_operation_r_tools.assert_called()   # stale-reach guard invoked
+tab.undo_op_action()
+assert len(app.params["operations"]) == n1, "undo did not remove library insert"
+print("Library insert (position, content, r_tool sync, undo) OK")
+
 root.destroy()
 print("PROGRAM TAB TOOLBAR SMOKE TEST PASSED")
 sys.exit(0)

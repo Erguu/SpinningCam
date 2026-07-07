@@ -1,6 +1,6 @@
 import copy
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, simpledialog
 from ui.dialogs.zone_manager import ZoneManager
 from ui.dialogs.tool_manager import ToolManager
 from ui.helpers_ui import _fmt_num
@@ -71,7 +71,7 @@ _UNIVERSE_COMMON = ["speed_mode", "speed", "feed_mode", "feed"]
 
 OP_PARAM_UNIVERSE = {
     "roughing": _UNIVERSE_COMMON + [
-        "tool_id", "count", "direction",
+        "name", "tool_id", "count", "direction",
         "tilt_mode", "tilt_start", "tilt_end", "tilt_offset",
         "start_z", "end_z", "p2_z_extend", "proj_extend_bottom", "proj_extend_top",
         "pass_shape", "p2_radius", "exit_curve_tension", "exit_mid_rotation",
@@ -86,13 +86,13 @@ OP_PARAM_UNIVERSE = {
         "back_pass_arc_x", "back_pass_arc_z",
     ],
     "finishing": _UNIVERSE_COMMON + [
-        "tool_id", "count", "direction",
+        "name", "tool_id", "count", "direction",
         "tilt_mode", "tilt_start", "tilt_end", "tilt_offset",
         "start_z", "end_z", "proj_extend_bottom", "proj_extend_top",
         "clearance", "pass_shape", "straight_line_mode",
     ],
-    "cutting":  _UNIVERSE_COMMON + ["tool_id", "z_pos", "plunge_x"],
-    "bending":  _UNIVERSE_COMMON + ["tool_id", "z_pos", "plunge_x"],
+    "cutting":  _UNIVERSE_COMMON + ["name", "tool_id", "z_pos", "plunge_x"],
+    "bending":  _UNIVERSE_COMMON + ["name", "tool_id", "z_pos", "plunge_x"],
 }
 
 # Tilt fields only exist on tilt-arm machines; filtered out otherwise.
@@ -100,6 +100,7 @@ _TILT_KEYS = ("tilt_mode", "tilt_start", "tilt_end", "tilt_offset")
 
 # key -> i18n label key (customize rows + column headers).
 OP_PARAM_LABELS = {
+    "name": "lbl_op_name",
     "speed_mode": "lbl_speed_mode", "speed": "vp_speed",
     "feed_mode": "lbl_feed_mode",   "feed": "vp_feed",
     "tool_id": "lbl_tool_id", "count": "lbl_pass_count", "direction": "lbl_direction",
@@ -160,14 +161,14 @@ SECTION_KEYS = {
 
 # Per-type "basic" seed (everything else in the universe is advanced by default).
 _DEFAULT_BASIC = {
-    "roughing":  {"speed_mode", "speed", "feed_mode", "feed", "tool_id", "count",
+    "roughing":  {"name", "speed_mode", "speed", "feed_mode", "feed", "tool_id", "count",
                   "direction", "start_z", "end_z", "clearance", "pass_shape"},
-    "finishing": {"speed_mode", "speed", "feed_mode", "feed", "tool_id", "count",
+    "finishing": {"name", "speed_mode", "speed", "feed_mode", "feed", "tool_id", "count",
                   "direction", "start_z", "end_z", "clearance", "pass_shape",
                   "straight_line_mode"},
-    "cutting":   {"speed_mode", "speed", "feed_mode", "feed", "tool_id",
+    "cutting":   {"name", "speed_mode", "speed", "feed_mode", "feed", "tool_id",
                   "z_pos", "plunge_x"},
-    "bending":   {"speed_mode", "speed", "feed_mode", "feed", "tool_id",
+    "bending":   {"name", "speed_mode", "speed", "feed_mode", "feed", "tool_id",
                   "z_pos", "plunge_x"},
 }
 
@@ -673,6 +674,8 @@ class ProgramTab:
         # #67: clicking the ☑ cell toggles the row's batch tick (and eats the
         # click so it doesn't disturb the normal row selection).
         self.tree_ops.bind("<Button-1>", self._on_tree_click)
+        # #70: right-click context menu with the row actions (rename lives here).
+        self.tree_ops.bind("<Button-3>", self._on_tree_right_click)
 
         # Toolbar
         f_tools = ttk.Frame(self.frame)
@@ -763,6 +766,17 @@ class ProgramTab:
             "hesaplamaya ve G-code'a girmez — alternatifleri yan yana tutup karşılaştırmak "
             "için kullan. Listede çift tıklama da aynı işi yapar.")
 
+        # Copy (#69): duplicate the targeted ops (☑ ticks win, else selection —
+        # same target rule as Batch), inserted right after the last target.
+        btn_copy = ttk.Button(f_tools, text=t("btn_copy_op"), width=7,
+                              command=self.copy_ops)
+        btn_copy.pack(side="left", padx=1)
+        self.helper.bind_tooltip(btn_copy,
+            "Seçili operasyon(lar)ı KOPYALA: birebir kopyaları son seçilenin hemen "
+            "altına ekler, kopyalar seçili gelir. Hedef: ☑ işaretli op'lar; işaret "
+            "yoksa listedeki seçim (Shift/Ctrl+tık ile çoklu). Geri Al (Ctrl+Z) ile "
+            "geri alınır. 'Varsayılan Kaydet'i kopyalama amaçlı kullanmaya gerek kalmaz.")
+
         btn_del = ttk.Button(f_tools, text=t("btn_del_op"), width=4, command=self.del_op)
         btn_del.pack(side="left", padx=1)
         self.helper.bind_tooltip(btn_del, "Seçili operasyonu listeden sil.")
@@ -784,6 +798,17 @@ class ProgramTab:
         btn_tools.pack(side="left", padx=5)
         self.helper.bind_tooltip(btn_tools, "Takım kütüphanesini aç. "
                                             "Rulo geometrilerini (ID, yarıçap) buradan tanımlayabilirsin.")
+
+        # Operation library (#71): named, reusable op presets across programs.
+        btn_lib = ttk.Button(f_tools, text=t("btn_op_library"), width=9,
+                             command=self.open_op_library)
+        btn_lib.pack(side="left", padx=1)
+        self.helper.bind_tooltip(btn_lib,
+            "OPERASYON KÜTÜPHANESİ: operasyonları AD vererek kaydet (tip başına "
+            "birden çok — örn. 3 farklı kaba strateji) ve herhangi bir programa "
+            "geri ekle. ops_library.json dosyasında, exe'nin yanında saklanır — "
+            "programlar arası kalıcıdır. Eklerken r_tool takım kütüphanesinden "
+            "TAZELENİR (bayat kalibre reach riski yok).")
 
         # Customize View: choose table columns + tag parameters basic/advanced.
         btn_customize = ttk.Button(f_tools, text=t("btn_customize_view"),
@@ -989,8 +1014,10 @@ class ProgramTab:
             _rz = end_z_map.get(i)
             _rr = reach_map.get(i)
             _ra = angle_map.get(i)
+            # Type cell shows the op's custom name (#70) when set, else the type.
             vals = ["☑" if i in self._batch_checked else "☐",
-                    i+1, "✓" if _on else "—", op.get("type", "?").upper(),
+                    i+1, "✓" if _on else "—",
+                    op.get("name") or op.get("type", "?").upper(),
                     op.get("count", 1), op.get("tool_id", "?"),
                     _fmt_num(_rz) if _rz is not None else "—",
                     _fmt_num(_rr) if _rr is not None else "—",
@@ -1355,6 +1382,119 @@ class ProgramTab:
         from ui.dialogs.batch_edit_dialog import BatchEditDialog
         BatchEditDialog(self.frame.winfo_toplevel(), self, targets, options)
 
+    # ------------------------------------------------------------------
+    # Copy / rename / context menu / op library (#69, #70, #71)
+    # ------------------------------------------------------------------
+
+    def copy_ops(self):
+        """#69: duplicate the targeted ops (same target rule as batch: ☑ ticks
+        win, else the tree selection) as a contiguous block right after the
+        last target. Copies are selected afterwards, ready to edit."""
+        targets = self._batch_targets()
+        if not targets:
+            return
+        ops = self.app.params.get("operations", [])
+        self._push_undo(t("btn_copy_op"))
+        self._clear_batch_checks()  # indices shift after the insert
+        clones = []
+        for i in targets:
+            cl = copy.deepcopy(ops[i])
+            if cl.get("name"):
+                cl["name"] = f"{cl['name']} ({t('lbl_copy_suffix')})"
+            clones.append(cl)
+        ins = max(targets) + 1
+        ops[ins:ins] = clones
+        self.refresh_ops_tree()
+        self.tree_ops.selection_set([str(k) for k in range(ins, ins + len(clones))])
+        self.on_op_select(None, _flush=False)
+        self._schedule_auto_calc()
+
+    def rename_op(self):
+        """#70: prompt for the anchor-selected op's display name. Empty clears
+        it (the list falls back to the type). View-only — engine ignores it."""
+        idx = self._sel_op_idx()
+        ops = self.app.params.get("operations", [])
+        if idx is None or idx >= len(ops):
+            return
+        # Commit pending field edits first — the editor's Name entry still
+        # holds the OLD name and would clobber the rename on the next flush.
+        self._flush_entries()
+        new = simpledialog.askstring(
+            t("dlg_rename_title"), t("dlg_rename_prompt"),
+            initialvalue=ops[idx].get("name", ""),
+            parent=self.frame.winfo_toplevel())
+        if new is None:
+            return  # cancelled
+        new = new.strip()
+        if new:
+            ops[idx]["name"] = new
+        else:
+            ops[idx].pop("name", None)
+        self.refresh_ops_tree()
+        self.on_op_select(None, _flush=False)  # editor Name field picks it up
+
+    def _on_tree_right_click(self, event):
+        """#70: context menu with the row actions. Right-clicking a row outside
+        the current selection selects it first (inside keeps the multi-select)."""
+        row = self.tree_ops.identify_row(event.y)
+        if row and row not in self.tree_ops.selection():
+            self.tree_ops.selection_set(row)
+        has = "normal" if self.tree_ops.selection() else "disabled"
+        batch_ok = "normal" if len(self._batch_targets()) >= 2 else "disabled"
+
+        m = tk.Menu(self.tree_ops, tearoff=0)
+        m.add_command(label=t("ctx_rename"), command=self.rename_op, state=has)
+        m.add_command(label=t("btn_copy_op"), command=self.copy_ops, state=has)
+        m.add_command(label=t("btn_toggle_op"), command=self.toggle_op_enabled, state=has)
+        m.add_separator()
+        m.add_command(label=t("btn_continue_prev"), command=self.continue_from_previous, state=has)
+        m.add_command(label=t("btn_split"), command=self.open_split_op, state=has)
+        m.add_command(label=t("btn_compute_reach"), command=self.compute_reach_from_blank, state=has)
+        m.add_command(label=t("btn_compute_angle"), command=self.compute_angle_from_surface, state=has)
+        m.add_command(label=t("btn_batch"), command=self.open_batch_edit, state=batch_ok)
+        m.add_separator()
+        m.add_command(label=t("ctx_move_up"), command=lambda: self.move_op(-1), state=has)
+        m.add_command(label=t("ctx_move_down"), command=lambda: self.move_op(1), state=has)
+        m.add_separator()
+        m.add_command(label=t("btn_del_op"), command=self.del_op, state=has)
+        m.add_separator()
+        m.add_command(label=t("btn_op_library"), command=self.open_op_library)
+        try:
+            m.tk_popup(event.x_root, event.y_root)
+        finally:
+            m.grab_release()
+
+    def open_op_library(self):
+        from ui.dialogs.op_library_dialog import OpLibraryDialog
+        OpLibraryDialog(self.frame.winfo_toplevel(), self.app, self)
+
+    def _insert_from_library(self, entry):
+        """#71: insert a library entry into the program as a normal op, right
+        after the anchor selection (else at the end). Undo-tracked. ⚠️ r_tool
+        is RE-SYNCED from the live tool library so a stale calibrated reach in
+        an old entry can never reach path generation."""
+        import ops_library as _ol
+        new_op = _ol.make_op(entry)
+        self._push_undo(t("btn_op_library"))
+        self._clear_batch_checks()
+        ops = self.app.params.setdefault("operations", [])
+        sel = self._sel_op_idx()
+        ins = sel + 1 if sel is not None and sel < len(ops) else len(ops)
+        ops.insert(ins, new_op)
+        try:
+            self.app.sync_operation_r_tools()
+        except Exception:
+            pass
+        self.refresh_ops_tree()
+        self.tree_ops.selection_set(str(ins))
+        self.on_op_select(None, _flush=False)
+        self._schedule_auto_calc()
+        try:
+            self.ui_root.lbl_info.config(
+                text=t("msg_lib_inserted").format(n=entry.get("name", "?")), fg="#ddd")
+        except Exception:
+            pass
+
     def _apply_batch(self, key, changes):
         """Apply callback from BatchEditDialog: one undo snapshot (#66) for the
         whole batch, write the new values, refresh, recalc (debounced)."""
@@ -1442,6 +1582,14 @@ class ProgramTab:
         self.helper.bind_tooltip(btn_preset,
             f"Bu {op_type} operasyonunun parametrelerini varsayılan olarak kaydet.\n"
             "Sonraki '+' butonuyla eklenen aynı tip operasyon bu parametrelerle başlar.")
+
+        # Op name (#70): free label shown in the list's Type column when set.
+        # Plain view/metadata — the engine ignores it entirely.
+        self._add_prop_entry(idx, "name", t("lbl_op_name"), op,
+                             tooltip="Operasyona serbest bir AD ver (örn. 'kaba geniş "
+                                     "flanş'). Listede Tip sütununda görünür; boş "
+                                     "bırakılırsa tip adı gösterilir. Takım yolunu "
+                                     "ETKİLEMEZ. Sağ-tık menüsünden de değiştirilebilir.")
 
         # Paso navigatörü — birden fazla toolpath girdisi olan operasyonlar için.
         # back_pass_enabled olduğunda her ileri pasın ardından bir geri pas gelir

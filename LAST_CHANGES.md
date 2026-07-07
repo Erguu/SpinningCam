@@ -5,6 +5,51 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-07d — Kopyala + Yeniden Adlandır + Sağ-tık Menü + Operasyon Kütüphanesi — TODO #69/#70/#71
+
+Üç özellik tek oturumda (commit fad9809 SONRASI, henüz commit EDİLMEDİ):
+
+### #69 Kopyala (çoklu)
+- Toolbar "Kopyala" + sağ-tık menüsü. Hedef kuralı = Toplu ile AYNI (`_batch_targets`:
+  ☑ işaretler varsa onlar, yoksa çoklu seçim; ≥1 yeter). Kopyalar deep-copy, son hedefin
+  hemen altına BLOK halinde eklenir, eklenince seçili gelir. Adlı op'un kopyası
+  " (kopya)" son eki alır. Undo-tracked (#66), ☑ işaretler temizlenir (indeks kayar).
+
+### #70 Ad + sağ-tık context menüsü
+- Opsiyonel `op["name"]` (motor YOK SAYAR; .ssp geri-uyumlu). Listede Tip sütununda
+  ad varsa AD, yoksa tip gösterilir. Editörün üstünde "Ad" alanı (`_add_prop_entry`
+  string modu; boş = anahtar silinir → tip görünür). Universe/labels/basic'e "name"
+  eklendi (4 tip; Customize'da sütun/gelişmiş işaretlenebilir; Toplu'ya kapalı — string).
+- **Sağ-tık menüsü** (`_on_tree_right_click`, `<Button-3>`): Yeniden adlandır…
+  (simpledialog; önce `_flush_entries` — editördeki eski ad flush'ta ezmesin), Kopyala,
+  Aç/Kapat, Devam ⤵, Böl…, Reach⟲, Açı⟲, Toplu (≥2 hedefte aktif), ▲/▼ taşı, Sil,
+  Kütüphane…. Seçim dışı satıra sağ-tık önce o satırı seçer; seçim içine sağ-tık çoklu
+  seçimi KORUR. Yeniden adlandırma alan-düzenlemesi sayılır → undo-TAKİPSİZ (#66 kuralı).
+
+### #71 Operasyon Kütüphanesi
+- YENİ `ops_library.py` (saf çekirdek, Tk'sız): `ops_library.json` exe'nin yanında
+  (tools.json gibi app-level; bozuk dosya → [] asla çökmez). Entry: {name, type,
+  params(deep-copy), created, machine}. Aynı ad = yerinde üzerine yazma.
+  `make_op` = taze kopya + enabled + name.
+- YENİ `ui/dialogs/op_library_dialog.py`: tip filtresi, Ad/Tip/Kayıt listesi,
+  "+ Seçili op'u kaydet" (ad sorar, aynı adda onaylı üzerine yazma, kaydetmeden önce
+  `_flush_entries`), "Ekle ▸" + çift-tık (pencere açık kalır — art arda ekleme),
+  Yeniden adlandır, Sil (onaylı).
+- `_insert_from_library`: anchor seçimin altına ekler (yoksa sona), undo-tracked,
+  **r_tool takım kütüphanesinden TAZELENİR** (`app.sync_operation_r_tools()` —
+  [[feedback-calibration-rtool]] bayat-reach gouge riskine karşı), status mesajı.
+- `packaging_manifest`: `ops_library.json` → NOT_SHIPPED (runtime-üretilir);
+  `ops_library` + `op_library_dialog` + `batch_edit_dialog` → CRITICAL_MODULES.
+- "Varsayılan Kaydet" DURUYOR (+ Ekle şablonu olarak farklı iş görüyor).
+
+### Doğrulama
+- `_test_op_library.py` GEÇTİ (7: boş/round-trip/izolasyon/üzerine-yazma/
+  find-rename-remove/make_op/bozuk-dosya).
+- `_test_program_tab_toolbar.py` +3 bölüm GEÇTİ (çoklu kopya + son ek + undo;
+  ad Tip sütununda; kütüphane ekleme konum/içerik/r_tool-sync/undo).
+- i18n ×3 (~20 anahtar), help EN+TR (kopyala/ad/sağ-tık + OPERASYON KÜTÜPHANESİ bölümü).
+- **GUI smoke test BEKLİYOR; commit BEKLİYOR.**
+
 ## 2026-07-07c — Özelleştir penceresi kutu hizası düzeltildi (kullanıcı: "kutular sağa sola kaymış")
 
 `view_customizer._build_type_tab` satırları pack + karakter-genişlikli (width=10)

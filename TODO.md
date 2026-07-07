@@ -152,6 +152,99 @@ Phase 1 = analysis + proposal document only. **Wait for explicit user approval
 before changing ANY behavior.** Back-compat with existing .ssp files mandatory;
 prefer view-layer changes over engine param changes.
 
+### 69. Duplicate operation — one-click copy (stop abusing "Save as Default")
+
+**✅ IMPLEMENTED 2026-07-07 (headless-verified, GUI smoke + commit PENDING).**
+DECIDED (user): copies the **targeted ops (plural)** — same target rule as
+batch (☑ ticks win, else multi-selection). Toolbar "Copy" + context-menu entry;
+clones inserted as a block after the last target, selected ready to edit; named
+ops get a " (copy)" suffix; undo-tracked; ticks cleared. See LAST_CHANGES
+2026-07-07d.
+
+**Why (user, 2026-07-07):** today the only way to "copy" an op is Save-as-Default
+(one slot per type, app-wide via `op_presets`, `program_tab.py:1431`) then + Add —
+which clobbers the real default and only works for one op per type. A direct
+**Duplicate** removes that misuse.
+
+**Proposed shape (agent):** toolbar/context "Duplicate" → deep-copy the selected
+op, insert **right after the original**, select the copy ready to edit. Undo-
+tracked (#66 `_push_undo`), clears ☑ ticks (indices shift, like split). Once #70
+names exist, suffix the copy's name (" (copy)" / " (kopya)"). Tiny effort — the
+engine treats it as a normal op; UI-only.
+
+### 70. Rename operations — per-op custom name
+
+**✅ IMPLEMENTED 2026-07-07 (headless-verified, GUI smoke + commit PENDING).**
+DECIDED (user): **right-click context menu** exists now (`<Button-3>` on the ops
+tree) carrying Rename… plus the other row actions (Copy/On-Off/Continue/Split/
+Reach/Angle/Batch/Move/Delete/Library). `op["name"]` optional, engine-ignored;
+shown in the Type column when set; editable via the editor-top "Name" field or
+context-menu Rename (simpledialog). In universe/labels/basic for all 4 types
+(columnable via Customize); NOT batch-eligible. See LAST_CHANGES 2026-07-07d.
+
+**Why (user, 2026-07-07):** big programs need identifiable ops ("ROUGHING" ×8 is
+unreadable); also the prerequisite for a usable library (#71) and nicer
+duplicate (#69).
+
+**Proposed shape (agent):**
+- Optional `op["name"]` (plain string; absent = today's behavior). .ssp
+  back-compat free — unknown keys pass through the engine untouched.
+- **Edit via a Name field at the top of the property editor** (NOT tree
+  double-click — that's already On/Off toggle; NOT F2-in-tree v1).
+- **Show in the tree's Type column**: name if set, else the type as today
+  (avoids yet another always-on column; a separate Name column could be a
+  Customize option later).
+- Later polish (not v1): name in pass-info panel, PDF export, G-code comments.
+- Rename is a field edit → NOT undo-tracked (consistent with #66 decision).
+
+### 71. Operation library — save MULTIPLE named ops per type + import
+
+**✅ IMPLEMENTED 2026-07-07 (headless-verified, GUI smoke + commit PENDING).**
+User approved the proposed integration as-is. `ops_library.py` (pure core) +
+`OpLibraryDialog` (type filter, save-selected-with-name + overwrite-confirm,
+Insert ▸/double-click — dialog stays open, rename/delete) + toolbar
+"Library…" + context-menu entry. Storage `ops_library.json` next to exe
+(app-level, global v1; entry records authoring machine); packaging manifest
+updated (NOT_SHIPPED + CRITICAL_MODULES). Insert = undo-tracked + **r_tool
+re-synced** via `sync_operation_r_tools`. Save-as-Default kept as the + Add
+template. Open questions resolved as agent defaults (global library; single
+ops v1; sharing = copy the JSON). See LAST_CHANGES 2026-07-07d.
+
+**Why (user, 2026-07-07):** wants e.g. 3 different roughing strategies saved
+under names and importable into any program. Today `op_presets` holds exactly
+ONE unnamed preset per type (app-level settings.json) — the library generalizes
+it. Pairs with #70 naming.
+
+**Proposed shape (agent, to be discussed):**
+- **Storage: `ops_library.json` next to the exe** (app-level like tools.json,
+  survives programs; user-generated at runtime → NOT in packaging
+  `SHIP_NEXT_TO_EXE`, but note the source-scan warning and whitelist it in
+  `NOT_SHIPPED`). Entry: `{name, type, params, created, note?}`.
+- **UI: a small Library dialog** (toolbar "Library…"):
+  - list entries grouped/filtered by op type, showing names;
+  - **"Save selected op →"** prompts for a name (pre-filled from #70 name);
+  - **"Insert into program"** appends a copy as a normal op (undo-tracked #66);
+  - rename / delete / overwrite entries.
+- ⚠️ **r_tool staleness gotcha** ([[feedback-calibration-rtool]]): library
+  entries snapshot `tool_id` + `r_tool`; on INSERT, re-sync r_tool from the
+  tool library (existing `sync_operation_r_tools` mechanism) so an old entry
+  can't reintroduce a bad calibrated reach.
+- **Relationship to Save-as-Default:** keep the button as the "+ Add template"
+  slot for now (it's a different job: what + Add creates). Optionally later:
+  default = a starred library entry, retiring `op_presets`.
+
+**Open questions:**
+- [ ] Library scope: one global library, or per-machine-profile? (Feeds/speeds
+      are machine-ish; agent suggests global v1, entry stores which machine it
+      was authored on as info.)
+- [ ] Multi-op sets: save a GROUP of ops (e.g. a whole rough+finish sequence)
+      as one library entry? (Agent: nice later; v1 = single ops.)
+- [ ] Export/import the library file for sharing between PCs? (v1: it's just a
+      JSON file next to the exe — copying it works; document that.)
+
+**Build order (agent suggestion): #69 → #70 → #71** (duplicate is trivial and
+useful today; naming is small and the library wants it; library last).
+
 ---
 
 ## Research & Check Series — 2026-07-04 (scoping only, not started)

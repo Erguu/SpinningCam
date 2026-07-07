@@ -334,6 +334,21 @@ skipped by Calculate and never reach the G-code. Use this to keep
 several alternative strategies in the list and compare them by
 switching which ones are active.
 
+"Copy" duplicates the targeted operations (the ☑ ticks if any are
+set, otherwise the selected rows — same rule as Batch) and inserts
+the copies right below the last target, selected and ready to
+edit. One Ctrl+Z removes them. Use this instead of abusing "Save
+as Default" for copying.
+
+Operations can be given a NAME ("Name" field at the top of the
+property editor, or right-click → Rename…). The name replaces the
+type text in the list; leave it empty to show the type again.
+Names are labels only — they never affect the toolpath.
+
+RIGHT-CLICK on any row opens a context menu with the row actions:
+Rename, Copy, On/Off, Continue ⤵, Split, Reach⟲, Angle⟲, Batch,
+Move up/down, Delete and the operation Library.
+
 The "Real End Z" column shows where each operation's LAST pass
 actually reaches in Z — its deepest contact point (P2), taken from
 the path generator when the toolpaths are calculated. This differs
@@ -397,6 +412,29 @@ it. Which parameters appear in the dropdown is chosen per program
 in Customize… (the third "Batch" checkbox; numeric parameters
 only). Pass count is rounded to a whole number and never drops
 below 1.
+
+
+OPERATION LIBRARY (Library… BUTTON / right-click menu)
+════════════════════════════════════════════════════════════════
+Save operations under NAMES and reuse them in any program — e.g.
+three different roughing strategies, each with its own name.
+Unlike "Save as Default" (one unnamed slot per type, used by
++ Add), the library holds any number of named entries.
+
+In the dialog: "+ Save selected op" snapshots the operation
+selected in the Program tab under a name you choose (same name =
+overwrite after confirmation). "Insert ▸" (or double-click an
+entry) adds a copy into the current program right after the
+selected row; the dialog stays open so you can insert several.
+Entries can be renamed and deleted. Inserting is one undo step.
+
+The library lives in ops_library.json NEXT TO the program (exe)
+— it is app-level, so it survives across programs and projects.
+To share it with another PC, copy that file.
+
+SAFETY: when an entry is inserted, its tool reach (r_tool) is
+RE-SYNCED from the current tool library — an entry saved months
+ago can never reintroduce a stale calibrated reach value.
 
 
 CUSTOMIZE VIEW (Customize… BUTTON + Advanced CHECKBOX)
@@ -550,6 +588,21 @@ atlar, G-code'a asla girmezler. Birden fazla alternatif stratejiyi
 listede tutup hangilerinin aktif olduğunu değiştirerek
 karşılaştırmak için kullanın.
 
+"Kopyala" hedef operasyonları çoğaltır (☑ işaretleri varsa onlar,
+yoksa seçili satırlar — Toplu ile aynı kural) ve kopyaları son
+hedefin hemen altına, seçili ve düzenlemeye hazır ekler. Tek
+Ctrl+Z hepsini kaldırır. Kopyalama için "Varsayılan Kaydet"i
+kullanmaya artık gerek yok.
+
+Operasyonlara AD verilebilir (özellik editörünün üstündeki "Ad"
+alanı veya sağ-tık → Yeniden adlandır…). Ad, listede tip yazısının
+yerine görünür; boş bırakılırsa tekrar tip gösterilir. Ad yalnızca
+bir etikettir — takım yolunu asla etkilemez.
+
+Herhangi bir satıra SAĞ TIKLAMAK satır işlemlerini içeren menüyü
+açar: Yeniden adlandır, Kopyala, Aç/Kapat, Devam ⤵, Böl, Reach⟲,
+Açı⟲, Toplu, Yukarı/Aşağı taşı, Sil ve operasyon Kütüphanesi.
+
 "Gerçek Bitiş Z" sütunu her operasyonun SON pasının Z'de gerçekte
 nereye ulaştığını gösterir — en derin temas noktası (P2), takım
 yolları hesaplanırken yol üreticisinden alınır. Bu, "Bölge Bitiş
@@ -613,6 +666,29 @@ alır. Açılır listede hangi parametrelerin sunulacağı programa özel
 olarak Özelleştir… penceresinde seçilir (üçüncü "Toplu" kutusu;
 yalnız sayısal parametreler). Pas sayısı tam sayıya yuvarlanır ve
 1'in altına düşmez.
+
+
+OPERASYON KÜTÜPHANESİ (Kütüphane… DÜĞMESİ / sağ-tık menüsü)
+════════════════════════════════════════════════════════════════
+Operasyonları AD vererek kaydedin ve herhangi bir programda tekrar
+kullanın — örn. her biri kendi adıyla üç farklı kaba strateji.
+"Varsayılan Kaydet"ten (tip başına tek adsız yuva, + Ekle bunu
+kullanır) farklı olarak kütüphane istediğiniz kadar adlı kayıt tutar.
+
+Pencerede: "+ Seçili op'u kaydet", Program sekmesinde seçili
+operasyonu vereceğiniz adla kaydeder (aynı ad = onay sonrası
+üzerine yazar). "Ekle ▸" (veya kayda çift tık) bir kopyayı mevcut
+programa, seçili satırın hemen altına ekler; pencere açık kalır —
+arka arkaya birkaç kayıt ekleyebilirsiniz. Kayıtlar yeniden
+adlandırılabilir ve silinebilir. Ekleme tek geri-al adımıdır.
+
+Kütüphane exe'nin YANINDAKİ ops_library.json dosyasında yaşar —
+uygulama genelindedir, programlar ve projeler arasında kalıcıdır.
+Başka bir bilgisayarla paylaşmak için o dosyayı kopyalayın.
+
+GÜVENLİK: bir kayıt eklenirken takım erişimi (r_tool) güncel takım
+kütüphanesinden TAZELENİR — aylar önce kaydedilmiş bir kayıt bayat
+kalibre reach değerini asla geri getiremez.
 
 
 GÖRÜNÜMÜ ÖZELLEŞTİRME (Özelleştir… DÜĞMESİ + Gelişmiş KUTUSU)

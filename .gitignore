@@ -21,3 +21,4 @@ latestchanges.txt
 
 # Claude Code local settings
 .claude/settings.local.json
+ops_library.json
