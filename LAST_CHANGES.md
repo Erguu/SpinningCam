@@ -5,6 +5,50 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-07e — Reach/açı parametre sadeleştirme FAZ A (onaylı öneri) — TODO #68
+
+`PROPOSAL_68_REACH_ANGLE_UX.md` kullanıcı ONAYIYLA uygulandı. **SADECE görünüm
+katmanı: path_generator'a DOKUNULMADI (4 reach motor testi değişmeden GEÇİYOR),
+hiçbir .ssp anahtarı eklenmedi/değişmedi.**
+
+### Ne değişti (program_tab editörü)
+- **Reach kaynağı radyosu** (Elle / Sacı takip et) eski `reach_follow_blank`
+  checkbox'ının yerinde — AYNI anahtar, 1:1 eşleme. Yanında **"Doldur ⟲"**
+  düğmesi (= toolbar Reach⟲; takip modunda İKİSİ DE gri — Q2 kararı,
+  `self.btn_reach` state'i on_op_select'te).
+- **Takip modunda Reach alanı salt-okunur gri + CANLI**: `_add_prop_entry`'ye
+  `readonly` parametresi (saver YOK, binding YOK → bayat değer asla geri
+  yazılamaz = **P1 bug fix'in yapısal yarısı**); `_refresh_auto_reach` artık
+  taze değeri `_reach_live_var`'a basıyor (= gösterim yarısı; editör rebuild
+  edilmez, odak bozulmaz).
+- **GERİ BIRAKILABİLİRLİK GARANTİSİ (kullanıcı şartı):** Elle'ye dönüş her an
+  serbest — yenileme durur, alan açılır, son hesaplanan değer düzenlenebilir
+  başlangıç olarak kalır. Data-level test kanıtlıyor.
+- **Çıkış modu satırı**: "AÇISAL — yön=Pass Angle, boy=Reach (P3 X/Z
+  kullanılmaz)" / "HAM X/Z". AÇISAL modda **p3_x/p3_z salt-okunur gri**.
+- **Sac çarpanı yalnızca takip modunda görünür** (P3 fix — genel çarpan sanılmasın).
+- **Progressive Reach satırları Reach'in altına taşındı** (A4; SECTION_KEYS
+  path_shape'e güncellendi; gating aynı: pass_angle + count>1).
+- **Dürüst mesajlar (A3):** Reach⟲/Açı⟲ bir yelpaze checkbox'ını AÇTIĞINDA
+  popup artık bunu söylüyor (`msg_reach_fan_note`/`msg_angle_fan_note`; Ctrl+Z notu).
+- **Pass Diagram formül paneline "reach = |P2→P3|" bloğu (A5):** modu, öncelik
+  zincirini, follow×factor'ı, clearance-bağımsızlık notunu ve yelpazeyi seçili
+  op'un CANLI değerleriyle anlatır.
+- **Etiketler (A6):** lbl_reach "Reach (mm)", lbl_reach_factor "Sac çarpanı (×)",
+  lbl_reach_end "Son pas reach (mm)", lbl_progressive_end "Son pas açısı (°)"
+  (EN/ES eşdeğer). Yeni anahtarlar: lbl_reach_source, rb_reach_manual/follow,
+  btn_fill_reach_now, lbl_exit_mode_polar/raw, msg_*_fan_note.
+- Help EN+TR: yeni "REACH KAYNAĞI VE ÇIKIŞ MODU" bölümleri.
+
+### Doğrulama
+- Motor DEĞİŞMEDİ: `_test_reach` / `_test_reach_foldback` / `_test_reach_follow` /
+  `_test_progressive_reach` aynen GEÇİYOR.
+- `_test_program_tab_toolbar.py` +1 bölüm: follow → reach ezilir; Elle'ye dönüş →
+  yenileme durur, manuel edit hayatta kalır; `_reach_live_var` taze değeri alır.
+- Diğer suite'ler (batch/undo/copy/library) GEÇİYOR.
+- **GUI smoke test BEKLİYOR; commit BEKLİYOR.** Faz B (iki-yönlü reach↔p3 bind,
+  toolbar sadeleştirme) ayrı onay bekliyor — yapılmadı.
+
 ## 2026-07-07d — Kopyala + Yeniden Adlandır + Sağ-tık Menü + Operasyon Kütüphanesi — TODO #69/#70/#71
 
 Üç özellik tek oturumda (commit fad9809 SONRASI, henüz commit EDİLMEDİ):

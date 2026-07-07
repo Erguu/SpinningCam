@@ -150,10 +150,10 @@ SECTION_KEYS = {
                    "exit_mid_rotation", "exit_mid_t",
                    "conformal_clearance_operation_specific",
                    "approach_follow_surface", "p1_x", "p1_z", "p3_x", "p3_z", "reach",
-                   "reach_follow_blank", "reach_blank_factor"],
+                   "reach_follow_blank", "reach_blank_factor",
+                   "progressive_reach_enabled", "progressive_reach_end"],
     "pass_angle": ["pass_angle", "progressive_angle_enabled",
-                   "progressive_angle_end", "progressive_reach_enabled",
-                   "progressive_reach_end", "clearance", "rot"],
+                   "progressive_angle_end", "clearance", "rot"],
     "contact_zone": ["contact_zone_mm", "feed_contact", "feed_contact_end"],
     "back_pass": ["back_pass_enabled", "back_pass_swapped", "back_pass_feed",
                   "back_pass_arc_x", "back_pass_arc_z"],
@@ -284,6 +284,9 @@ class ProgramTab:
         # #67: op indices ticked in the ☑ column for batch editing. Cleared on
         # any structural mutation (indices would go stale) and on project load.
         self._batch_checked = set()
+        # #68: live read-out var for the readonly Reach field in follow mode.
+        self._reach_live_var = None
+        self._reach_live_idx = None
 
         self._create_widgets()
 
@@ -738,8 +741,8 @@ class ProgramTab:
             "operasyon olur — sonra aralarına ters pas operasyonları yerleştirmek için "
             "sırala. Kesme/kıvırma bölünemez.")
 
-        btn_reach = ttk.Button(f_tools, text=t("btn_compute_reach"), width=7,
-                               command=self.compute_reach_from_blank)
+        self.btn_reach = btn_reach = ttk.Button(f_tools, text=t("btn_compute_reach"), width=7,
+                                                command=self.compute_reach_from_blank)
         btn_reach.pack(side="left", padx=1)
         self.helper.bind_tooltip(btn_reach,
             "Seçili operasyonun REACH'ini kalan sac flanşından TAHMİN ET ve alanı DOLDUR "
@@ -1563,6 +1566,15 @@ class ProgramTab:
         if _flush:
             self._flush_entries()
         self._active_entry_savers = []
+        # #68: drop the previous op's live reach read-out reference; it is
+        # re-registered below only when the new op is in follow-blank mode.
+        self._reach_live_var = None
+        self._reach_live_idx = None
+        # #68 (Q2): the one-shot toolbar Reach⟲ is pointless in follow mode
+        # (the next calc overwrites the fill) — grey it there, honest UI.
+        if hasattr(self, "btn_reach"):
+            self.btn_reach.config(
+                state="disabled" if op.get("reach_follow_blank", False) else "normal")
         for w in self.f_prop_editor.winfo_children(): w.destroy()
 
         op_type = op.get("type", "roughing")
@@ -1998,47 +2010,126 @@ class ProgramTab:
                                  tooltip="Spline giriş noktasının (P1) temas noktasından Z eksenindeki uzaklığı (mm). "
                                          "Büyük değer = rulo temas öncesi daha uzaktan yaklaşır. "
                                          "Tipik: 30–70 mm.")
+            # ── Exit-mode indicator (#68 A2). pass_angle set = ANGULAR (polar)
+            # mode: direction comes from Pass Angle, length from Reach — the
+            # engine IGNORES p3_x/p3_z there (legacy length fallback aside), so
+            # those fields are shown readonly. Empty pass_angle = RAW X/Z mode.
+            _polar = op.get("pass_angle", None) is not None
+            f_xmode = ttk.Frame(self.f_prop_editor)
+            f_xmode.pack(fill="x", padx=2, pady=(4, 1))
+            tk.Label(f_xmode,
+                     text=t("lbl_exit_mode_polar") if _polar else t("lbl_exit_mode_raw"),
+                     font=("Arial", 8, "italic"), fg="#446688",
+                     anchor="w").pack(side="left", padx=10)
+
             self._add_prop_entry(idx, "p3_x", t("lbl_p3x"), op, is_float=True,
+                                 readonly=_polar,
                                  tooltip="Çıkış noktasının (P3) temas noktasından X eksenindeki uzaklığı (mm). "
                                          "P1 X'ten bağımsız olarak ayarlanabilir. "
-                                         "Default: boş = P1 X değeri kullanılır.")
+                                         "Default: boş = P1 X değeri kullanılır.\n"
+                                         "AÇISAL modda (Pass Angle dolu) motor bu alanı KULLANMAZ — "
+                                         "yön Pass Angle'dan, boy Reach'ten gelir (gri gösterilir).")
             self._add_prop_entry(idx, "p3_z", t("lbl_p3z"), op, is_float=True,
+                                 readonly=_polar,
                                  tooltip="Spline çıkış noktasının (P3) temas noktasından Z eksenindeki uzaklığı (mm). "
                                          "Negatif değer = rulo temas sonrası mandrel'in içine doğru ilerler (pas uzunluğu). "
-                                         "Tipik: -10 ile -40 mm arası.")
-            self._add_prop_entry(idx, "reach", t("lbl_reach"), op, is_float=True,
-                                 tooltip="Çıkış kolu uzunluğu |P2→P3| (mm) — tek 'erişim' parametresi (#61). "
-                                         "Boş/0 = eski davranış: uzunluk p3_x/p3_z'den gelir. "
-                                         "Değer girilince yön KORUNUR (Pass Angle varsa ondan, yoksa p3_x/p3_z "
-                                         "oranından) ve yalnızca uzunluk bu değere ölçeklenir. "
-                                         "Böylece açıyı bozmadan pası uzatıp kısaltabilirsin.")
+                                         "Tipik: -10 ile -40 mm arası.\n"
+                                         "AÇISAL modda (Pass Angle dolu) motor bu alanı KULLANMAZ (gri).")
 
-            # Reach follows blank (opt-in #61 B): lock reach to the flange edge so it
-            # auto-recomputes whenever start_z/end_z change — the exit always kisses the
-            # blank rim. Overrides the manual reach above. Needs Sheet Radius.
-            f_rfb = ttk.Frame(self.f_prop_editor)
-            f_rfb._pkey = "reach_follow_blank"
-            f_rfb.pack(fill="x", padx=2, pady=1)
-            ttk.Label(f_rfb, text=t("lbl_reach_follow"), width=15).pack(side="left")
-            rfb_var = tk.BooleanVar(value=bool(op.get("reach_follow_blank", False)))
-            def toggle_rfb(i=idx, v=rfb_var):
+            # ── Reach source (#68 A1): Elle (manual) / Sacı takip (live). Same
+            # stored key as the old checkbox (reach_follow_blank) — the radio is
+            # purely a view; old .ssp files map 1:1. Switching back to Elle at
+            # ANY time releases the auto mode: the field unlocks and keeps the
+            # last computed value as an editable starting point (#68 guarantee).
+            _follow = bool(op.get("reach_follow_blank", False))
+            f_rsrc = ttk.Frame(self.f_prop_editor)
+            f_rsrc._pkey = "reach_follow_blank"
+            f_rsrc.pack(fill="x", padx=2, pady=1)
+            ttk.Label(f_rsrc, text=t("lbl_reach_source"), width=15).pack(side="left")
+            rfb_var = tk.BooleanVar(value=_follow)
+            def _set_reach_source(i=idx, v=rfb_var):
                 self.app.params["operations"][i]["reach_follow_blank"] = v.get()
                 if v.get():
-                    self._refresh_auto_reach()   # fill reach now so the field reflects it
-                self.on_op_select(None, _flush=False)  # rebuild editor to show new reach
+                    self._refresh_auto_reach()   # fill now so the field shows the live value
+                self.on_op_select(None, _flush=False)  # rebuild: lock/unlock + factor row
                 self._start_async_calc()
-            ttk.Checkbutton(f_rfb, variable=rfb_var, command=toggle_rfb).pack(side="right")
-            self.helper.bind_tooltip(f_rfb,
-                "Reach'i sac flanşına KİLİTLE (opt-in, #61 B): start_z/end_z değiştikçe reach "
-                "otomatik olarak kalan flanşa göre yeniden hesaplanır — çıkış hep sacın ucunu "
-                "'öper'. Yukarıdaki manuel reach'i geçersiz kılar. Sac Yarıçapı gerekir. TAHMİN.")
+            btn_fill_now = ttk.Button(f_rsrc, text=t("btn_fill_reach_now"), width=9,
+                                      state="disabled" if _follow else "normal",
+                                      command=self.compute_reach_from_blank)
+            btn_fill_now.pack(side="right", padx=(4, 0))
+            self.helper.bind_tooltip(btn_fill_now,
+                "Reach'i kalan sac flanşından BİR KEZ tahmin edip alana doldurur "
+                "(toolbar Reach⟲ ile aynı iş; Ctrl+Z ile geri alınır). "
+                "'Sacı takip et' açıkken gereksizdir (her hesapta zaten yenilenir) — gri.")
+            rb_follow = ttk.Radiobutton(f_rsrc, text=t("rb_reach_follow"), value=True,
+                                        variable=rfb_var, command=_set_reach_source)
+            rb_follow.pack(side="right", padx=(4, 0))
+            rb_manual = ttk.Radiobutton(f_rsrc, text=t("rb_reach_manual"), value=False,
+                                        variable=rfb_var, command=_set_reach_source)
+            rb_manual.pack(side="right")
+            self.helper.bind_tooltip(f_rsrc,
+                "Reach'in nereden geldiğini seçer.\n"
+                "Elle: aşağıdaki Reach alanına kendin yazarsın.\n"
+                "Sacı takip et: her hesaplamadan önce reach kalan sac flanşından "
+                "otomatik yenilenir — çıkış hep sacın ucunu 'öper'; Reach alanı "
+                "salt-okunur (gri) olur ve CANLI değeri gösterir. İstediğin an "
+                "Elle'ye dönebilirsin: alan açılır, son hesaplanan değer başlangıç "
+                "olarak kalır — hiçbir şey kilitlenmez. TAHMİN; Sac Yarıçapı gerekir.")
 
-            self._add_prop_entry(idx, "reach_blank_factor", t("lbl_reach_factor"), op, is_float=True,
-                                 tooltip="Sactan hesaplanan reach'i ÇARPAN ile ölçekler. Reach⟲ ve "
-                                         "'Reach sacı takip etsin' değerine uygulanır.\n"
-                                         "1.00 = tam sac ucunu öp (varsayılan), 0.90 = %90 (ucundan "
-                                         "önce dur), 1.10 = %110 (ucunu geç).\n"
-                                         "Boş = 1.00.")
+            _reach_var = self._add_prop_entry(
+                idx, "reach", t("lbl_reach"), op, is_float=True, readonly=_follow,
+                tooltip="Çıkış kolu uzunluğu |P2→P3| (mm) — tek 'erişim' parametresi (#61). "
+                        "Boş/0 = eski davranış: uzunluk p3_x/p3_z'den gelir. "
+                        "Değer girilince yön KORUNUR (Pass Angle varsa ondan, yoksa p3_x/p3_z "
+                        "oranından) ve yalnızca uzunluk bu değere ölçeklenir.\n"
+                        "'Sacı takip et' açıkken salt-okunurdur ve her hesapta yenilenen "
+                        "CANLI değeri gösterir.")
+            if _follow:
+                # Live read-out: _refresh_auto_reach pushes the new value into
+                # this var so the display can never go stale (#68 P1 fix).
+                self._reach_live_var = _reach_var
+                self._reach_live_idx = idx
+
+            if _follow:
+                # Factor only matters for blank-derived reach — hidden otherwise
+                # so it can't masquerade as a general reach multiplier (#68 P3).
+                self._add_prop_entry(idx, "reach_blank_factor", t("lbl_reach_factor"), op, is_float=True,
+                                     tooltip="Sactan hesaplanan reach'i ÇARPAN ile ölçekler ('Sacı takip et' "
+                                             "ve Doldur ⟲ sonuçlarına uygulanır; elle girilen reach'e ETKİSİZ).\n"
+                                             "1.00 = tam sac ucunu öp (varsayılan), 0.90 = %90 (ucundan "
+                                             "önce dur), 1.10 = %110 (ucunu geç).\n"
+                                             "Boş = 1.00.")
+
+            # Progressive Reach fan (#68 A4: moved next to Reach — one concept,
+            # one home). Same gating as before: pass-angle mode + multi-pass.
+            if _polar and count > 1:
+                f_reach = ttk.Frame(self.f_prop_editor)
+                f_reach._pkey = "progressive_reach_enabled"
+                f_reach.pack(fill="x", padx=2, pady=1)
+                ttk.Label(f_reach, text=t("lbl_progressive_reach"), width=15).pack(side="left")
+                reach_var = tk.BooleanVar(value=bool(op.get("progressive_reach_enabled", False)))
+                def toggle_reach(i=idx):
+                    self.app.params["operations"][i]["progressive_reach_enabled"] = reach_var.get()
+                    self.on_op_select(None)
+                    if self.app.params.get("calc_active", False):
+                        self.app.update_scene("paths")
+                ttk.Checkbutton(f_reach, variable=reach_var, command=toggle_reach).pack(side="right")
+                self.helper.bind_tooltip(f_reach,
+                    "P2→P3 kol uzunluğunu (stroke) paslar boyunca lineer değiştir.\n"
+                    "İlk pas: mevcut Reach değerini kullanır.\n"
+                    "Son pas: Son Pas Reach değerine ulaşır (kısaltmak için daha küçük gir).\n"
+                    "Ara paslar: lineer interpolasyon.\n"
+                    "Açı yelpazesinden bağımsızdır — yön açıyla, uzunluk bununla ayarlanır; "
+                    "ikisi birlikte çalışır.\n"
+                    "Pass Angle boşsa bu ayar etkisizdir.")
+                if op.get("progressive_reach_enabled", False):
+                    self._add_prop_entry(idx, "progressive_reach_end", t("lbl_reach_end"), op,
+                                         is_float=True,
+                                         tooltip="P2→P3 kolunun SON pasta ulaşacağı uzunluk (mm). "
+                                                 "İlk pas mevcut Reach değerini kullanır, "
+                                                 "son pas bu değere iner/çıkar. "
+                                                 "Mandrel yukarı çıktıkça kalan flanş küçülür — "
+                                                 "her pasta çıkış strokunu kısaltmak için kullan.")
 
             self._add_section_header("pass_angle", t("lbl_pass_angle_hdr"))
 
@@ -2077,37 +2168,7 @@ class ProgramTab:
                                                  "Daha küçük bir değer yelpazeyi erken durdurur — "
                                                  "her pası 180°'ye kadar bükmek istemediğinde kullan. "
                                                  "Pass Angle'dan küçük değer yelpazeyi ters yöne açar.")
-
-                # Progressive Reach: shorten (or lengthen) the P2→P3 stroke per pass.
-                # Independent of the angle fan above — angle sets direction, this sets
-                # length (L3). Both can run together.
-                f_reach = ttk.Frame(self.f_prop_editor)
-                f_reach._pkey = "progressive_reach_enabled"
-                f_reach.pack(fill="x", padx=2, pady=1)
-                ttk.Label(f_reach, text=t("lbl_progressive_reach"), width=15).pack(side="left")
-                reach_var = tk.BooleanVar(value=bool(op.get("progressive_reach_enabled", False)))
-                def toggle_reach(i=idx):
-                    self.app.params["operations"][i]["progressive_reach_enabled"] = reach_var.get()
-                    self.on_op_select(None)
-                    if self.app.params.get("calc_active", False):
-                        self.app.update_scene("paths")
-                ttk.Checkbutton(f_reach, variable=reach_var, command=toggle_reach).pack(side="right")
-                self.helper.bind_tooltip(f_reach,
-                    "P2→P3 kol uzunluğunu (stroke) paslar boyunca lineer değiştir.\n"
-                    "İlk pas: mevcut P3 uzunluğunu kullanır.\n"
-                    "Son pas: Uzunluk Bitiş değerine ulaşır (kısaltmak için daha küçük gir).\n"
-                    "Ara paslar: lineer interpolasyon.\n"
-                    "Açı yelpazesinden bağımsızdır — yön açıyla, uzunluk bununla ayarlanır; "
-                    "ikisi birlikte çalışır.\n"
-                    "Pass Angle boşsa bu ayar etkisizdir.")
-                if op.get("progressive_reach_enabled", False):
-                    self._add_prop_entry(idx, "progressive_reach_end", t("lbl_reach_end"), op,
-                                         is_float=True,
-                                         tooltip="P2→P3 kolunun SON pasta ulaşacağı uzunluk (mm). "
-                                                 "İlk pas mevcut P3 uzunluğunu (√(P3x²+P3z²)) kullanır, "
-                                                 "son pas bu değere iner/çıkar. "
-                                                 "Mandrel yukarı çıktıkça kalan flanş küçülür — "
-                                                 "her pasta çıkış strokunu kısaltmak için kullan.")
+                # (Progressive Reach moved next to the Reach field — #68 A4.)
             self._add_prop_entry(idx, "clearance", t("lbl_clearance"), op, is_float=True,
                                  default_hint="= target clr",
                                  tooltip="Rulo temas noktasının blank yüzeyinden boşluğu (mm). "
@@ -2253,7 +2314,7 @@ class ProgramTab:
         self.helper.bind_tooltip(f, tooltip)
 
     def _add_prop_entry(self, op_idx, key, label, op_dict, is_int=False, is_float=False, tooltip="", rebuild=False,
-                        default_hint=None):
+                        default_hint=None, readonly=False):
         f = ttk.Frame(self.f_prop_editor)
         f._pkey = key
         f.pack(fill="x", padx=2, pady=1)
@@ -2293,14 +2354,21 @@ class ProgramTab:
                     self.on_op_select(None, _flush=False)
             except: pass
 
-        self._active_entry_savers.append(save)
         entry = ttk.Entry(f, textvariable=var)
         entry.pack(side="right", fill="x", expand=True)
-        entry.bind("<FocusOut>", save)
-        entry.bind("<Return>", save)
-        entry.bind("<Button-1>", lambda e: e.widget.focus_force())
+        if readonly:
+            # #68: display-only field (e.g. reach under follow-blank). No saver
+            # is registered and no save bindings exist, so this field can NEVER
+            # write a (possibly stale) value back into the op.
+            entry.config(state="readonly")
+        else:
+            self._active_entry_savers.append(save)
+            entry.bind("<FocusOut>", save)
+            entry.bind("<Return>", save)
+            entry.bind("<Button-1>", lambda e: e.widget.focus_force())
         self.helper.bind_tooltip(entry, tooltip)
         self.helper.bind_tooltip(f, tooltip)
+        return var
 
     # ── Pass Diagram Popup ────────────────────────────────────────────────
     def _show_pass_diagram(self, op):
@@ -2396,6 +2464,43 @@ class ProgramTab:
                 v(f"= {pa_:.0f}°")
                 n("  larger → steeper exit")
                 sp()
+
+            # ── Reach family cheat-sheet (#68 A5): the precedence chain the
+            # engine actually applies, with this op's live values.
+            _reach_ = op.get("reach", None)
+            _folw_  = bool(op.get("reach_follow_blank", False))
+            _fac_   = op.get("reach_blank_factor", 1.0)
+            _prE_   = bool(op.get("progressive_reach_enabled", False))
+            h("── reach = |P2→P3| ─────")
+            if pa_ is not None:
+                f("ANGULAR mode (pass_angle set):")
+                f("  direction ← pass_angle")
+                f("  length    ← reach")
+                n("  p3_x/p3_z NOT used")
+                n("  (legacy: length falls back")
+                n("   to |p3| if reach empty)")
+            else:
+                f("RAW mode (pass_angle empty):")
+                f("  P3 = (p3_x, p3_z)")
+                f("  reach rescales the vector,")
+                f("  X/Z ratio preserved")
+            if _reach_ not in (None, ""):
+                v(f"reach = {float(_reach_):.1f} mm")
+                n("  reach set → exit END is")
+                n("  clearance-independent")
+            else:
+                v("reach = (empty → legacy)")
+            if _folw_:
+                f("FOLLOW BLANK is ON:")
+                f("  reach ← flange model ×factor")
+                v(f"  factor = {float(_fac_ or 1.0):.2f}")
+                n("  refreshed before EVERY calc;")
+                n("  release: switch back to Elle")
+            if _prE_ and pa_ is not None:
+                f("reach fan: pass1 = reach,")
+                _pre_ = op.get("progressive_reach_end", "?")
+                v(f"  last pass = {_pre_} mm")
+            sp()
             if shape == "spline" and abs(rot_) > 0.1:
                 h("── rot  (rotation) ─────")
                 f("tilts the P1-P2-P3 spline")
@@ -3124,13 +3229,21 @@ class ProgramTab:
         end_z change. Silent — called before each program-tab recalc. Returns True if any
         op changed (so the tree can refresh)."""
         changed = False
-        for op in self.app.params.get("operations", []):
+        for i, op in enumerate(self.app.params.get("operations", [])):
             if not op.get("reach_follow_blank"):
                 continue
             vals = self._blank_reach_values(op)
             if vals:
                 self._apply_blank_reach(op, vals)
                 changed = True
+                # #68 P1 fix: push the fresh value into the (readonly) editor
+                # field so the display can never go stale against the engine.
+                if getattr(self, "_reach_live_idx", None) == i and \
+                        getattr(self, "_reach_live_var", None) is not None:
+                    try:
+                        self._reach_live_var.set(str(op.get("reach", "")))
+                    except Exception:
+                        pass
         if changed:
             try:
                 self.refresh_ops_tree()
@@ -3176,6 +3289,8 @@ class ProgramTab:
             messagebox.showinfo(t("msg_reach_title"), t("msg_reach_zero"))
             return
         self._push_undo(t("btn_compute_reach"))
+        # #68 A3: report honestly when the fill flips the fan checkbox ON.
+        _newly_fanned = vals[2] and not op.get("progressive_reach_enabled", False)
         self._apply_blank_reach(op, vals)
         r_start, r_end, fanned = vals
 
@@ -3184,9 +3299,11 @@ class ProgramTab:
         self.on_op_select(None, _flush=False)
         self._start_async_calc()
         if fanned:
-            messagebox.showinfo(t("msg_reach_title"),
-                                t("msg_reach_done_fan").format(rs=round(r_start, 2),
-                                                               re=round(r_end, 2)))
+            _msg = t("msg_reach_done_fan").format(rs=round(r_start, 2),
+                                                  re=round(r_end, 2))
+            if _newly_fanned:
+                _msg += "\n\n" + t("msg_reach_fan_note")
+            messagebox.showinfo(t("msg_reach_title"), _msg)
         else:
             messagebox.showinfo(t("msg_reach_title"),
                                 t("msg_reach_done").format(r=round(r_start, 2)))
@@ -3235,6 +3352,9 @@ class ProgramTab:
 
         ang_end = round(theta_end - theta_a, 1)
         self._push_undo(t("btn_compute_angle"))
+        # #68 A3: report honestly when the fill flips the fan checkbox ON.
+        _newly_fanned = (int(op.get("count", 1)) > 1
+                         and not op.get("progressive_angle_enabled", False))
         op["progressive_angle_end"] = ang_end
         if int(op.get("count", 1)) > 1:
             op["progressive_angle_enabled"] = True  # fan only takes effect with >1 pass
@@ -3243,10 +3363,12 @@ class ProgramTab:
         self.tree_ops.selection_set(str(idx))
         self.on_op_select(None, _flush=False)
         self._start_async_calc()
-        messagebox.showinfo(t("msg_angle_title"),
-                            t("msg_angle_done").format(a=ang_end,
-                                                       s=round(theta_end, 1),
-                                                       p=round(theta_a, 1)))
+        _msg = t("msg_angle_done").format(a=ang_end,
+                                          s=round(theta_end, 1),
+                                          p=round(theta_a, 1))
+        if _newly_fanned:
+            _msg += "\n\n" + t("msg_angle_fan_note")
+        messagebox.showinfo(t("msg_angle_title"), _msg)
 
     def open_split_op(self):
         """Split the selected multi-pass op into contiguous chunk-ops (#64). Opens the

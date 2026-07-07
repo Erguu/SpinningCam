@@ -109,6 +109,20 @@ dropdown. Reuses the existing `op_view_config` storage (per-program, saved in .s
 
 ### 68. ⚠️ APPROVAL-GATED — Simplify overlapping reach / pass-angle parameters (UX consolidation audit)
 
+**✅ PHASE A IMPLEMENTED 2026-07-07 (user-approved proposal; headless-verified,
+GUI smoke + commit PENDING).** Proposal = `PROPOSAL_68_REACH_ANGLE_UX.md`.
+Decisions: Q1 readonly-grey; Q2 keep toolbar Reach⟲ but grey in follow mode;
+reversibility guaranteed (release to Elle any time, data-level test proves it).
+Delivered: Reach source radio (same `reach_follow_blank` key), readonly+LIVE
+reach field in follow mode (fixes the P1 stale/ping-pong bug found in audit —
+no saver + `_reach_live_var` push from `_refresh_auto_reach`), exit-mode line
++ greyed p3_x/p3_z in ANGULAR mode, factor only in follow mode, progressive-
+reach rows moved under Reach, honest fan-enable notes, Pass Diagram reach
+cheat-sheet block, label pass, help EN/TR. **Engine untouched** — all 4 reach
+engine suites pass unchanged; zero .ssp change. Phase B (two-way reach↔p3
+bind, toolbar declutter, per-pass effective table) NOT done — separate
+approval. See LAST_CHANGES 2026-07-07e.
+
 **Why (user, 2026-07-07):** the reach controls have accreted: **Reach⟲ button**
 (`compute_reach_from_blank`, one-shot fill), **`reach`** field (manual exit
 magnitude), **`reach_follow_blank`** checkbox (lock reach to flange — *overrides*

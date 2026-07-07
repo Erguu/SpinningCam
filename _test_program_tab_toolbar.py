@@ -148,6 +148,31 @@ tab.undo_op_action()
 assert len(app.params["operations"]) == n1, "undo did not remove library insert"
 print("Library insert (position, content, r_tool sync, undo) OK")
 
+# --- #68 Reach source: follow overwrites reach, release unlocks cleanly ---
+op0 = app.params["operations"][0]
+op0["reach"] = 42.0
+op0["reach_follow_blank"] = True
+tab._blank_reach_values = lambda op: (10.0, 5.0, False)   # stub the flange model
+tab._refresh_auto_reach()
+assert op0["reach"] == 10.0, "follow mode did not refresh reach"
+# Release (#68 reversibility guarantee): back to Elle — the auto refresh must
+# stop touching the op and a manual edit must survive the next refresh.
+op0["reach_follow_blank"] = False
+op0["reach"] = 33.0
+tab._refresh_auto_reach()
+assert op0["reach"] == 33.0, "released op still auto-refreshed"
+# Live read-out var gets the fresh value when registered for the op (#68 P1).
+op0["reach_follow_blank"] = True
+class _FakeVar:
+    def __init__(self): self.v = None
+    def set(self, x): self.v = x
+tab._reach_live_var = _FakeVar()
+tab._reach_live_idx = 0
+tab._refresh_auto_reach()
+assert tab._reach_live_var.v == str(op0["reach"]), "live var not updated"
+op0["reach_follow_blank"] = False
+print("Reach source follow/release + live read-out (#68) OK")
+
 root.destroy()
 print("PROGRAM TAB TOOLBAR SMOKE TEST PASSED")
 sys.exit(0)

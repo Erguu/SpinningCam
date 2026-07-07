@@ -296,6 +296,38 @@ keeps the exit near the blank edge without any material model.
 Both fields only appear when Pass Angle is set and count > 1.
 
 
+REACH SOURCE & EXIT MODE (the editor's Path Shape section)
+════════════════════════════════════════════════════════════════
+A status line shows which EXIT MODE the operation is in:
+  • ANGULAR (Pass Angle set): direction comes from Pass Angle,
+    length from Reach. The P3 X/Z fields are NOT used by the
+    engine in this mode, so they are shown grey/readonly.
+  • RAW X/Z (Pass Angle empty): P3 X/Z are the actual exit
+    offsets; entering a Reach rescales that vector to the given
+    length while keeping its direction.
+
+"Reach source" selects where the Reach value comes from:
+  • Manual — you type it.
+  • Follow blank — before every calculation the reach is
+    recomputed from the remaining blank flange (× Blank factor)
+    so the exit always kisses the blank edge. The Reach field
+    turns grey/readonly and shows the LIVE value the engine will
+    use. The "Fill ⟲" button and the toolbar Reach⟲ grey out in
+    this mode — a one-shot fill would be overwritten anyway.
+  • "Fill ⟲" (Manual mode) — estimates the reach from the blank
+    ONCE and fills the field; undo with Ctrl+Z.
+
+NOTHING IS LOCKED IN: switch back to Manual at any time — the
+auto-refresh stops immediately, the field unlocks, and the last
+computed value stays as an editable starting point. The Blank
+factor field only appears in Follow-blank mode, because that is
+the only place it has any effect. Setting a Reach also anchors
+the exit ENDPOINT to be clearance-independent (same reach +
+different clearance = same absolute end position). The Pass
+Diagram window (formula panel) shows this whole chain with the
+selected operation's live values.
+
+
 PASS DIRECTION (FORWARD / REVERSE)
 ════════════════════════════════════════════════════════════════
 Each roughing or finishing operation has a Direction setting.
@@ -549,6 +581,37 @@ ayarlar. Paslar mandrelde yukarı çıktıkça şekillenmemiş flanş
 küçülür; bu yüzden pas başına uzunluğu kısaltmak, hiçbir malzeme
 modeli olmadan çıkışı blank kenarına yakın tutar. Her iki alan da
 yalnızca Pas Açısı tanımlı ve paso sayısı > 1 iken görünür.
+
+
+REACH KAYNAĞI VE ÇIKIŞ MODU (editörün Yol Şekli bölümü)
+════════════════════════════════════════════════════════════════
+Bir durum satırı operasyonun hangi ÇIKIŞ MODUNDA olduğunu gösterir:
+  • AÇISAL (Pass Angle dolu): yön Pass Angle'dan, uzunluk
+    Reach'ten gelir. Bu modda motor P3 X/Z alanlarını KULLANMAZ —
+    gri/salt-okunur gösterilirler.
+  • HAM X/Z (Pass Angle boş): P3 X/Z gerçek çıkış ofsetleridir;
+    Reach girilirse bu vektörün boyunu, yönünü koruyarak verilen
+    uzunluğa ölçekler.
+
+"Reach kaynağı" Reach değerinin nereden geldiğini seçer:
+  • Elle — kendin yazarsın.
+  • Sacı takip et — her hesaplamadan önce reach, kalan sac
+    flanşından (× Sac çarpanı) yeniden hesaplanır; çıkış hep sacın
+    ucunu öper. Reach alanı gri/salt-okunur olur ve motorun
+    kullanacağı CANLI değeri gösterir. "Doldur ⟲" düğmesi ve
+    toolbar'daki Reach⟲ bu modda grileşir — tek seferlik doldurma
+    zaten bir sonraki hesapta ezilirdi.
+  • "Doldur ⟲" (Elle modunda) — reach'i sactan BİR KEZ tahmin
+    edip alana doldurur; Ctrl+Z ile geri alınır.
+
+HİÇBİR ŞEY KİLİTLENMEZ: istediğin an Elle'ye dön — otomatik
+yenileme aninda durur, alan açılır ve son hesaplanan değer
+düzenlenebilir başlangıç olarak kalır. Sac çarpanı alanı yalnızca
+Sacı-takip modunda görünür, çünkü yalnızca orada etkisi vardır.
+Reach girmek ayrıca çıkış BİTİŞ noktasını clearance'tan bağımsız
+kılar (aynı reach + farklı clearance = aynı mutlak bitiş konumu).
+Pass Diagram penceresi (formül paneli) bu zinciri seçili
+operasyonun canlı değerleriyle gösterir.
 
 
 PAS YÖNÜ (İLERİ / TERS)
