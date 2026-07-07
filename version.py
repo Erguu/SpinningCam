@@ -5,4 +5,4 @@ The version shown in the UI is forced from this constant (not from settings.json
 old saved settings file can never pin a stale version number.
 """
 
-APP_VERSION = "1.004"
+APP_VERSION = "1.005"

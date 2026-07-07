@@ -6,6 +6,20 @@ here with short, operator-facing bullet lines (what changed, not how it was code
 """
 
 CHANGELOG = {
+    "1.005": [
+        "Undo / Redo for operation-list actions (↶/↷ buttons, Ctrl+Z / Ctrl+Y): Split, Delete, Move, Add, Continue ⤵, Reach⟲, Angle⟲, On/Off, library inserts and batch edits — up to 50 steps back.",
+        "Batch edit: tick the new ☑ column (or Shift/Ctrl-select rows), then change ONE parameter on all targeted operations at once (+= add / = set / ×= scale) with a live old→new preview. The whole batch is a single undo step.",
+        "Choose which parameters the batch dialog offers with the new 'Batch' checkbox in Customize….",
+        "Copy duplicates the selected operations in place, ready to edit — no need to misuse 'Save as Default' for copying.",
+        "Operations can now be given names (Name field, or right-click → Rename…); the name shows in the list.",
+        "Right-click any operation row for a context menu with all row actions.",
+        "Operation Library: save operations under names (as many per type as you like) and insert them into any program. Tool reach (Rr) is re-synced from the tool library on insert, so old entries stay safe.",
+        "Reach controls simplified: a 'Reach source' selector (Manual / Follow blank). In follow mode the Reach field shows the LIVE auto value (greyed); switch back to Manual any time to unlock it.",
+        "An exit-mode line now shows whether the pass exit is ANGULAR (Pass Angle + Reach) or RAW X/Z, and greys the P3 X/Z fields when the engine doesn't use them.",
+        "The blank factor field only appears when it actually has an effect (follow-blank mode).",
+        "Pass Diagram window: the formula panel now explains the whole reach/angle chain with the selected operation's live values.",
+        "Fixes: the Reach display could go stale (showing your typed value while the auto value was used); Customize window checkbox columns now align properly.",
+    ],
     "1.004": [
         "Reach authoring reworked: one 'Reach' value per pass, with End Reach / End Angle columns.",
         "Reach⟲ estimates the reach from the remaining blank flange and fills it in.",
