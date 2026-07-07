@@ -165,6 +165,9 @@ class SpinningCamWindow(tk.Tk):
                  if hasattr(self, 'ui_machine'): self.ui_machine.refresh_ui()
                  if hasattr(self, 'ui_process'): self.ui_process.refresh_ui()
                  if hasattr(self, 'ui_program'):
+                     # #66: undo history is per-project — snapshots of the old
+                     # project's ops must not be restorable into the new one.
+                     self.ui_program.clear_undo_history()
                      self.ui_program.refresh_ops_tree()
                      self.ui_program.refresh_pass_info()
                  messagebox.showinfo(t("msg_project_loaded_title"),

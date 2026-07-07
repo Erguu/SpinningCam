@@ -3,6 +3,157 @@
 
 ---
 
+## Features — 2026-07-07 (scoping, not started)
+
+> Three Program-tab usability items raised by the user. **#68 is analysis-first:
+> NO implementation without explicit user approval** (working program, don't break it).
+
+### 66. Program tab — Undo / Revert for operation-list actions (undo SPLIT is a MUST)
+
+**✅ IMPLEMENTED 2026-07-07 (headless-verified, GUI smoke PENDING, commit PENDING).**
+`OpUndoStack` (pure, module-level in `program_tab.py`) + ↶/↷ toolbar buttons +
+Ctrl+Z / Ctrl+Y (guarded: ignored when Program tab hidden or focus in a text
+field). 9 actions tracked: add / del / move / toggle (incl. double-click) /
+Continue ⤵ / Reach⟲ / Angle⟲ / Split / suggester-insert; push AFTER validation,
+BEFORE mutation. 50-deep, redo cleared on new action, history cleared on project
+load (`main_window`). Restore path clears entry-savers + rebuilds editor (#56
+pattern) and fires debounced auto-calc. `_test_undo.py` (7 scenarios) +
+continue/split regressions PASS. i18n ×3 + help EN/TR updated. See LAST_CHANGES
+2026-07-07.
+
+**Why (user, 2026-07-07):** the op-management actions (Split, Delete, Continue ⤵,
+Reach⟲, Move, batch edits…) all mutate the `operations` list irreversibly. Splitting
+an op (#64) replaces one parametric op with N chunk-ops and the original is simply
+gone — the user explicitly wants **undo of a Split** as the minimum bar.
+
+**Proposed scope (agent, to be confirmed):** a generic **snapshot-based undo stack**
+rather than per-action inverse logic:
+- Before every *mutating toolbar/structural action* (split, delete, move, add,
+  continue-fill, Reach⟲/Angle fill, batch edit #67), push a deep-copy of
+  `params["operations"]` (pure JSON dicts — cheap) onto an undo stack.
+- **Undo button + Ctrl+Z** pops the stack, restores the list, rebuilds tree/editor,
+  fires recalc (respecting async auto-calc).
+- Advantage: one mechanism covers ALL current and future actions — no per-feature
+  inverse math (a true "merge chunks back" inverse of split is not needed).
+
+**DECIDED (user, 2026-07-07):**
+- **Buttons/structural actions only** — per-field typing edits do NOT push undo
+  steps for now (may add field-level later).
+- A **batch edit (#67) = ONE undo step** — a single Ctrl+Z reverts the whole batch.
+- **Redo included** (Ctrl+Y / Redo button): undone snapshots move to a redo stack;
+  any NEW action clears the redo stack (standard editor semantics).
+- **Depth = 50 undo levels** (snapshots are small JSON — memory trivial); when
+  full, the OLDEST snapshot drops off silently. Redo depth is naturally bounded
+  by undos performed — no separate limit.
+- History is **per-session/per-project**: in-memory only, cleared on project load
+  (agent default, implemented; flag if you want it persisted instead).
+- ⚠️ Interaction to watch: `_active_entry_savers` positional-index writes (#56) —
+  undo must clear/rebuild the editor exactly like `del_op` does, or stale savers
+  will clobber the restored ops.
+
+### 67. Program tab — multi-select operations + batch parameter adjust (add Δ to many ops at once)
+
+**✅ IMPLEMENTED 2026-07-07 (headless-verified, GUI smoke PENDING, commit PENDING).**
+☑ tick column (click toggles, eats the click; double-click guarded) + native
+Shift/Ctrl multi-select (ticks win when set). "Toplu… (n)" button ≥2 targets →
+`BatchEditDialog` (param dropdown / += = ×= / live old→new preview, greyed
+skips, Apply-gated). Pure `_batch_compute` core: type-universe "na" skip,
+"nobase" skip for +=/×= (set still works), numeric-default fallback, count
+int≥1. Param list = third **"Batch"** checkbox in Customize View
+(`op_view_config[type]["batch"]`, .ssp-saved; missing key → curated default,
+explicit [] respected; numeric `_BATCH_ELIGIBLE` only). Whole batch = ONE #66
+undo snapshot; editor rebuilt after apply (#56 guard); ticks cleared on
+del/move/split/undo-redo/project-load. `_test_batch.py` (9 scenarios) +
+extended `_test_program_tab_toolbar.py` (real-widget: ☑ column, undo/redo
+buttons, batch enable/count, e2e apply + single-step undo) PASS. i18n ×3 +
+help EN/TR. See LAST_CHANGES 2026-07-07b.
+
+**Why (user, 2026-07-07):** tuning big programs means selecting each op one-by-one
+and bumping the same parameter repeatedly. Wanted: select multiple ops (e.g. via
+checkboxes), then apply **one adjustment to all of them** — e.g. add a constant to
+every selected op's `start_z`, `end_z`, or reach factor.
+
+**DECIDED (user, 2026-07-07):**
+- **Selection = BOTH**: Shift/Ctrl-click extended selection AND a checkbox "select"
+  column in the ops tree (☐/☑ per row, like the existing "On" column pattern).
+  Note `on_op_select` currently assumes a single active op — multi-select must not
+  break the property editor (e.g. editor shows the *anchor* op, or blanks out when
+  >1 selected).
+- **Undo reverts the whole batch** — one #66 snapshot per Apply, single Ctrl+Z.
+
+**Dialog trigger & shape (agent proposal, user asked "how will it appear"):**
+- A **"Batch…" toolbar button** on the Program tab, enabled only when ≥2 ops are
+  selected (label shows the count, e.g. "Batch (4)…"). Clicking opens a small
+  **modal Toplevel** centered over the ops tree:
+  - Row 1: parameter dropdown + mode radio (**+= Δ** add / **= value** set /
+    **×= factor** scale) + value entry.
+  - Middle: **live preview table** — one row per selected op: `Op | old → new`,
+    updating as the value is typed; ops where the param doesn't apply shown
+    greyed "skipped".
+  - Bottom: Apply (writes all + one undo snapshot + recalc) / Cancel (no change).
+- Same per-field validation as the property editor (floats, ranges).
+- Natural batch candidates beyond Δ: set same tool / clearance / feed on many ops,
+  toggle On/Off for a selection, batch Reach⟲.
+
+**DECIDED (user, 2026-07-07): batch-param list is chosen in Customize View (#59).**
+The view-customizer dialog (per op type: Column / Advanced checkboxes) gets a THIRD
+checkbox column, **"Batch"** — ticked params appear in the batch dialog's parameter
+dropdown. Reuses the existing `op_view_config` storage (per-program, saved in .ssp)
++ `ui/dialogs/view_customizer.py` grid; default ON for a curated numeric subset
+(start_z, end_z, reach, clearance, feed…), rest off. Resolves the old
+"full universe vs curated" question — the user curates it himself.
+
+**Open questions:**
+- [ ] Depends-on: #66 (a batch edit without undo is scary) — build #66 first (agent
+      recommendation, implied accepted by "undo reverts the batch").
+
+### 68. ⚠️ APPROVAL-GATED — Simplify overlapping reach / pass-angle parameters (UX consolidation audit)
+
+**Why (user, 2026-07-07):** the reach controls have accreted: **Reach⟲ button**
+(`compute_reach_from_blank`, one-shot fill), **`reach`** field (manual exit
+magnitude), **`reach_follow_blank`** checkbox (lock reach to flange — *overrides*
+manual reach), **`reach_blank_factor`** (multiplier applied to Reach⟲ AND
+follow-blank), **`progressive_reach_enabled` + `progressive_reach_end`** (per-pass
+fan), plus raw **`p3_x`/`p3_z`** (direction/back-compat). Same pattern for angle:
+**`pass_angle`**, **`progressive_angle_enabled` + `progressive_angle_end`**,
+**Angle button** (`compute_angle_from_surface`). Some of these collide/override
+each other and the precedence is invisible to the operator.
+
+**Known overlaps to untangle (initial audit, 2026-07-07):**
+- `reach_follow_blank` ON silently **overrides** the manual `reach` the user just
+  typed — no visual indication on the field itself.
+- **Reach⟲ button vs `reach_follow_blank`:** same flange model, one is one-shot,
+  one is live — two entry points to one concept.
+- `reach_blank_factor` only matters when Reach⟲/follow-blank are in play, but the
+  field is always visible → looks like a general reach multiplier.
+- `progressive_reach_end` vs `reach`: which one "wins" per pass depends on the fan
+  checkbox + pass_angle being set — precedence chain not surfaced.
+- `pass_angle` empty vs set flips P3 between raw-XZ and polar mode (#61), changing
+  what `reach` even means mechanically — mode is implicit.
+
+**Direction (user LIKED 2026-07-07, still approval-gated per proposal):**
+- Single **"Reach source" selector** (Manual / From blank (live) / one-shot fill)
+  instead of the button+checkbox+factor spread; grey-out/annotate overridden
+  fields ("controlled by follow-blank"); progressive fan as a start→end pair UI
+  shared by angle & reach; keep engine params untouched (UI-level consolidation)
+  for zero toolpath risk + .ssp back-compat.
+- **PLUS (user, 2026-07-07): simplify the naming and/or explanations** of these
+  params — clearer labels, or better in-place explanation.
+- **Explanations home = the Pass Diagram window** (`_show_pass_diagram`,
+  program_tab.py:1777 — the canvas "which parameter affects which part of the
+  pass" guide with the formula panel; user called it the "path shape informer").
+  Extend it to cover the reach/angle family: reach source & precedence (manual vs
+  follow-blank vs fan), what `reach_blank_factor` multiplies, polar-vs-raw P3 mode
+  flip when `pass_angle` is set/empty. Diagram already draws P2/P3 + Pass Angle
+  arc, so reach/fan annotations fit naturally.
+
+**⛔ HARD CONSTRAINT (user, 2026-07-07):** this is a WORKING program.
+Phase 1 = analysis + proposal document only. **Wait for explicit user approval
+before changing ANY behavior.** Back-compat with existing .ssp files mandatory;
+prefer view-layer changes over engine param changes.
+
+---
+
 ## Research & Check Series — 2026-07-04 (scoping only, not started)
 
 > Two operator-confidence topics raised by the user. Descriptions below are the

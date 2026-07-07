@@ -350,6 +350,55 @@ them as Column). If the table has many columns, use the horizontal
 scrollbar under it to reach the ones on the right.
 
 
+UNDO / REDO (↶ / ↷ BUTTONS, Ctrl+Z / Ctrl+Y)
+════════════════════════════════════════════════════════════════
+Every operation-LIST action can be undone: Split, Delete, Move
+▲▼, + Add, Continue ⤵, Reach⟲, Angle⟲, On/Off and inserting
+suggested operations. Undo (↶, Ctrl+Z) restores the operation
+list exactly as it was before the last such action; Redo (↷,
+Ctrl+Y) re-applies an undone action. Up to 50 steps are kept —
+when full, the oldest is dropped silently.
+
+What is NOT tracked: values typed into the parameter fields of
+the property editor. Those are quick to correct by hand, and
+Ctrl+Z pressed while typing in a field is deliberately ignored so
+it never reverts the operation list under you.
+
+Doing any new list action clears the Redo history (the standard
+editor rule). The history is per session and per project: loading
+a project clears it. After an undo/redo the toolpaths recalculate
+automatically only if Auto-Calculate is on — otherwise press
+Calculate as usual.
+
+
+BATCH EDIT (Batch… BUTTON + ☑ COLUMN)
+════════════════════════════════════════════════════════════════
+Change ONE parameter on MANY operations in a single step — e.g.
+add 2 mm to the Start Z of five operations at once, instead of
+selecting and editing each one.
+
+Choosing the target operations, two ways:
+  - Click the ☑ cells in the table's first column to tick
+    operations (clicking the cell only toggles the tick — it does
+    not change the row selection or fire On/Off).
+  - Or simply select several rows with Shift/Ctrl+click.
+Ticks win when any are set; otherwise the selection is used. The
+Batch… button enables at 2+ targets and shows the count.
+
+In the dialog: pick the parameter, the mode — "+= add" (add a
+constant), "= set" (assign a value), "×= scale" (multiply) — and
+type the value. The preview table shows every target operation's
+old → new value LIVE as you type; nothing is written until Apply.
+Rows where the parameter doesn't apply (wrong operation type, or
+no base value for +=/×=) are greyed out and skipped.
+
+The whole batch is ONE undo step: a single Ctrl+Z reverts all of
+it. Which parameters appear in the dropdown is chosen per program
+in Customize… (the third "Batch" checkbox; numeric parameters
+only). Pass count is rounded to a whole number and never drops
+below 1.
+
+
 CUSTOMIZE VIEW (Customize… BUTTON + Advanced CHECKBOX)
 ════════════════════════════════════════════════════════════════
 Large programs expose dozens of parameters per operation, most of
@@ -361,6 +410,9 @@ which you rarely touch. Two controls tame this:
     operations table (so you can compare operations at a glance),
     and/or "Advanced" to hide it from the property editor. A
     parameter can be basic for one type and advanced for another.
+    A third "Batch" checkbox picks which parameters the Batch edit
+    dialog offers (numeric parameters only; "—" means the
+    parameter cannot be batch-edited).
 
   - The "Advanced" checkbox in the toolbar is a global view switch.
     Off: the editor shows only the parameters NOT marked advanced —
@@ -514,6 +566,55 @@ kutusunu işaretleyin). Tabloda çok sütun varsa, sağdakilere ulaşmak
 için altındaki yatay kaydırma çubuğunu kullanın.
 
 
+GERİ AL / YİNELE (↶ / ↷ DÜĞMELERİ, Ctrl+Z / Ctrl+Y)
+════════════════════════════════════════════════════════════════
+Operasyon LİSTESİNİ değiştiren her işlem geri alınabilir: Böl,
+Sil, Taşı ▲▼, + Ekle, Devam ⤵, Reach⟲, Açı⟲, Aç/Kapat ve öneri
+operasyonlarının eklenmesi. Geri Al (↶, Ctrl+Z) listeyi son
+işlemden önceki haline birebir döndürür; Yinele (↷, Ctrl+Y) geri
+alınan işlemi tekrar uygular. En fazla 50 adım tutulur — dolunca
+en eski adım sessizce düşer.
+
+Takip EDİLMEYEN: özellik düzenleyicideki parametre alanlarına
+yazılan değerler. Bunlar elle kolayca düzeltilir; ayrıca bir alana
+yazı yazarken basılan Ctrl+Z bilinçli olarak yok sayılır — yazı
+yazarken operasyon listesi asla geri sarılmaz.
+
+Yeni bir liste işlemi yapmak Yinele geçmişini temizler (standart
+editör kuralı). Geçmiş oturuma ve projeye özeldir: proje yüklemek
+geçmişi sıfırlar. Geri al/yinele sonrası takım yolları yalnızca
+Otomatik Hesapla açıksa kendiliğinden yeniden hesaplanır — değilse
+her zamanki gibi Hesapla'ya basın.
+
+
+TOPLU DÜZENLEME (Toplu… DÜĞMESİ + ☑ SÜTUNU)
+════════════════════════════════════════════════════════════════
+TEK adımda BİRÇOK operasyonun BİR parametresini değiştirin — örn.
+beş operasyonun Başlangıç Z'sine tek seferde 2 mm ekleyin, her
+birini tek tek seçip düzenlemek yerine.
+
+Hedef operasyonları seçmenin iki yolu:
+  - Tablonun ilk sütunundaki ☑ hücrelerine tıklayarak operasyonları
+    işaretleyin (hücreye tıklamak yalnız işareti değiştirir — satır
+    seçimini bozmaz, Aç/Kapat'ı tetiklemez).
+  - Veya satırları Shift/Ctrl+tık ile çoklu seçin.
+İşaret varsa işaretler geçerlidir; yoksa seçim kullanılır. Toplu…
+düğmesi 2+ hedefte aktifleşir ve sayıyı gösterir.
+
+Pencerede: parametreyi, modu — "+= ekle" (sabit ekle), "= ata"
+(değer ata), "×= ölçekle" (çarp) — ve değeri seçin. Önizleme
+tablosu siz yazdıkça her hedef operasyonun eski → yeni değerini
+CANLI gösterir; Uygula'ya basana kadar hiçbir şey yazılmaz.
+Parametrenin geçerli olmadığı satırlar (yanlış operasyon tipi veya
++=/×= için taban değer yok) gri gösterilir ve atlanır.
+
+Tüm toplu işlem TEK geri-al adımıdır: tek Ctrl+Z hepsini geri
+alır. Açılır listede hangi parametrelerin sunulacağı programa özel
+olarak Özelleştir… penceresinde seçilir (üçüncü "Toplu" kutusu;
+yalnız sayısal parametreler). Pas sayısı tam sayıya yuvarlanır ve
+1'in altına düşmez.
+
+
 GÖRÜNÜMÜ ÖZELLEŞTİRME (Özelleştir… DÜĞMESİ + Gelişmiş KUTUSU)
 ════════════════════════════════════════════════════════════════
 Büyük programlarda her operasyon onlarca parametre gösterir, çoğuna
@@ -525,7 +626,10 @@ nadiren dokunursunuz. İki kontrol bunu düzenler:
     operasyon tablosuna sütun olarak ekleyebilir (operasyonları bir
     bakışta karşılaştırmak için) ve/veya "Gelişmiş"i işaretleyerek
     özellik editöründen gizleyebilirsiniz. Bir parametre bir tip
-    için temel, başka bir tip için gelişmiş olabilir.
+    için temel, başka bir tip için gelişmiş olabilir. Üçüncü
+    "Toplu" kutusu, Toplu düzenleme penceresinin hangi
+    parametreleri sunacağını seçer (yalnız sayısal parametreler;
+    "—" = o parametre toplu düzenlenemez).
 
   - Araç çubuğundaki "Gelişmiş" kutusu genel bir görünüm anahtarıdır.
     Kapalı: editör yalnızca gelişmiş işaretlenmemiş parametreleri

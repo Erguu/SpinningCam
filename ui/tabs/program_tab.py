@@ -1,3 +1,4 @@
+import copy
 import tkinter as tk
 from tkinter import ttk, messagebox
 from ui.dialogs.zone_manager import ZoneManager
@@ -178,6 +179,32 @@ _DEFAULT_COLUMNS = {
     "bending":   ["z_pos", "plunge_x"],
 }
 
+# ── Batch edit (#67) ─────────────────────────────────────────────────────
+# Parameters that CAN be batch-edited at all: numeric scalars only (the batch
+# modes are += / = / ×=). Strings, booleans and mode combos are excluded — the
+# Customize dialog only offers the Batch checkbox for keys in this set.
+_BATCH_ELIGIBLE = {
+    "speed", "feed", "count", "start_z", "end_z", "p2_z_extend",
+    "proj_extend_bottom", "proj_extend_top", "p2_radius",
+    "exit_curve_tension", "exit_mid_rotation", "exit_mid_t",
+    "p1_x", "p1_z", "p3_x", "p3_z", "reach", "reach_blank_factor",
+    "pass_angle", "progressive_angle_end", "progressive_reach_end",
+    "clearance", "rot", "contact_zone_mm", "feed_contact",
+    "feed_contact_end", "back_pass_feed", "back_pass_arc_x",
+    "back_pass_arc_z", "tilt_start", "tilt_end", "tilt_offset",
+    "z_pos", "plunge_x",
+}
+
+# Integer-valued params: batch results are rounded and floored to 1.
+_BATCH_INT_KEYS = {"count"}
+
+# Default Batch ticks for a program with no saved config — the curated everyday
+# subset; the user tunes it per program in Customize View (third checkbox).
+_DEFAULT_BATCH_KEYS = {
+    "speed", "feed", "count", "start_z", "end_z", "clearance",
+    "reach", "reach_blank_factor", "pass_angle", "rot", "z_pos", "plunge_x",
+}
+
 
 def _default_cfg(op_type):
     """Resolved fallback config for an op type with no saved op_view_config."""
@@ -186,7 +213,61 @@ def _default_cfg(op_type):
     return {
         "columns":  [k for k in _DEFAULT_COLUMNS.get(op_type, []) if k in uni],
         "advanced": [k for k in uni if k not in basic],
+        "batch":    [k for k in uni if k in _DEFAULT_BATCH_KEYS],
     }
+
+
+class OpUndoStack:
+    """Snapshot-based undo/redo history for the operations list (#66).
+
+    Pure logic, no Tk — ProgramTab wraps it with the UI refresh, so it stays
+    headless-testable (_test_undo.py). Each entry is (label, deep-copy of the
+    ops list, selected index at snapshot time). Ops are plain JSON dicts, so a
+    deep copy is cheap even for large programs. Per-session only: the owner
+    clears it on project load. Semantics are the standard editor model: push
+    records the state BEFORE a mutating action and clears redo; undo moves the
+    current state to the redo stack and hands back the snapshot; redo is the
+    mirror. Depth-limited — when full, the OLDEST snapshot drops off silently.
+    """
+    DEPTH = 50
+
+    def __init__(self):
+        self._undo = []
+        self._redo = []
+
+    def push(self, label, ops, sel_idx=None):
+        self._undo.append((label, copy.deepcopy(ops), sel_idx))
+        if len(self._undo) > self.DEPTH:
+            self._undo.pop(0)
+        self._redo.clear()
+
+    def undo(self, current_ops, current_sel=None):
+        """Returns (label, ops_to_restore, sel_idx) or None if nothing to undo."""
+        if not self._undo:
+            return None
+        label, ops, sel = self._undo.pop()
+        self._redo.append((label, copy.deepcopy(current_ops), current_sel))
+        return label, ops, sel
+
+    def redo(self, current_ops, current_sel=None):
+        """Returns (label, ops_to_restore, sel_idx) or None if nothing to redo."""
+        if not self._redo:
+            return None
+        label, ops, sel = self._redo.pop()
+        self._undo.append((label, copy.deepcopy(current_ops), current_sel))
+        return label, ops, sel
+
+    def clear(self):
+        self._undo.clear()
+        self._redo.clear()
+
+    @property
+    def can_undo(self):
+        return bool(self._undo)
+
+    @property
+    def can_redo(self):
+        return bool(self._redo)
 
 
 class ProgramTab:
@@ -196,6 +277,12 @@ class ProgramTab:
         self.helper = ui_helper
         self.frame = parent_frame
         self._auto_calc_debounce_id = None
+        # #66: snapshot undo/redo for op-list mutations (button/structural
+        # actions only — per-field typing is deliberately not tracked).
+        self._op_undo = OpUndoStack()
+        # #67: op indices ticked in the ☑ column for batch editing. Cleared on
+        # any structural mutation (indices would go stale) and on project load.
+        self._batch_checked = set()
 
         self._create_widgets()
 
@@ -438,7 +525,12 @@ class ProgramTab:
         if not stored:
             return _default_cfg(op_type)
         return {"columns":  list(stored.get("columns", [])),
-                "advanced": list(stored.get("advanced", []))}
+                "advanced": list(stored.get("advanced", [])),
+                # Older saved configs predate the Batch column (#67): fall back
+                # to the curated default. An explicit [] (user unticked all)
+                # is respected — only a MISSING key falls back.
+                "batch":    list(stored["batch"]) if "batch" in stored
+                            else _default_cfg(op_type)["batch"]}
 
     def _hidden_keys(self, op_type):
         """Set of param keys to hide from the editor for this op type given the
@@ -518,9 +610,10 @@ class ProgramTab:
     def rebuild_tree_columns(self):
         """(Re)configure the ops-table columns: fixed base + configured extras."""
         extra = self._column_union()
-        base = ("Idx", "On", "Type", "Count", "Tool", "RealEndZ", "EndReach", "EndAngle")
+        base = ("Sel", "Idx", "On", "Type", "Count", "Tool", "RealEndZ", "EndReach", "EndAngle")
         cols = base + tuple(f"x_{k}" for k in extra)
         self.tree_ops.configure(columns=cols)
+        self.tree_ops.heading("Sel", text="☑"); self.tree_ops.column("Sel", width=28, anchor="center")
         self.tree_ops.heading("Idx", text="#"); self.tree_ops.column("Idx", width=30, anchor="w")
         self.tree_ops.heading("On", text=t("col_on")); self.tree_ops.column("On", width=35, anchor="center")
         self.tree_ops.heading("Type", text=t("col_type")); self.tree_ops.column("Type", width=70)
@@ -552,8 +645,9 @@ class ProgramTab:
         f_tree = ttk.Frame(self.frame)
         f_tree.pack(fill="both", expand=True, padx=5, pady=5)
 
-        cols = ("Idx", "On", "Type", "Count", "Tool", "RealEndZ", "EndReach", "EndAngle")
+        cols = ("Sel", "Idx", "On", "Type", "Count", "Tool", "RealEndZ", "EndReach", "EndAngle")
         self.tree_ops = ttk.Treeview(f_tree, columns=cols, show="headings", height=6)
+        self.tree_ops.heading("Sel", text="☑"); self.tree_ops.column("Sel", width=28, anchor="center")
         self.tree_ops.heading("Idx", text="#"); self.tree_ops.column("Idx", width=30)
         self.tree_ops.heading("On", text=t("col_on")); self.tree_ops.column("On", width=35, anchor="center")
         self.tree_ops.heading("Type", text=t("col_type")); self.tree_ops.column("Type", width=70)
@@ -576,6 +670,9 @@ class ProgramTab:
         self.tree_ops.pack(side="left", fill="both", expand=True)
         self.tree_ops.bind("<<TreeviewSelect>>", self.on_op_select)
         self.tree_ops.bind("<Double-1>", self._on_tree_double_click)
+        # #67: clicking the ☑ cell toggles the row's batch tick (and eats the
+        # click so it doesn't disturb the normal row selection).
+        self.tree_ops.bind("<Button-1>", self._on_tree_click)
 
         # Toolbar
         f_tools = ttk.Frame(self.frame)
@@ -670,6 +767,19 @@ class ProgramTab:
         btn_del.pack(side="left", padx=1)
         self.helper.bind_tooltip(btn_del, "Seçili operasyonu listeden sil.")
 
+        # Batch edit (#67): one adjustment applied to many ops at once. Enabled
+        # when ≥2 ops are targeted (☑ ticks if any, else the tree selection).
+        self.btn_batch = ttk.Button(f_tools, text=t("btn_batch"), width=9,
+                                    state="disabled", command=self.open_batch_edit)
+        self.btn_batch.pack(side="left", padx=1)
+        self.helper.bind_tooltip(self.btn_batch,
+            "TOPLU DÜZENLE: seçili operasyonların BİR parametresini tek seferde değiştir "
+            "(+= sabit ekle / = değer ata / ×= çarpanla ölçekle). Hedef: ☑ sütununda "
+            "işaretli op'lar; hiç işaret yoksa listedeki çoklu seçim (Shift/Ctrl+tık). "
+            "En az 2 operasyon gerekir. Uygulamadan önce eski→yeni önizleme gösterilir; "
+            "tamamı TEK Geri Al (Ctrl+Z) adımıdır. Sunulan parametreler Özelleştir… "
+            "penceresindeki 'Toplu' kutusuyla seçilir.")
+
         btn_tools = ttk.Button(f_tools, text=t("btn_tools"), width=5, command=self.open_tool_manager)
         btn_tools.pack(side="left", padx=5)
         self.helper.bind_tooltip(btn_tools, "Takım kütüphanesini aç. "
@@ -720,6 +830,31 @@ class ProgramTab:
         self.lbl_time.pack(side="right", padx=10)
         self.helper.bind_tooltip(self.lbl_time, "Tahmini toplam program süresi (dakika:saniye). "
                                                  "Tüm pasların toplam yol uzunluğuna ve besleme hızına göre hesaplanır.")
+
+        # Undo/Redo (#66) — snapshot history of op-list actions. Packed after
+        # lbl_time with side="right" so they land left of the time readout.
+        self.btn_redo = ttk.Button(f_tools, text="↷", width=3,
+                                   command=self.redo_op_action, state="disabled")
+        self.btn_redo.pack(side="right", padx=1)
+        self.helper.bind_tooltip(self.btn_redo,
+            "Yinele (Ctrl+Y): geri aldığın operasyon-listesi işlemini tekrar uygular. "
+            "Yeni bir işlem yapınca yinele geçmişi temizlenir.")
+        self.btn_undo = ttk.Button(f_tools, text="↶", width=3,
+                                   command=self.undo_op_action, state="disabled")
+        self.btn_undo.pack(side="right", padx=1)
+        self.helper.bind_tooltip(self.btn_undo,
+            "Geri al (Ctrl+Z): son operasyon-listesi işlemini geri alır — Böl, Sil, Taşı, "
+            "Ekle, Devam ⤵, Reach⟲, Açı⟲, Aç/Kapat, Öneri ekleme. Alan içine yazılan "
+            "değerler geri alınmaz. En fazla 50 adım; proje yüklenince geçmiş sıfırlanır.")
+
+        # Keyboard shortcuts. Bound on the toplevel; the handlers ignore the
+        # event when the Program tab is not the visible tab or when focus is in
+        # a text-entry widget (so Ctrl+Z while typing never reverts the op list).
+        _top = self.frame.winfo_toplevel()
+        _top.bind("<Control-z>", self._on_undo_key)
+        _top.bind("<Control-y>", self._on_redo_key)
+        _top.bind("<Control-Shift-Z>", self._on_redo_key)
+        self._update_undo_buttons()
 
         # Property Editor (scrollable)
         _prop_outer = ttk.LabelFrame(self.frame, text=t("frm_op_settings"))
@@ -854,7 +989,8 @@ class ProgramTab:
             _rz = end_z_map.get(i)
             _rr = reach_map.get(i)
             _ra = angle_map.get(i)
-            vals = [i+1, "✓" if _on else "—", op.get("type", "?").upper(),
+            vals = ["☑" if i in self._batch_checked else "☐",
+                    i+1, "✓" if _on else "—", op.get("type", "?").upper(),
                     op.get("count", 1), op.get("tool_id", "?"),
                     _fmt_num(_rz) if _rz is not None else "—",
                     _fmt_num(_rr) if _rr is not None else "—",
@@ -873,6 +1009,7 @@ class ProgramTab:
                 self.tree_ops.delete(existing_items[i])
 
         self.update_time_estimate()
+        self._update_batch_button()
 
     def toggle_op_enabled(self):
         """Passivate/reactivate the selected op without deleting it. Disabled
@@ -886,6 +1023,7 @@ class ProgramTab:
             op = self.app.params["operations"][idx]
         except (ValueError, IndexError):
             return
+        self._push_undo(t("btn_toggle_op"))
         op["enabled"] = not op.get("enabled", True)
         self.refresh_ops_tree()
         # refresh_ops_tree updates rows in place (op count unchanged), so the
@@ -896,7 +1034,10 @@ class ProgramTab:
         self._schedule_auto_calc()
 
     def _on_tree_double_click(self, event):
-        # Double-click anywhere on a row toggles its enabled state.
+        # Double-click anywhere on a row toggles its enabled state — except on
+        # the ☑ cell, which belongs to the batch tick (#67).
+        if self.tree_ops.identify_column(event.x) == "#1":
+            return "break"
         row = self.tree_ops.identify_row(event.y)
         if row:
             # A single-click already selected the row; only set selection if the
@@ -999,8 +1140,248 @@ class ProgramTab:
             if self.lbl_time: self.lbl_time.config(text=f"{t('lbl_est_time')} {m:02d}:{s:02d}")
         except: pass
 
+    # ------------------------------------------------------------------
+    # Undo / Redo for op-list actions (#66)
+    # ------------------------------------------------------------------
+
+    def _sel_op_idx(self):
+        """Selected op index in the tree, or None."""
+        sel = self.tree_ops.selection()
+        try:
+            return int(sel[0]) if sel else None
+        except (ValueError, IndexError):
+            return None
+
+    def _push_undo(self, label):
+        """Snapshot the ops list BEFORE a mutating toolbar/structural action.
+        Called by every op-list mutator (add/del/move/toggle/split/continue/
+        Reach⟲/Angle⟲/suggester insert). Per-field typing edits deliberately
+        do NOT push — they are cheap to redo by hand and would flood the stack."""
+        self._op_undo.push(label, self.app.params.get("operations", []),
+                           self._sel_op_idx())
+        self._update_undo_buttons()
+
+    def _update_undo_buttons(self):
+        if not hasattr(self, "btn_undo"):
+            return
+        self.btn_undo.config(state="normal" if self._op_undo.can_undo else "disabled")
+        self.btn_redo.config(state="normal" if self._op_undo.can_redo else "disabled")
+
+    def clear_undo_history(self):
+        """Undo history is per-session and per-project: cleared on project load."""
+        self._op_undo.clear()
+        self._update_undo_buttons()
+        self._clear_batch_checks()
+
+    def undo_op_action(self, event=None):
+        self._apply_history(self._op_undo.undo, "msg_undo_done")
+
+    def redo_op_action(self, event=None):
+        self._apply_history(self._op_undo.redo, "msg_redo_done")
+
+    def _apply_history(self, pop_fn, msg_key):
+        """Shared undo/redo: swap the live ops list with the popped snapshot.
+        The current state moves to the counterpart stack (handled by pop_fn)."""
+        # Commit pending field edits FIRST so the snapshot of the current state
+        # (pushed to the counterpart stack) reflects what the user sees.
+        self._flush_entries()
+        res = pop_fn(self.app.params.get("operations", []), self._sel_op_idx())
+        if res is None:
+            return
+        label, ops, sel = res
+        self._clear_batch_checks()  # #67: indices are stale against the restored list
+        # Discard stale property-editor state BEFORE swapping the list — the
+        # entry savers are bound to positional indices of the OLD list and
+        # would clobber the restored ops on the next flush (see del_op / #56).
+        self._active_entry_savers = []
+        self._active_op_idx = None
+        for w in self.f_prop_editor.winfo_children():
+            w.destroy()
+
+        self.app.params["operations"] = ops
+        self.refresh_ops_tree()
+        if ops:
+            new_sel = min(sel if sel is not None else 0, len(ops) - 1)
+            self.tree_ops.selection_set(str(new_sel))
+            self.on_op_select(None, _flush=False)
+        else:
+            self.tree_ops.selection_set(())
+        self._update_undo_buttons()
+        self._schedule_auto_calc()
+        try:
+            self.ui_root.lbl_info.config(text=t(msg_key).format(a=label), fg="#ddd")
+        except Exception:
+            pass
+
+    def _key_event_allowed(self, event):
+        """True when a Ctrl+Z/Y keypress should act on the op list: the Program
+        tab is the visible tab and focus is not inside a text-entry widget."""
+        if not self.frame.winfo_ismapped():
+            return False
+        try:
+            cls = event.widget.winfo_class()
+        except Exception:
+            return True
+        return cls not in ("Entry", "TEntry", "Text", "TCombobox", "Spinbox", "TSpinbox")
+
+    def _on_undo_key(self, event):
+        if self._key_event_allowed(event):
+            self.undo_op_action()
+
+    def _on_redo_key(self, event):
+        if self._key_event_allowed(event):
+            self.redo_op_action()
+
+    # ------------------------------------------------------------------
+    # Batch edit (#67): multi-select + one adjustment on many ops
+    # ------------------------------------------------------------------
+
+    def _on_tree_click(self, event):
+        """Toggle the ☑ batch tick when the click lands on the Sel cell.
+        Returns 'break' there so the click doesn't change the row selection."""
+        if self.tree_ops.identify_region(event.x, event.y) != "cell":
+            return None
+        if self.tree_ops.identify_column(event.x) != "#1":  # Sel is first
+            return None
+        row = self.tree_ops.identify_row(event.y)
+        if not row:
+            return None
+        try:
+            idx = int(row)
+        except ValueError:
+            return None
+        if idx in self._batch_checked:
+            self._batch_checked.discard(idx)
+        else:
+            self._batch_checked.add(idx)
+        self.tree_ops.set(row, "Sel", "☑" if idx in self._batch_checked else "☐")
+        self._update_batch_button()
+        return "break"
+
+    def _clear_batch_checks(self):
+        """Drop all ☑ ticks — indices go stale on structural list changes."""
+        if self._batch_checked:
+            self._batch_checked.clear()
+        self._update_batch_button()
+
+    def _batch_targets(self):
+        """Op indices the batch edit applies to: the ☑ ticks when any are set,
+        otherwise the tree's (extended) selection. Sorted, deduped, in-range."""
+        n = len(self.app.params.get("operations", []))
+        if self._batch_checked:
+            raw = self._batch_checked
+        else:
+            raw = set()
+            for item in self.tree_ops.selection():
+                try:
+                    raw.add(int(item))
+                except ValueError:
+                    pass
+        return sorted(i for i in raw if 0 <= i < n)
+
+    def _update_batch_button(self):
+        if not hasattr(self, "btn_batch"):
+            return
+        n = len(self._batch_targets())
+        if n >= 2:
+            self.btn_batch.config(state="normal", text=f"{t('btn_batch')} ({n})")
+        else:
+            self.btn_batch.config(state="disabled", text=t("btn_batch"))
+
+    def _batch_param_options(self, targets):
+        """Ordered [(key, label)] offered in the batch dialog: union of the
+        Batch-ticked params across the target ops' types, numeric-only."""
+        ops = self.app.params.get("operations", [])
+        types = []
+        for i in targets:
+            ot = ops[i].get("type", "roughing")
+            if ot not in types:
+                types.append(ot)
+        seen = []
+        for ot in types:
+            uni = set(self._universe_for(ot))
+            for k in self._view_cfg(ot)["batch"]:
+                if k in uni and k in _BATCH_ELIGIBLE and k not in seen:
+                    seen.append(k)
+        return [(k, self._param_label(k)) for k in seen]
+
+    @staticmethod
+    def _batch_compute(ops, indices, key, mode, value, universe):
+        """Pure #67 core (headless-tested): what a batch apply would do.
+
+        mode: 'add' (+= value) | 'set' (= value) | 'scale' (×= value).
+        universe: {op_type: iterable of param keys} — ops of a type that
+        doesn't carry `key` are skipped, mirroring the property editor.
+        Returns (changes, skipped): changes[idx] = (old, new) with old=None
+        when the op had no value and no numeric default (set-mode only);
+        skipped[idx] = reason key ('na' = param not in type, 'nobase' =
+        add/scale with nothing to start from).
+        """
+        changes, skipped = {}, {}
+        for i in indices:
+            op = ops[i]
+            ot = op.get("type", "roughing")
+            if key not in universe.get(ot, ()):
+                skipped[i] = "na"
+                continue
+            old = op.get(key)
+            if not isinstance(old, (int, float)) or isinstance(old, bool):
+                dv = OP_PARAM_DEFAULTS.get(key)
+                old = dv if isinstance(dv, (int, float)) and not isinstance(dv, bool) else None
+            if mode == "set":
+                new = value
+            elif old is None:
+                skipped[i] = "nobase"
+                continue
+            elif mode == "add":
+                new = old + value
+            else:  # scale
+                new = old * value
+            if key in _BATCH_INT_KEYS:
+                new = max(1, int(round(new)))
+            else:
+                new = round(float(new), 6)
+            changes[i] = (old, new)
+        return changes, skipped
+
+    def open_batch_edit(self):
+        targets = self._batch_targets()
+        if len(targets) < 2:
+            return
+        options = self._batch_param_options(targets)
+        if not options:
+            messagebox.showinfo(t("dlg_batch_title"), t("msg_batch_noparams"))
+            return
+        from ui.dialogs.batch_edit_dialog import BatchEditDialog
+        BatchEditDialog(self.frame.winfo_toplevel(), self, targets, options)
+
+    def _apply_batch(self, key, changes):
+        """Apply callback from BatchEditDialog: one undo snapshot (#66) for the
+        whole batch, write the new values, refresh, recalc (debounced)."""
+        if not changes:
+            return
+        self._push_undo(t("btn_batch"))
+        ops = self.app.params.get("operations", [])
+        for idx, (_old, new) in changes.items():
+            if 0 <= idx < len(ops):
+                ops[idx][key] = new
+        self.refresh_ops_tree()
+        # Rebuild the editor so its entry widgets (and savers) pick up the new
+        # values — otherwise the anchor op's next flush would write the stale
+        # pre-batch value back over the batch result.
+        if self.tree_ops.selection():
+            self.on_op_select(None, _flush=False)
+        self._schedule_auto_calc()
+        try:
+            self.ui_root.lbl_info.config(
+                text=t("msg_batch_done").format(n=len(changes),
+                                                p=self._param_label(key)), fg="#ddd")
+        except Exception:
+            pass
+
     def on_op_select(self, event, _flush=True):
         sel = self.tree_ops.selection()
+        self._update_batch_button()
         if not sel:
             for w in self.f_prop_editor.winfo_children(): w.destroy()
             return
@@ -2453,6 +2834,7 @@ class ProgramTab:
             self.app.on_param_change("final_part_thickness_on_mandrel", float(blank_thickness))
         if "operations" not in self.app.params:
             self.app.params["operations"] = []
+        self._push_undo(t("btn_suggest_ops"))
         self.app.params["operations"].extend(ops)
         self.refresh_ops_tree()
 
@@ -2645,6 +3027,7 @@ class ProgramTab:
         if not vals:
             messagebox.showinfo(t("msg_reach_title"), t("msg_reach_zero"))
             return
+        self._push_undo(t("btn_compute_reach"))
         self._apply_blank_reach(op, vals)
         r_start, r_end, fanned = vals
 
@@ -2703,6 +3086,7 @@ class ProgramTab:
             theta_a = math.degrees(math.atan2(-pz, px)) if px > 0.001 else -90.0
 
         ang_end = round(theta_end - theta_a, 1)
+        self._push_undo(t("btn_compute_angle"))
         op["progressive_angle_end"] = ang_end
         if int(op.get("count", 1)) > 1:
             op["progressive_angle_enabled"] = True  # fan only takes effect with >1 pass
@@ -2750,6 +3134,8 @@ class ProgramTab:
             return  # cancelled or no divider set
 
         chunks = self._split_op(op, sizes, top_z)
+        self._push_undo(t("btn_split"))
+        self._clear_batch_checks()  # #67: indices shift after the split
         # Discard stale property-editor state before mutating operations (see del_op / #56).
         self._active_entry_savers = []
         self._active_op_idx = None
@@ -2819,6 +3205,7 @@ class ProgramTab:
             return
         prev, cur = ops[idx - 1], ops[idx]
         pg = self.app.path_gen
+        self._push_undo(t("btn_continue_prev"))
         cur.update(self._continue_fill_values(
             prev,
             getattr(pg, "last_op_end_z", {}).get(idx - 1),
@@ -2837,6 +3224,7 @@ class ProgramTab:
     def add_op(self, mode):
         if "operations" not in self.app.params:
             self.app.params["operations"] = []
+        self._push_undo(t("btn_add_op"))
 
         # Load from saved preset if available
         preset = self.app.params.get("op_presets", {}).get(mode)
@@ -2920,6 +3308,8 @@ class ProgramTab:
         if not sel:
             return
         idx = int(sel[0])
+        self._push_undo(t("btn_del_op"))
+        self._clear_batch_checks()  # #67: indices shift after the removal
         # Discard the current property-editor state BEFORE removing the op.
         # The entry-savers are bound to positional indices and still hold the
         # deleted op's widget values; if left in place, the next
@@ -2955,6 +3345,8 @@ class ProgramTab:
         # below can't write the moved op's old widget values into the op
         # that swaps into this index.
         self._flush_entries()
+        self._push_undo(t("act_move_op"))
+        self._clear_batch_checks()  # #67: the swap invalidates ticked indices
         self._active_entry_savers = []
         self._active_op_idx = None
         ops = self.app.params["operations"]

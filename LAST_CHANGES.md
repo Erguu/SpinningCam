@@ -5,6 +5,109 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-07c — Özelleştir penceresi kutu hizası düzeltildi (kullanıcı: "kutular sağa sola kaymış")
+
+`view_customizer._build_type_tab` satırları pack + karakter-genişlikli (width=10)
+widget'larla diziyordu; Toplu sütununda Checkbutton/Label karışımı da eklenince her
+satırın kutuları farklı x'e düşüyordu. FİX: başlık ve gövde artık GRID — kol 0 (parametre
+adı) esner, kol 1-3 sabit 76 px (`_COLW`) ve ortalanmış; başlıkta scrollbar genişliği
+kadar (18 px) boş kolon 4 telafisi. Gerçek-widget smoke (dialog kurulumu + Apply'ın
+columns/advanced/batch yazması) GEÇTİ. Görsel hiza gerçek pencerede DOĞRULANACAK.
+
+## 2026-07-07b — Toplu düzenleme: çoklu-seçim + tek parametre ayarı (Toplu… + ☑ sütunu) — TODO #67
+
+Birçok operasyonun BİR parametresi tek adımda değişir (örn. 5 op'un start_z'sine +2 mm).
+Kullanıcının tek tek seçip düzenleme derdini bitirir.
+
+### Ne eklendi
+- **Hedef seçimi (İKİSİ DE, kullanıcı kararı):** ops ağacına yeni **☑ ilk sütun**
+  (`Sel`, tık = işaret; `<Button-1>` handler'ı "break" döndürür → satır seçimini bozmaz;
+  çift-tık ☑ hücresinde Aç/Kapat'ı TETİKLEMEZ) + Treeview'ın yerleşik Shift/Ctrl çoklu
+  seçimi. Kural: işaret varsa işaretler kazanır, yoksa seçim (`_batch_targets`).
+- **"Toplu…" toolbar düğmesi:** ≥2 hedefte aktif, sayıyı gösterir ("Toplu… (3)").
+  `_update_batch_button` → on_op_select + refresh_ops_tree + ☑ tık.
+- **`BatchEditDialog`** (`ui/dialogs/batch_edit_dialog.py`): parametre combobox +
+  mod radyoları (**+= ekle / = ata / ×= ölçekle**) + değer alanı + **CANLI önizleme
+  tablosu** (# / Tip / Eski / Yeni; uygulanamayan satır gri "atlandı"). Uygula'ya
+  kadar hiçbir şey yazılmaz; geçersiz değerde Uygula kapalı.
+- **Saf çekirdek `ProgramTab._batch_compute`** (headless test edilir): tip evreninde
+  olmayan parametre → "na" atla; +=/×= için taban yok (sayısal olmayan default) →
+  "nobase" atla ama = ata çalışır; eksik değer sayısal OP_PARAM_DEFAULTS'a düşer;
+  `count` tam sayıya yuvarlanır, taban 1.
+- **Parametre listesi Özelleştir'den (#59 entegrasyonu, kullanıcı kararı):**
+  view customizer'a ÜÇÜNCÜ **"Toplu"** kutusu (yalnız `_BATCH_ELIGIBLE` sayısal
+  anahtarlarda; diğerlerinde "—"). `op_view_config[type]["batch"]` olarak .ssp ile
+  kaydedilir. Eski config'de anahtar YOKSA küratörlü varsayılana düşer
+  (`_DEFAULT_BATCH_KEYS`: speed/feed/count/start_z/end_z/clearance/reach/
+  reach_blank_factor/pass_angle/rot/z_pos/plunge_x); açıkça boş [] saygı görür.
+- **Undo entegrasyonu (#66):** tüm batch TEK snapshot (`_apply_batch` →
+  `_push_undo`) → tek Ctrl+Z hepsini geri alır. Uygulama sonrası editör
+  `on_op_select(_flush=False)` ile yeniden kurulur — bayat entry-saver'ın eski
+  değeri geri yazması (#56 deseni) engellenir. `_schedule_auto_calc()` çağrılır.
+- **☑ işaretleri yapısal değişimde temizlenir** (indeks bayatlar): del/move/split/
+  undo-redo/proje yükleme (`_clear_batch_checks`).
+- i18n: btn_batch, dlg_batch_title, lbl_batch_*, rb_batch_*, col_batch_old/new,
+  msg_batch_noparams/done, vc_col_batch (EN/TR/ES) + vc_info güncellendi.
+  Help (EN+TR): "TOPLU DÜZENLEME" bölümü + Özelleştir bölümüne üçüncü kutu notu.
+
+### Doğrulama
+- `_test_batch.py` GEÇTİ (9 senaryo: add/set/scale, na/nobase atlama, default
+  fallback, count int+taban-1, bool guard, default cfg, _view_cfg geri-uyum, eligible seti).
+- `_test_program_tab_toolbar.py` GENİŞLETİLDİ + GEÇTİ (☑ sütunu, undo/redo düğme
+  durumları, batch düğme enable/disable + sayı, uçtan uca batch apply + tek-adım undo).
+  NOT: On işareti values[1]→[2] kaydı (☑ öne eklendi) — test güncellendi.
+- `_test_undo.py` / `_test_continue.py` / `_test_split.py` GEÇİYOR; 4 dosya derleniyor.
+- **GUI smoke test BEKLİYOR** (☑ tıklama, canlı önizleme, gerçek pencerede).
+
+### Geri alma
+`program_tab.py`: _BATCH_* sabitleri, `_default_cfg`/`_view_cfg` "batch" anahtarı,
+Sel sütunu (3 yer), `_on_tree_click`, batch metod bloğu, btn_batch, 5 adet
+`_clear_batch_checks` çağrısı. `view_customizer.py`: üçüncü kutu. Dialog dosyası +
+`_test_batch.py` sil. i18n anahtarları + help bölümleri.
+
+## 2026-07-07 — Program sekmesi Geri Al / Yinele (↶/↷ + Ctrl+Z/Ctrl+Y) — TODO #66
+
+Operasyon LİSTESİNİ değiştiren her düğme işlemi artık geri alınabilir (kullanıcının
+asgari şartı: **Böl geri alınabilmeli**). Snapshot tabanlı: işlem ÖNCESİNDE
+`operations` listesinin deep-copy'si yığına itilir — işlem başına özel ters-mantık yok.
+
+### Ne eklendi
+- `program_tab.py`: modül seviyesinde **`OpUndoStack`** (saf mantık, Tk'sız →
+  headless test edilebilir). 50 derinlik; dolunca EN ESKİ sessizce düşer; yeni işlem
+  redo yığınını temizler (standart editör kuralı). Girdiler `(etiket, ops deep-copy,
+  seçili idx)`.
+- İzlenen işlemler (9): `add_op`, `del_op`, `move_op` (▲▼), `toggle_op_enabled`
+  (çift-tık dâhil), `continue_from_previous`, `compute_reach_from_blank` (Reach⟲),
+  `compute_angle_from_surface` (Açı⟲), `open_split_op` (Böl), `_apply_suggested_ops`
+  (✨Öner ekleme). Push, tüm doğrulamalardan/dialog onayından SONRA, mutasyondan
+  HEMEN ÖNCE. Alan yazımı (property editor) BİLEREK izlenmiyor (kullanıcı kararı).
+- Toolbar: **↶ / ↷** düğmeleri (zaman etiketinin solunda), yoksa disabled.
+  Kısayollar toplevel'a bağlı: Ctrl+Z / Ctrl+Y (+Ctrl+Shift+Z). GUARD:
+  Program sekmesi görünür değilse (`frame.winfo_ismapped()`) veya odak yazı
+  girişindeyse (Entry/TEntry/Text/TCombobox/Spinbox) kısayol YOK SAYILIR —
+  alana yazarken Ctrl+Z listeyi geri sarmaz.
+- `_apply_history`: önce `_flush_entries()` (bekleyen düzenleme karşı-yığın
+  snapshot'ına girsin), sonra saver'lar temizlenip editör widget'ları yıkılır
+  (#56 bayat-saver deseni, del_op ile aynı), liste takas, tree yenile, seçim geri,
+  `_schedule_auto_calc()` (auto-calc kapalıysa hesap YOK — mevcut davranışla uyumlu).
+  Durum çubuğunda "Geri alındı: {işlem}".
+- `main_window.open_project_action`: proje yüklenince `clear_undo_history()` —
+  geçmiş oturuma/projeye özel.
+- i18n: `act_move_op`, `msg_undo_done`, `msg_redo_done` (EN/TR/ES). Help (EN+TR):
+  "GERİ AL / YİNELE" bölümü eklendi.
+
+### Doğrulama
+- `_test_undo.py` GEÇTİ (7 senaryo: restore, redo, deep-copy izolasyonu, redo-temizleme,
+  50-derinlik + en-eski-düşer, boş yığın None + clear, iç içe undo/undo/redo).
+- `_test_continue.py` + `_test_split.py` GEÇTİ (regresyon yok), 4 dosya derleniyor.
+- **GUI smoke test BEKLİYOR** (düğme durumları, kısayol guard'ları gerçek pencerede).
+
+### Geri alma (bu özelliği kaldırmak istersen)
+`program_tab.py`: `OpUndoStack` sınıfı + "Undo / Redo for op-list actions (#66)"
+metod bloğu + 9 adet `self._push_undo(...)` satırı + toolbar ↶/↷ bloğu + `__init__`
+`self._op_undo` satırı. `main_window.py`: `clear_undo_history()` çağrısı.
+i18n 3 anahtar, help 2 bölüm. `_test_undo.py` sil.
+
 ## 2026-07-05e — 3D sürükle-düzenle GERİ ÇEKİLDİ (kullanıcı: "hâlâ glitch, kaldıralım")
 
 VTK sphere-widget sürükleme birkaç turdan sonra bile stabil çalışmadı (küçük kaydırma → büyük

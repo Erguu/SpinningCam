@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from i18n import t
-from ui.tabs.program_tab import _default_cfg
+from ui.tabs.program_tab import _default_cfg, _BATCH_ELIGIBLE
 
 # Op types shown as tabs, with their display-label i18n keys.
 _OP_TYPES = [
@@ -17,10 +17,12 @@ class ViewCustomizerDialog(tk.Toplevel):
     """Customize View (Program tab).
 
     One tab per operation type. Each parameter that the type can render is
-    listed with two checkboxes: 'Show as column' (adds a column to the ops
-    table) and 'Advanced' (hidden from the property editor while the global
-    Advanced toggle is off). Settings are saved per program (params
-    ["op_view_config"]) and never touch operation values or the toolpath.
+    listed with three checkboxes: 'Show as column' (adds a column to the ops
+    table), 'Advanced' (hidden from the property editor while the global
+    Advanced toggle is off) and 'Batch' (#67 — offered in the batch-edit
+    dialog's parameter dropdown; numeric parameters only). Settings are saved
+    per program (params["op_view_config"]) and never touch operation values
+    or the toolpath.
     """
 
     def __init__(self, parent, app, program_tab):
@@ -29,11 +31,12 @@ class ViewCustomizerDialog(tk.Toplevel):
         self.pt = program_tab
 
         self.title(t("dlg_customize_view"))
-        self.geometry("560x600")
+        self.geometry("620x600")
         self.transient(parent)
         self.focus_force()
 
-        # self._vars[op_type][key] = (col_var, adv_var); _order preserves layout.
+        # self._vars[op_type][key] = (col_var, adv_var, bat_var or None);
+        # _order preserves layout. bat_var is None for non-numeric params.
         self._vars = {}
         self._order = {}
 
@@ -60,15 +63,28 @@ class ViewCustomizerDialog(tk.Toplevel):
         ttk.Button(f_btn, text=t("vc_close"), command=self.destroy).pack(side="right", padx=(4, 0))
         ttk.Button(f_btn, text=t("vc_apply"), command=self._apply).pack(side="right")
 
+    # Fixed pixel width of the three checkbox columns — shared by the header
+    # and the body rows so everything lines up in true columns.
+    _COLW = 76
+    _SB_W = 18   # vertical-scrollbar width the header must skip over
+
     def _build_type_tab(self, parent, op_type):
-        # Header row
+        # Header row — grid with the same fixed column widths as the body,
+        # plus a spacer column standing in for the body's scrollbar.
         f_hdr = ttk.Frame(parent)
         f_hdr.pack(fill="x", padx=6, pady=(6, 2))
-        ttk.Label(f_hdr, text=t("vc_col_param"), font=("Arial", 9, "bold")).pack(side="left")
-        ttk.Label(f_hdr, text=t("vc_col_adv"), font=("Arial", 9, "bold"),
-                  width=10, anchor="center").pack(side="right")
-        ttk.Label(f_hdr, text=t("vc_col_show"), font=("Arial", 9, "bold"),
-                  width=10, anchor="center").pack(side="right")
+        f_hdr.columnconfigure(0, weight=1)
+        for c in (1, 2, 3):
+            f_hdr.columnconfigure(c, minsize=self._COLW)
+        f_hdr.columnconfigure(4, minsize=self._SB_W)
+        ttk.Label(f_hdr, text=t("vc_col_param"),
+                  font=("Arial", 9, "bold")).grid(row=0, column=0, sticky="w")
+        ttk.Label(f_hdr, text=t("vc_col_show"),
+                  font=("Arial", 9, "bold")).grid(row=0, column=1)
+        ttk.Label(f_hdr, text=t("vc_col_adv"),
+                  font=("Arial", 9, "bold")).grid(row=0, column=2)
+        ttk.Label(f_hdr, text=t("vc_col_batch"),
+                  font=("Arial", 9, "bold")).grid(row=0, column=3)
         ttk.Separator(parent, orient="horizontal").pack(fill="x", padx=6)
 
         # Scrollable body
@@ -90,29 +106,45 @@ class ViewCustomizerDialog(tk.Toplevel):
         cfg = self.pt._view_cfg(op_type)
         col_set = set(cfg["columns"])
         adv_set = set(cfg["advanced"])
+        bat_set = set(cfg.get("batch", []))
 
         self._vars[op_type] = {}
         self._order[op_type] = list(keys)
 
-        for k in keys:
-            row = ttk.Frame(body)
-            row.pack(fill="x", padx=6, pady=1)
-            ttk.Label(row, text=self.pt._param_label(k)).pack(side="left")
+        # One shared grid for all rows: label column stretches, the three
+        # checkbox columns are fixed-width and centered — true columns, no
+        # per-row drift from pack + character-based widths.
+        body.columnconfigure(0, weight=1)
+        for c in (1, 2, 3):
+            body.columnconfigure(c, minsize=self._COLW)
+
+        for r, k in enumerate(keys):
+            ttk.Label(body, text=self.pt._param_label(k)).grid(
+                row=r, column=0, sticky="w", padx=(6, 4), pady=1)
 
             adv_var = tk.BooleanVar(value=(k in adv_set))
             col_var = tk.BooleanVar(value=(k in col_set))
-            ttk.Checkbutton(row, variable=adv_var, width=10).pack(side="right")
-            ttk.Checkbutton(row, variable=col_var, width=10).pack(side="right")
-            self._vars[op_type][k] = (col_var, adv_var)
+            ttk.Checkbutton(body, variable=col_var).grid(row=r, column=1)
+            ttk.Checkbutton(body, variable=adv_var).grid(row=r, column=2)
+            if k in _BATCH_ELIGIBLE:
+                bat_var = tk.BooleanVar(value=(k in bat_set))
+                ttk.Checkbutton(body, variable=bat_var).grid(row=r, column=3)
+            else:
+                # Non-numeric param: batch modes (+=/=/×=) don't apply.
+                bat_var = None
+                ttk.Label(body, text="—").grid(row=r, column=3)
+            self._vars[op_type][k] = (col_var, adv_var, bat_var)
 
     # ------------------------------------------------------------------
     def _reset_defaults(self):
         for op_type, _ in _OP_TYPES:
             d = _default_cfg(op_type)
-            cols, adv = set(d["columns"]), set(d["advanced"])
-            for k, (col_var, adv_var) in self._vars.get(op_type, {}).items():
+            cols, adv, bat = set(d["columns"]), set(d["advanced"]), set(d["batch"])
+            for k, (col_var, adv_var, bat_var) in self._vars.get(op_type, {}).items():
                 col_var.set(k in cols)
                 adv_var.set(k in adv)
+                if bat_var is not None:
+                    bat_var.set(k in bat)
 
     def _apply(self):
         cfg = {}
@@ -122,6 +154,8 @@ class ViewCustomizerDialog(tk.Toplevel):
             cfg[op_type] = {
                 "columns":  [k for k in order if vars_[k][0].get()],
                 "advanced": [k for k in order if vars_[k][1].get()],
+                "batch":    [k for k in order
+                             if vars_[k][2] is not None and vars_[k][2].get()],
             }
         self.app.params["op_view_config"] = cfg
         self.pt.after_view_config_changed()

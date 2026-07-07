@@ -27,15 +27,18 @@ frame = ttk.Frame(root)
 tab = ProgramTab(frame, app, ui_root, helper)
 root.update_idletasks()
 
-# Tree has the On column and both rows enabled
+# Tree has the On column and both rows enabled (values: Sel, Idx, On, ... — #67
+# added the ☑ batch-tick column in front)
 assert "On" in tab.tree_ops["columns"], "On column missing"
-assert tab.tree_ops.item("0")["values"][1] == "✓", "enabled mark missing"
+assert "Sel" in tab.tree_ops["columns"], "Sel (batch tick) column missing"
+assert tab.tree_ops.item("0")["values"][2] == "✓", "enabled mark missing"
+assert tab.tree_ops.item("0")["values"][0] == "☐", "batch tick should start unticked"
 
 # Toggle selected op -> disabled mark + gray tag, params updated
 tab.tree_ops.selection_set("0")
 tab.toggle_op_enabled()
 assert app.params["operations"][0]["enabled"] is False, "toggle did not passivate op"
-assert tab.tree_ops.item("0")["values"][1] == "—", "disabled mark missing"
+assert tab.tree_ops.item("0")["values"][2] == "—", "disabled mark missing"
 assert "op_disabled" in tab.tree_ops.item("0")["tags"], "gray tag missing"
 tab.toggle_op_enabled()
 assert app.params["operations"][0]["enabled"] is True, "re-toggle did not reactivate"
@@ -60,6 +63,49 @@ suggest_btns = [w for w in tab.frame.winfo_children()[1].winfo_children()
                 if isinstance(w, tk.Button) and w["text"] == t("btn_suggest_ops")]
 assert len(suggest_btns) == 1, "Suggest button missing"
 print("Suggest button present OK")
+
+# The full property-editor rebuild needs real app/tool objects the mocks can't
+# provide; undo/batch correctness is asserted on params, so stub it out here.
+tab.on_op_select = lambda *a, **k: None
+
+# --- #66 Undo/Redo buttons: toggling pushed history -> undo enabled ---
+assert str(tab.btn_undo["state"]) == "normal", "undo should be enabled after actions"
+n_before = len(app.params["operations"])
+tab.tree_ops.selection_set("0")
+tab.toggle_op_enabled()          # one more tracked action
+was_enabled = app.params["operations"][0]["enabled"]
+tab.undo_op_action()
+assert app.params["operations"][0]["enabled"] != was_enabled, "undo did not revert toggle"
+assert str(tab.btn_redo["state"]) == "normal", "redo should be enabled after undo"
+tab.redo_op_action()
+assert app.params["operations"][0]["enabled"] == was_enabled, "redo did not re-apply"
+assert len(app.params["operations"]) == n_before, "undo/redo changed op count"
+print("Undo/Redo buttons + revert/reapply OK")
+
+# --- #67 Batch button: disabled at <2 targets, enabled via ticks or selection ---
+assert str(tab.btn_batch["state"]) == "disabled", "batch should start disabled"
+tab.tree_ops.selection_set(("0", "1"))           # extended selection of 2 ops
+tab._update_batch_button()
+assert str(tab.btn_batch["state"]) == "normal", "batch should enable at 2 selected"
+assert "(2)" in tab.btn_batch["text"], "batch label should show target count"
+tab.tree_ops.selection_set("0")                   # back to single
+tab._update_batch_button()
+assert str(tab.btn_batch["state"]) == "disabled", "batch should disable at 1 selected"
+tab._batch_checked.update({0, 1, 2})              # ☑ ticks override selection
+tab._update_batch_button()
+assert "(3)" in tab.btn_batch["text"], "ticked targets should win over selection"
+changes, skipped = tab._batch_compute(app.params["operations"], tab._batch_targets(),
+                                      "count", "add", 1.0,
+                                      {ot: tab._universe_for(ot)
+                                       for ot in ("roughing", "finishing", "cutting", "bending")})
+assert changes, "batch compute produced no changes"
+tab._apply_batch("count", changes)                # writes + one undo snapshot
+for i, (_old, new) in changes.items():
+    assert app.params["operations"][i]["count"] == new, "batch write missing"
+tab.undo_op_action()                              # single Ctrl+Z reverts the batch
+for i, (old, _new) in changes.items():
+    assert app.params["operations"][i].get("count", 1) == old, "batch undo failed"
+print("Batch targets/compute/apply + single-step undo OK")
 
 root.destroy()
 print("PROGRAM TAB TOOLBAR SMOKE TEST PASSED")
