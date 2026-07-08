@@ -3,7 +3,7 @@ from PyInstaller.utils.hooks import collect_all
 
 datas = []
 binaries = []
-hiddenimports = ['tkinter', 'tkinter.ttk', 'tkinter.messagebox', 'tkinter.filedialog', 'tkinter.simpledialog', 'numpy', 'logging', 'json', 'fpdf', 'pydantic', 'license_manager', 'machine_adapter', 'machine_loader', 'kinematics', 'process_planner', 'tool_step_loader', 'path_generator', 'recipe_to_scl', 'export_manager', 'gui_manager', 'ui.main_window', 'ui.dialogs.machine_selector', 'ui.dialogs.op_suggester', 'ui.dialogs.view_customizer', 'ui.dialogs.touch_calibration', 'ui.dialogs.help_window']
+hiddenimports = ['tkinter', 'tkinter.ttk', 'tkinter.messagebox', 'tkinter.filedialog', 'tkinter.simpledialog', 'numpy', 'logging', 'json', 'fpdf', 'pydantic', 'license_manager', 'machine_adapter', 'machine_loader', 'kinematics', 'process_planner', 'tool_step_loader', 'path_generator', 'recipe_to_scl', 'export_manager', 'gui_manager', 'ui.main_window', 'ui.dialogs.machine_selector', 'ui.dialogs.op_suggester', 'ui.dialogs.view_customizer', 'ui.dialogs.touch_calibration', 'ui.dialogs.help_window', 'ops_library', 'ui.dialogs.op_library_dialog', 'ui.dialogs.batch_edit_dialog', 'ui.dialogs.pass_table']
 tmp_ret = collect_all('pyvista')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('vtkmodules')
