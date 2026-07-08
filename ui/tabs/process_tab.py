@@ -275,9 +275,10 @@ class ProcessTab(ScrollableTabBase):
         self.helper.add_section_header(self.content, t("section_actions"), color="darkblue")
 
         def force_calc():
-             self.app.update_scene("paths", force_path_calc=True)
-             self.root.ui_program.update_time_estimate()
-             self.root.refresh_clamp_status()   # clamp-zone advisory (#62)
+             # R3 (one calc path, #76): route through the SAME background worker
+             # the Program tab uses — no more synchronous UI-thread recalc here.
+             # Time estimate + clamp status refresh when the result lands.
+             self.root.ui_program._start_async_calc()
 
         self.helper.add_button(self.content, t("btn_calculate"), force_calc, "orange",
                                "Mevcut ayarlara göre tüm takım yollarını yeniden hesapla ve görünümü güncelle.")

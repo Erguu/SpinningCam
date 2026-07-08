@@ -867,7 +867,22 @@ class SpinningApp:
                         logger.warning(f"Contact-zone band render failed: {e}")
 
         # 3. Paths
-        if update_type in ["all", "paths", "shell_and_paths", "visual"] and (self.params.get("auto_calculate_paths", False) or force_path_calc or use_cached_paths):
+        # #76/#83 (R3 — one calc path): a LIVE param edit (auto-calc on, no force,
+        # no cached result) delegates the heavy recalc to the Program tab's
+        # background worker instead of running calculate_paths synchronously on
+        # the UI thread (this froze the app for seconds on e.g. a blank-radius
+        # edit). Current path actors stay visible until the fresh result lands
+        # and re-renders via update_scene("paths", use_cached_paths=True).
+        # force_path_calc callers (startup, project load, explicit flows) keep
+        # the old synchronous behavior — correctness over responsiveness there.
+        _delegate_async = (update_type in ["all", "paths", "shell_and_paths", "visual"]
+                           and self.params.get("auto_calculate_paths", False)
+                           and not force_path_calc and not use_cached_paths
+                           and self.params.get("calc_active", False)
+                           and getattr(self, "ui_program", None) is not None)
+        if _delegate_async:
+            self.ui_program._schedule_auto_calc()
+        if (not _delegate_async) and update_type in ["all", "paths", "shell_and_paths", "visual"] and (self.params.get("auto_calculate_paths", False) or force_path_calc or use_cached_paths):
             # Ensure rapids key exists
             if "rapids" not in self.actors: self.actors["rapids"] = []
             if "analysis_lines" not in self.actors: self.actors["analysis_lines"] = []

@@ -3,6 +3,231 @@
 
 ---
 
+## Bug Fixes — 2026-07-07 (reach/angle audit after #68 Phase A, not started)
+
+> Found in a code audit prompted by the user ("something feels broken after the
+> latest fix about angles and reaches"). Engine (`path_generator.py`) verified
+> untouched — all 5 reach suites pass. #72–#74 are straight UI bugs; #75/#76 need
+> a design decision from the user before fixing; #77 is an undo-coverage gap;
+> #78 cosmetic. **#79/#80 came from the user's concrete symptom report (stuck
+> "unrevertable" passes + senseless duplicate end-of-fan passes) — #79 is the
+> likely root cause of the irreversibility and is the top priority together
+> with the #80 per-pass table.**
+>
+> **✅ ALL OF #72–#83 IMPLEMENTED 2026-07-08** per the user-approved
+> `PROPOSAL_REACH_ANGLE_PRIORITY.md` (decisions: popup table, staged edits,
+> follow modifiers ×/mm user-owned, reverse fix = NEW DEFAULT). Headless
+> suites PASS (3 new + 2 rewritten + all legacy reach suites unchanged);
+> **GUI smoke + commit + PHYSICAL validation of #82 reverse passes PENDING.**
+> Detail → `LAST_CHANGES.md` 2026-07-08 + `backup/HANDOVER_2026-07-08.md`.
+> Key design shift: follow-blank now computed ENGINE-side per pass (op dict
+> never auto-rewritten → #74/#75 died at the root); per-pass pins =
+> `op["pass_edits"]` (pin > follow > fan > reach > |p3|).
+
+### 72. ✅ FIXED 2026-07-08 — was: 🔴 #68 REGRESSION — POLAR mode with empty Reach: p3_x/p3_z locked but still control the pass length
+
+**Bug:** `program_tab.py` (`_polar = pass_angle is not None`, ~line 2010) makes
+`p3_x`/`p3_z` readonly whenever pass_angle is set. But the engine's legacy
+fallback (`path_generator.py:333`) uses `|p3_x, p3_z|` as the pass LENGTH when
+`reach` is empty — i.e. for every pre-#61 program. The only fields that control
+length are greyed out, and the tooltip's claim "engine doesn't use this field"
+is false in this case.
+
+**Trap on the escape route:** typing a Reach value to regain length control
+switches ON clearance anchoring (P7 asymmetry, `path_generator.py:416`) — the
+endpoint shifts inward by the clearance amount, so entering the *same* length
+still moves the path.
+
+**Proposed fix (cheapest, highest value):** make the readonly conditional
+`_polar and reach_set`; when polar + reach empty, keep p3 editable and label it
+honestly ("legacy length source"). Optionally hint the P7 shift when a reach is
+first typed.
+
+### 73. ✅ FIXED 2026-07-08 — was: 🔴 #68 REGRESSION — Follow mode with uncomputable flange = Reach silently frozen
+
+**Bug:** `_set_reach_source` locks the Reach field unconditionally, but
+`_blank_reach_values` (`program_tab.py:3186`) returns None when Sheet Radius is
+0/unset, op type is cutting/bending, or the flange is fully consumed — then
+`_refresh_auto_reach` skips the op entirely. Result: field readonly, never
+refreshed, engine keeps using the stale stored value, radio shows "Sacı takip
+et", no warning anywhere. Pre-#68 the checkbox had the same data behavior but
+the field stayed editable.
+
+**Proposed fix:** guard in `_set_reach_source` — if `_blank_reach_values` is
+None, refuse (or warn) instead of locking; and/or show a visible "flanş modeli
+hesaplanamıyor" state on the field.
+
+### 74. ✅ FIXED 2026-07-08 (root-killed: follow moved engine-side) — was: 🔴 P1 fix incomplete — `progressive_reach_end` still has the stale/ping-pong write-back
+
+**Bug:** `_apply_blank_reach` (`program_tab.py:3217`) overwrites TWO keys every
+calc in follow mode: `reach` AND `progressive_reach_end`. #68 made `reach`
+readonly with a `_reach_live_var` live read-out, but the fan-end field is still
+a normal editable entry with a FocusOut saver and no display refresh — type a
+value → next calc overwrites it → field shows the dead value → tab out writes
+the stale value back. The exact bug #68 fixed for `reach`, alive on the sibling
+field (and A4 moved it directly under Reach, so it's easier to hit now).
+
+**Proposed fix:** mirror the `reach` mechanism — readonly + live var push in
+follow mode for `progressive_reach_end`.
+
+### 75. ✅ RESOLVED 2026-07-08 (user owns the fan flag; follow greys but never flips it) — was: 🟠 DESIGN DECISION — Follow mode force-re-enables the Progressive Reach fan every calc
+
+**Symptom:** in follow mode on a multi-pass polar op, unticking the Progressive
+Reach checkbox recalcs without the fan, then the next auto-refresh
+(`_apply_blank_reach` sets `progressive_reach_enabled = True`) silently turns
+it back on — the toolpath flips back and the checkbox display goes stale.
+Reads as "my toggle doesn't stick / paths change on their own". Pre-existing
+from #61-B, but the #68 regrouping made the checkbox far more discoverable.
+
+**Decision needed (user):** should follow mode own the fan flag (then grey the
+checkbox in follow mode, honest UI), or should a manual untick win (then
+`_apply_blank_reach` must not touch `progressive_reach_enabled` when the user
+turned it off)?
+
+### 76. ✅ FIXED 2026-07-08 (single calc path: async delegation in update_scene + toggles via _schedule_auto_calc) — was: 🟠 DESIGN DECISION — Two calc trigger families, only one refreshes follow-reach
+
+**Bug:** `_start_async_calc` (`program_tab.py:1109`) runs `_refresh_auto_reach`
+before calculating; the direct synchronous `update_scene("paths")` calls — every
+checkbox/toggle handler in the editor (e.g. lines ~2115/2155/2204) and
+Process-tab Calculate (`process_tab.py:278`) — do NOT. With a follow op whose
+start_z/end_z/blank changed, the same program yields different toolpaths
+depending on which control triggered the calc; G-code inherits whichever ran
+last. Combined with #75 this fully explains intermittent "sometimes right,
+sometimes not".
+
+**Decision needed (user):** move `_refresh_auto_reach` into `update_scene`'s
+calc branch (single choke point, main.py:885 area) vs. route the remaining
+sync callers through `_start_async_calc`. Either way there must be exactly ONE
+calc entry path for op-param changes.
+
+### 77. ✅ FIXED 2026-07-08 (radio pushes undo; blocked when flange uncomputable) — was: 🟡 Follow-mode radio switch is a one-way door — no undo snapshot
+
+**Bug:** switching the Reach source radio to "Sacı takip" immediately overwrites
+`reach`, `progressive_reach_end` and forces the fan ON, with no `_push_undo` in
+`_set_reach_source` (the silent per-calc refresh is deliberately untracked, but
+the *switch itself* isn't tracked either — unlike the one-shot Reach⟲ which is).
+Trying follow mode once destroys the manual setup; Ctrl+Z reverts something
+else. The §5 reversibility guarantee in `PROPOSAL_68_REACH_ANGLE_UX.md` covers
+the reach value but never mentions the fan overwrite.
+
+**Proposed fix:** `_push_undo` at the top of `_set_reach_source` (it's a
+button-class action per the #66 semantics). Update proposal §5 accordingly.
+
+### 78. ✅ FIXED 2026-07-08 (_section tag) — was: ⚪ Cosmetic — exit-mode status line can't be hidden by Customize View
+
+The new `f_xmode` frame (`program_tab.py:2016`) has no `_pkey`/`_section` tag,
+so `_apply_field_visibility` never hides it — it lingers even when the whole
+Path Shape section is hidden. Tag it with `_section = "path_shape"` (or a
+`_pkey`) so it follows the section.
+
+### 79. ✅ IMPLEMENTED 2026-07-08 (pass_edits pins + table badges + unpin + undo sidecar; NO auto-migration by user choice) — was: 🔴 Per-pass overrides are invisible, un-undoable, and index-shifting → "program becomes unrevertable"
+
+**Symptom (user):** after using Reach⟲/Angle⟲ and per-pass edits, some passes
+stay stuck at old values no matter what is clicked — feels unrevertable.
+
+**Root cause (code-verified):** the "apply to this pass only" mode writes into
+`gui_pass_overrides` (`main.py:1313-1316`), a store that is (a) INVISIBLE in
+the op property editor, (b) IMMUNE to Reach⟲/Angle⟲ (they write op-level keys
+the overridden pass ignores), (c) OUTSIDE the #66 undo stack (`OpUndoStack.push`
+at `program_tab.py:240` snapshots only the ops list), and (d) keyed by GLOBAL
+forward-pass index — change a count / reorder / split and the override silently
+re-attaches to a DIFFERENT pass. The user's live program carries a leftover
+override (pass 0: angle 264.28, reach 46.23); the op-dict copy under
+`op["pass_overrides"]` is dead data no code reads (legacy key — strip on load).
+
+**Proposed fix (needs user approval of scope):**
+- Visibility: mark overridden passes in the ops tree / pass stepper (badge or
+  color) + an editor line "bu pasta N override var" with a **Clear overrides**
+  button (per pass + per op).
+- Undo: include `gui_pass_overrides` in every #66 snapshot (tiny dict — cheap).
+- Index safety: on any structural change (add/del/move/split/count change),
+  either remap or clear+warn — silent re-attachment must stop.
+- Load hygiene: drop the dead `op["pass_overrides"]` key.
+
+### 80. ✅ P1 IMPLEMENTED 2026-07-08 (pass table + 3 warnings; effect-based fan distribution = future opt-in) — was: 🟠 Angle-fan end produces near-duplicate "senseless" passes; fans are hard to author blind
+
+**Symptom (user):** ~30-pass op; first half fans reach toward a point, second
+half behaves differently, and the final passes repeat with the same angle —
+looks meaningless.
+
+**Root causes (code-verified, all engine-by-design but operator-hostile):**
+1. Linear angle fan in DEGREES (`path_generator.py:323-332`): near 180° equal
+   degree steps are geometrically almost identical → the last several passes
+   render as near-duplicate vertical exits. Even fan ≠ even material action.
+2. Fold-back guard flips mid-fan (`path_generator.py:427-434`): once exit-X
+   component < clearance (user's op: 4.5 mm), clearance cancellation switches
+   off → that pass jumps ~clearance outward vs its neighbor, rest cluster.
+3. Linear reach fan between two numbers vs. non-linearly shrinking flange; a
+   fan end filled from a consumed flange ≈ 0 → last pass silently falls back
+   to the RAW default exit (`if _L3 > 0.001` at `path_generator.py:344`).
+
+**Proposed direction (ties into #68 Phase B — needs user approval):**
+- **Per-pass effective table FIRST** (Phase B item B3 pulled forward): pass i →
+  Z, effective angle, effective reach, clearance-anchored or not — so the
+  operator SEES all 30 passes before running. This alone answers "makes no
+  sense".
+- Warn when `progressive_angle_end` ≳ 170° with a large clearance (guard-flip
+  zone) and when the reach fan end ≈ 0 (default-exit fallback).
+- Optional (engine, separate approval): distribute the fan by exit geometry
+  instead of raw degrees, or auto-cap the fan where passes become indistinct.
+
+> #81–#83 below come from the user's requirements walkthrough (2026-07-07
+> evening session). Umbrella design = `PROPOSAL_REACH_ANGLE_PRIORITY.md`
+> (priority model: direction=angle, length=reach, shape=per-op curve; manual
+> beats auto; one calc path; everything auto is visible+undoable).
+
+### 81. ✅ IMPLEMENTED 2026-07-08 (per-op field, global fallback) — was: 🟠 USER-REQUESTED — `exit_arc_angle` is GLOBAL but shapes every op's P2→P3 curve → make it per-op
+
+**Root cause (code-verified):** the exit curve bow is read from GLOBAL params
+(`path_generator.py:1061`, `float(params.get("exit_arc_angle", 0.0))`) and its
+UI lives on the Process tab (`process_tab.py:216`) — while every sibling curve
+control (`p2_radius`, `exit_mid_rotation`, `exit_mid_t`) is per-op. One global
+spinbox silently bends the exit of ALL operations; the user hunted for why his
+pass shape changed and found a "visual/safety-looking" first-tab parameter.
+
+**Proposed fix:** read `op.get("exit_arc_angle", params.get(...))` in the
+engine (per-op wins, global = default/fallback → old programs identical), add
+the field to the op editor's Path Shape section (Customize/Advanced aware),
+keep the Process-tab spinbox as the default value. Gives the user free
+line-or-curve control between P2 and P3 per operation.
+
+### 82. ✅ IMPLEMENTED 2026-07-08 as NEW DEFAULT (user choice; reverse_legacy_flip = escape hatch; ⚠ PHYSICAL VALIDATION PENDING) — was: 🟠 corrected — REVERSE passes approach the mandrel along the exit CURVE (geometry roles don't swap)
+
+**Symptom (user, clarified):** a reverse-direction pass is linear near the
+mandrel only on one side — there is an unwanted curve between the pass's end
+point and the mandrel-near P2. Forward passes are fine (straight arm into P2,
+curve only on the exit).
+
+**Root cause (code-verified):** reverse = the FORWARD point set flipped
+(`path_generator.py:483-487`, `new_path[::-1]`). Geometry is identical, only
+traversal reverses — so the roller ENTERS the mandrel-near P2 along the former
+exit curve (exit_arc bow / exit_mid tail / fillet), and LEAVES along the
+straight arm. Operator intent is the opposite: straight segment into the
+mandrel-near point, curve on the way out.
+
+**Proposed fix (needs design approval + physical care):** when
+`direction == "reverse"`, BUILD the pass with swapped segment roles (straight
+arm on the approach-to-P2 side, exit curve on the leave side) instead of
+flipping the forward point set — or offer it as an opt-in "swap geometry"
+flag per op to protect existing programs. Interacts with p2_radius fillet
+tangents and the clearance shift; needs its own regression test.
+
+### 83. ✅ FIXED 2026-07-08 (update_scene async delegation for live edits) — was: 🔴 blank_radius slider freezes the program (sync full recalc per drag tick)
+
+**Root cause (code-verified):** `blank_radius` is a SCALE wired to mode "all"
+(`process_tab.py:226`) → every drag tick fires `update_scene("all")` → full
+shell/scene rebuild + SYNCHRONOUS `calculate_paths` on the UI thread
+(`main.py:885`) when auto-calc is on. Dragging generates dozens of ticks →
+back-to-back full recalcs → multi-second freeze. Same family as #76 (second
+calc entry point that bypasses `_start_async_calc`).
+
+**Proposed fix:** debounce the scale (recalc on release / after ~300 ms idle),
+route the path recalc through the async worker (`_start_async_calc` pattern),
+keep only the cheap visual blank-disc update live during the drag. Also a good
+excuse to profile `calculate_paths` once (user: "calculation can be faster").
+
+---
+
 ## Features — 2026-07-07 (scoping, not started)
 
 > Three Program-tab usability items raised by the user. **#68 is analysis-first:

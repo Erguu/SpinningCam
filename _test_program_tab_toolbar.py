@@ -50,12 +50,29 @@ menubuttons = [w for w in tab.frame.winfo_children()[1].winfo_children()
 assert len(menubuttons) == 1, "Add dropdown missing"
 menu = menubuttons[0].nametowidget(menubuttons[0]["menu"])
 n_entries = menu.index("end") + 1
-assert n_entries == 4, f"expected 4 op types in dropdown, got {n_entries}"
+# 4 op types + separator + 4 factory-clean variants (2026-07-08 escape hatch)
+assert n_entries == 9, f"expected 9 dropdown entries (4 + sep + 4 factory), got {n_entries}"
 # selecting an entry adds an op
 menu.invoke(0)  # roughing
 assert len(app.params["operations"]) == 3, "dropdown add_op did not append"
 assert app.params["operations"][-1]["type"] == "roughing"
 print("+Add dropdown adds operations OK")
+
+# --- Factory-clean escape hatch (user 2026-07-08): polluted preset must be
+# used by the normal add, IGNORED by the factory add. ---
+app.params["op_presets"] = {"roughing": {
+    "type": "roughing", "count": 30, "reach": 40.0, "reach_follow_blank": True,
+    "pass_edits": {"0": {"reach": 5.0}}, "pass_angle": 93.0}}
+tab.add_op("roughing")                      # normal: inherits the pollution
+assert app.params["operations"][-1].get("pass_edits"), "normal add must use the preset"
+tab.add_op("roughing", factory=True)        # factory: clean
+fresh = app.params["operations"][-1]
+assert "pass_edits" not in fresh and "reach_follow_blank" not in fresh \
+       and "pass_angle" not in fresh, "factory add must ignore op_presets"
+assert fresh["type"] == "roughing" and fresh["enabled"] is True
+app.params["operations"] = app.params["operations"][:3]   # drop the two probes
+tab.refresh_ops_tree()
+print("Factory-clean add bypasses polluted preset OK")
 
 # Suggest button present (tk.Button with the i18n label)
 from i18n import t
@@ -148,30 +165,84 @@ tab.undo_op_action()
 assert len(app.params["operations"]) == n1, "undo did not remove library insert"
 print("Library insert (position, content, r_tool sync, undo) OK")
 
-# --- #68 Reach source: follow overwrites reach, release unlocks cleanly ---
+# --- R2 (2026-07-07 rework): follow mode NEVER rewrites the op dict — the
+# engine computes per pass; the old UI-side auto-rewrite must be gone. ---
 op0 = app.params["operations"][0]
 op0["reach"] = 42.0
 op0["reach_follow_blank"] = True
-tab._blank_reach_values = lambda op: (10.0, 5.0, False)   # stub the flange model
-tab._refresh_auto_reach()
-assert op0["reach"] == 10.0, "follow mode did not refresh reach"
-# Release (#68 reversibility guarantee): back to Elle — the auto refresh must
-# stop touching the op and a manual edit must survive the next refresh.
+assert not hasattr(tab, "_refresh_auto_reach"), "UI-side auto reach rewrite must be gone"
+assert op0["reach"] == 42.0, "manual reach must stay untouched under follow"
 op0["reach_follow_blank"] = False
-op0["reach"] = 33.0
-tab._refresh_auto_reach()
-assert op0["reach"] == 33.0, "released op still auto-refreshed"
-# Live read-out var gets the fresh value when registered for the op (#68 P1).
-op0["reach_follow_blank"] = True
-class _FakeVar:
-    def __init__(self): self.v = None
-    def set(self, x): self.v = x
-tab._reach_live_var = _FakeVar()
-tab._reach_live_idx = 0
-tab._refresh_auto_reach()
-assert tab._reach_live_var.v == str(op0["reach"]), "live var not updated"
-op0["reach_follow_blank"] = False
-print("Reach source follow/release + live read-out (#68) OK")
+print("Follow mode leaves the op dict untouched (R2) OK")
+
+# --- Per-pass table (#80/#79): rows, staged edit, Apply = ONE undo step ---
+from mandrel_analyzer import MandrelManager
+from ui.dialogs.pass_table import PassTableDialog
+_mgr = MandrelManager(); _mgr.create_default_cone(); _mgr.update_geometry(0, 0, 0, 0.0, 0.0)
+app.mandrel_mgr = _mgr
+app.gui_pass_overrides = {}
+_min_z = float(_mgr.props["min_z"])
+op0.update({"count": 3, "pass_angle": 120.0, "reach": 40.0,
+            "start_z": _min_z + 10, "end_z": _min_z + 30,
+            "pass_shape": "linear_approach"})
+app.params.setdefault("blank_radius", 0.0)
+tab.tree_ops.selection_set("0")
+dlg = PassTableDialog(root, app, tab, 0)
+assert len(dlg.tree.get_children()) == 3, "pass table must show 3 rows"
+assert str(dlg.btn_apply["state"]) == "disabled", "Apply enabled with nothing staged"
+dlg.staged[2] = {"reach": 15.0}
+dlg.refresh()
+assert str(dlg.btn_apply["state"]) == "normal", "Apply not enabled by staging"
+assert "pass_edits" not in op0, "staging must not touch the op (staged-only)"
+n_undo_before = len(tab._op_undo._undo)
+dlg._apply()
+assert app.params["operations"][0].get("pass_edits") == {"2": {"reach": 15.0}}, \
+    "Apply did not write the pin"
+assert len(tab._op_undo._undo) == n_undo_before + 1, "Apply must be exactly ONE undo step"
+tab.undo_op_action()
+assert "pass_edits" not in app.params["operations"][0], "Ctrl+Z did not remove the pins"
+dlg.destroy()
+print("Pass table staged apply + single-step undo OK")
+
+# --- Unpin also clears LEGACY hidden overrides, undoably (#79) ---
+app.params["operations"][0]["pass_edits"] = {"1": {"reach": 9.0}}
+app.gui_pass_overrides = {1: {"reach": 46.2}}   # op0 pass 1 (base_fwd_idx = 0)
+tab.tree_ops.selection_set("0")
+import tkinter.messagebox as _mb
+_orig_info = _mb.showinfo
+_mb.showinfo = lambda *a, **k: None            # swallow the "cleared" popup
+dlg2 = PassTableDialog(root, app, tab, 0)
+dlg2.tree.selection_set("1")
+dlg2._unpin_selected()
+_mb.showinfo = _orig_info
+assert "pass_edits" not in app.params["operations"][0], "pin not cleared"
+assert app.gui_pass_overrides == {}, "legacy override not cleared"
+tab.undo_op_action()
+assert app.gui_pass_overrides == {1: {"reach": 46.2}}, \
+    "undo did not restore the legacy override sidecar (#79)"
+dlg2.destroy()
+print("Unpin clears pins + legacy overrides, undo restores both OK")
+
+# --- Reset to factory defaults (right-click, user 2026-07-08): parameters
+# replaced, type/name/enabled kept, one undo step restores everything. ---
+op0 = app.params["operations"][0]
+op0.update({"name": "my rough", "reach": 40.0, "reach_follow_blank": True,
+            "pass_edits": {"0": {"reach": 5.0}}, "enabled": False})
+old_snapshot = dict(op0)
+tab.refresh_ops_tree()
+tab.tree_ops.selection_set("0")
+_orig_yesno = _mb.askyesno
+_mb.askyesno = lambda *a, **k: True
+tab.reset_op_to_factory()
+_mb.askyesno = _orig_yesno
+r = app.params["operations"][0]
+assert "pass_edits" not in r and "reach_follow_blank" not in r and "reach" not in r, \
+    "factory reset must drop experiment keys"
+assert r["type"] == "roughing" and r["name"] == "my rough" and r["enabled"] is False, \
+    "factory reset must keep type, name, enabled state"
+tab.undo_op_action()
+assert app.params["operations"][0] == old_snapshot, "undo did not restore the old op"
+print("Factory reset (drop params, keep identity, undoable) OK")
 
 root.destroy()
 print("PROGRAM TAB TOOLBAR SMOKE TEST PASSED")

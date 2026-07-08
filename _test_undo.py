@@ -10,7 +10,7 @@ ops_after = [{"type": "roughing", "count": 2, "start_z": 10.0},
              {"type": "roughing", "count": 3, "start_z": 30.0}]
 res = s.undo(ops_after, current_sel=1)
 assert res is not None
-label, restored, sel = res
+label, restored, sel, _extra = res
 assert label == "Split" and sel == 0
 assert restored == [{"type": "roughing", "count": 5, "start_z": 10.0}], restored
 assert s.can_redo and not s.can_undo
@@ -18,7 +18,7 @@ print("undo restores pre-action snapshot: OK")
 
 # --- redo: re-applies the undone state ---
 res2 = s.redo(restored, current_sel=0)
-label2, re_ops, sel2 = res2
+label2, re_ops, sel2, _extra2 = res2
 assert label2 == "Split" and sel2 == 1
 assert re_ops == ops_after, re_ops
 assert s.can_undo and not s.can_redo
@@ -30,7 +30,7 @@ live = [{"type": "roughing", "start_z": 10.0}]
 s2.push("Delete", live)
 live[0]["start_z"] = 999.0          # live edit after the snapshot
 live.append({"type": "finishing"})
-_, snap, _ = s2.undo(live)
+_, snap, _, _ = s2.undo(live)
 assert snap == [{"type": "roughing", "start_z": 10.0}], snap
 print("deep-copy isolation (live edits don't corrupt snapshots): OK")
 
@@ -50,7 +50,7 @@ for i in range(OpUndoStack.DEPTH + 5):
 count = 0
 cur = [{"n": "live"}]
 while s4.can_undo:
-    _, cur, _ = s4.undo(cur)
+    _, cur, _, _ = s4.undo(cur)
     count += 1
 assert count == OpUndoStack.DEPTH, count
 assert cur == [{"n": 5}], cur       # steps 0..4 were dropped; oldest kept = 5
@@ -70,13 +70,26 @@ s6 = OpUndoStack()
 v0, v1, v2 = [{"v": 0}], [{"v": 1}], [{"v": 2}]
 s6.push("add1", v0)   # before v0 -> v1
 s6.push("add2", v1)   # before v1 -> v2
-_, back1, _ = s6.undo(v2)          # v2 -> v1
+_, back1, _, _ = s6.undo(v2)          # v2 -> v1
 assert back1 == v1
-_, back0, _ = s6.undo(back1)       # v1 -> v0
+_, back0, _, _ = s6.undo(back1)       # v1 -> v0
 assert back0 == v0
-_, fwd1, _ = s6.redo(back0)        # v0 -> v1
+_, fwd1, _, _ = s6.redo(back0)        # v0 -> v1
 assert fwd1 == v1
 assert s6.can_undo and s6.can_redo
 print("interleaved undo/undo/redo sequence: OK")
+
+# --- extra sidecar (#79): gui_pass_overrides restored together with the ops ---
+s7 = OpUndoStack()
+ops7 = [{"type": "roughing", "count": 3}]
+ovr7 = {2: {"reach": 46.2}}
+s7.push("Unpin", ops7, sel_idx=0, extra=ovr7)
+ovr7.clear()                                     # simulate the mutation (override cleared)
+res7 = s7.undo(ops7, current_sel=0, current_extra=ovr7)
+_, _, _, extra7 = res7
+assert extra7 == {2: {"reach": 46.2}}, extra7    # sidecar restored
+res7b = s7.redo(ops7, current_sel=0, current_extra=extra7)
+assert res7b[3] == {}, res7b[3]                  # redo returns the cleared state
+print("extra sidecar (gui_pass_overrides) undo/redo: OK")
 
 print("ALL UNDO TESTS PASSED")

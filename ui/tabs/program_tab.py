@@ -74,10 +74,10 @@ OP_PARAM_UNIVERSE = {
         "name", "tool_id", "count", "direction",
         "tilt_mode", "tilt_start", "tilt_end", "tilt_offset",
         "start_z", "end_z", "p2_z_extend", "proj_extend_bottom", "proj_extend_top",
-        "pass_shape", "p2_radius", "exit_curve_tension", "exit_mid_rotation",
+        "pass_shape", "p2_radius", "exit_arc_angle", "exit_curve_tension", "exit_mid_rotation",
         "exit_mid_t", "conformal_clearance_operation_specific",
         "approach_follow_surface", "p1_x", "p1_z", "p3_x", "p3_z", "reach",
-        "reach_follow_blank", "reach_blank_factor",
+        "reach_follow_blank", "reach_blank_factor", "reach_blank_offset",
         "pass_angle", "progressive_angle_enabled", "progressive_angle_end",
         "progressive_reach_enabled", "progressive_reach_end",
         "clearance", "rot",
@@ -112,7 +112,8 @@ OP_PARAM_LABELS = {
     "z_pos": "lbl_z_pos", "plunge_x": "lbl_plunge_x",
     "clearance": "lbl_clearance", "pass_shape": "lbl_shape_mode",
     "straight_line_mode": "lbl_straight_line",
-    "p2_radius": "lbl_p2_radius", "exit_curve_tension": "lbl_exit_tension",
+    "p2_radius": "lbl_p2_radius", "exit_arc_angle": "lbl_exit_arc",
+    "exit_curve_tension": "lbl_exit_tension",
     "exit_mid_rotation": "lbl_exit_mid_rot", "exit_mid_t": "lbl_exit_mid_t",
     "conformal_clearance_operation_specific": "lbl_conformal_clr",
     "approach_follow_surface": "lbl_approach_surf",
@@ -120,6 +121,7 @@ OP_PARAM_LABELS = {
     "reach": "lbl_reach",
     "reach_follow_blank": "lbl_reach_follow",
     "reach_blank_factor": "lbl_reach_factor",
+    "reach_blank_offset": "lbl_reach_offset",
     "pass_angle": "lbl_pass_angle",
     "progressive_angle_enabled": "lbl_progressive",
     "progressive_angle_end": "lbl_progressive_end",
@@ -146,11 +148,11 @@ GROUP_DEPS = {
 # are currently visible (avoids stray empty section titles in Basic view).
 SECTION_KEYS = {
     "speed_feed": ["speed_mode", "speed", "feed_mode", "feed"],
-    "path_shape": ["pass_shape", "p2_radius", "exit_curve_tension",
+    "path_shape": ["pass_shape", "p2_radius", "exit_arc_angle", "exit_curve_tension",
                    "exit_mid_rotation", "exit_mid_t",
                    "conformal_clearance_operation_specific",
                    "approach_follow_surface", "p1_x", "p1_z", "p3_x", "p3_z", "reach",
-                   "reach_follow_blank", "reach_blank_factor",
+                   "reach_follow_blank", "reach_blank_factor", "reach_blank_offset",
                    "progressive_reach_enabled", "progressive_reach_end"],
     "pass_angle": ["pass_angle", "progressive_angle_enabled",
                    "progressive_angle_end", "clearance", "rot"],
@@ -236,27 +238,32 @@ class OpUndoStack:
         self._undo = []
         self._redo = []
 
-    def push(self, label, ops, sel_idx=None):
-        self._undo.append((label, copy.deepcopy(ops), sel_idx))
+    def push(self, label, ops, sel_idx=None, extra=None):
+        """``extra`` (#79): sidecar state restored together with the ops list —
+        currently the legacy per-pass overrides dict (gui_pass_overrides), so
+        clearing/altering them is undoable like everything else."""
+        self._undo.append((label, copy.deepcopy(ops), sel_idx, copy.deepcopy(extra)))
         if len(self._undo) > self.DEPTH:
             self._undo.pop(0)
         self._redo.clear()
 
-    def undo(self, current_ops, current_sel=None):
-        """Returns (label, ops_to_restore, sel_idx) or None if nothing to undo."""
+    def undo(self, current_ops, current_sel=None, current_extra=None):
+        """Returns (label, ops_to_restore, sel_idx, extra) or None if nothing to undo."""
         if not self._undo:
             return None
-        label, ops, sel = self._undo.pop()
-        self._redo.append((label, copy.deepcopy(current_ops), current_sel))
-        return label, ops, sel
+        label, ops, sel, extra = self._undo.pop()
+        self._redo.append((label, copy.deepcopy(current_ops), current_sel,
+                           copy.deepcopy(current_extra)))
+        return label, ops, sel, extra
 
-    def redo(self, current_ops, current_sel=None):
-        """Returns (label, ops_to_restore, sel_idx) or None if nothing to redo."""
+    def redo(self, current_ops, current_sel=None, current_extra=None):
+        """Returns (label, ops_to_restore, sel_idx, extra) or None if nothing to redo."""
         if not self._redo:
             return None
-        label, ops, sel = self._redo.pop()
-        self._undo.append((label, copy.deepcopy(current_ops), current_sel))
-        return label, ops, sel
+        label, ops, sel, extra = self._redo.pop()
+        self._undo.append((label, copy.deepcopy(current_ops), current_sel,
+                           copy.deepcopy(current_extra)))
+        return label, ops, sel, extra
 
     def clear(self):
         self._undo.clear()
@@ -284,10 +291,6 @@ class ProgramTab:
         # #67: op indices ticked in the ☑ column for batch editing. Cleared on
         # any structural mutation (indices would go stale) and on project load.
         self._batch_checked = set()
-        # #68: live read-out var for the readonly Reach field in follow mode.
-        self._reach_live_var = None
-        self._reach_live_idx = None
-
         self._create_widgets()
 
     # ------------------------------------------------------------------
@@ -704,6 +707,16 @@ class ProgramTab:
                 continue  # op types without UI support yet (future hot ops)
             _add_menu.add_command(label=_op_menu_labels[op_type].lstrip("+ "),
                                   command=lambda ot=op_type: self.add_op(ot))
+        # Factory-clean section: same op types but IGNORING op_presets —
+        # escape hatch when the saved preset is itself broken (2026-07-08).
+        _add_menu.add_separator()
+        for op_type in op_types:
+            if op_type not in _op_menu_labels:
+                continue
+            _add_menu.add_command(
+                label=t("menu_add_factory").format(
+                    name=_op_menu_labels[op_type].lstrip("+ ")),
+                command=lambda ot=op_type: self.add_op(ot, factory=True))
         mb_add["menu"] = _add_menu
         mb_add.pack(side="left", padx=1)
         self.helper.bind_tooltip(mb_add, "Listeye yeni operasyon ekle: kaba, bitirme, kesme, kıvırma. "
@@ -760,6 +773,19 @@ class ProgramTab:
             "yaklaşım yönüne göre pass-açı çerçevesine çevrilir. Silindirde 180° verir, "
             "konide duvar eğimini. TAHMİNDİR — şekillendirme yönünü (yukarı/aşağı) "
             "çalıştırmadan önce doğrula. Pass Angle gerekir.")
+
+        # Per-pass table (#80/#79 — PROPOSAL_REACH_ANGLE_PRIORITY P1): every
+        # pass's effective angle/reach/endpoint + warnings, with staged pin edits.
+        btn_ptable = ttk.Button(f_tools, text=t("btn_pass_table"), width=9,
+                                command=self.open_pass_table)
+        btn_ptable.pack(side="left", padx=1)
+        self.helper.bind_tooltip(btn_ptable,
+            "PAS TABLOSU: seçili operasyonun HER pası için motorun gerçekte "
+            "kullanacağı açı, reach ve uç noktayı gösterir — yelpaze, sac takibi, "
+            "pin ve eski override kaynaklarıyla, uyarılarla (klerens sıçraması, "
+            "yinelenen pas, reach≈0). Açı/Reach hücresine çift tıkla → değer "
+            "BEKLEMEDE kalır; [Uygula] tek Ctrl+Z adımı olarak yazar, [İptal] "
+            "hiçbir şeyi değiştirmez. Satır seçmek pası 3B görünümde vurgular.")
 
         btn_toggle = ttk.Button(f_tools, text=t("btn_toggle_op"), width=8,
                                 command=self.toggle_op_enabled)
@@ -1104,9 +1130,8 @@ class ProgramTab:
         off the main thread. No-op if a calculation is already running."""
         if self.app._calc_running:
             return
-        # Opt-in #61(B): before recomputing, refresh reach for any op locked to the blank
-        # edge so a start_z/end_z change immediately re-kisses the flange (never stale).
-        self._refresh_auto_reach()
+        # (Follow-blank reach is computed INSIDE the engine per pass now — no
+        # pre-calc op rewrite. Every calc entry point gets identical results.)
         # Compute roller_pos from current params (same logic as update_scene header)
         _side = 1.0 if self.app.params.get("roller_positive_x_side", True) else -1.0
         _r = 25.0
@@ -1188,7 +1213,8 @@ class ProgramTab:
         Reach⟲/Angle⟲/suggester insert). Per-field typing edits deliberately
         do NOT push — they are cheap to redo by hand and would flood the stack."""
         self._op_undo.push(label, self.app.params.get("operations", []),
-                           self._sel_op_idx())
+                           self._sel_op_idx(),
+                           extra=getattr(self.app, "gui_pass_overrides", None))
         self._update_undo_buttons()
 
     def _update_undo_buttons(self):
@@ -1215,10 +1241,14 @@ class ProgramTab:
         # Commit pending field edits FIRST so the snapshot of the current state
         # (pushed to the counterpart stack) reflects what the user sees.
         self._flush_entries()
-        res = pop_fn(self.app.params.get("operations", []), self._sel_op_idx())
+        res = pop_fn(self.app.params.get("operations", []), self._sel_op_idx(),
+                     getattr(self.app, "gui_pass_overrides", None))
         if res is None:
             return
-        label, ops, sel = res
+        label, ops, sel, extra = res
+        # #79: restore the legacy per-pass overrides sidecar with the ops list.
+        if extra is not None:
+            self.app.gui_pass_overrides = extra
         self._clear_batch_checks()  # #67: indices are stale against the restored list
         # Discard stale property-editor state BEFORE swapping the list — the
         # entry savers are bound to positional indices of the OLD list and
@@ -1449,11 +1479,13 @@ class ProgramTab:
         m.add_command(label=t("ctx_rename"), command=self.rename_op, state=has)
         m.add_command(label=t("btn_copy_op"), command=self.copy_ops, state=has)
         m.add_command(label=t("btn_toggle_op"), command=self.toggle_op_enabled, state=has)
+        m.add_command(label=t("ctx_reset_factory"), command=self.reset_op_to_factory, state=has)
         m.add_separator()
         m.add_command(label=t("btn_continue_prev"), command=self.continue_from_previous, state=has)
         m.add_command(label=t("btn_split"), command=self.open_split_op, state=has)
         m.add_command(label=t("btn_compute_reach"), command=self.compute_reach_from_blank, state=has)
         m.add_command(label=t("btn_compute_angle"), command=self.compute_angle_from_surface, state=has)
+        m.add_command(label=t("btn_pass_table"), command=self.open_pass_table, state=has)
         m.add_command(label=t("btn_batch"), command=self.open_batch_edit, state=batch_ok)
         m.add_separator()
         m.add_command(label=t("ctx_move_up"), command=lambda: self.move_op(-1), state=has)
@@ -1566,12 +1598,8 @@ class ProgramTab:
         if _flush:
             self._flush_entries()
         self._active_entry_savers = []
-        # #68: drop the previous op's live reach read-out reference; it is
-        # re-registered below only when the new op is in follow-blank mode.
-        self._reach_live_var = None
-        self._reach_live_idx = None
         # #68 (Q2): the one-shot toolbar Reach⟲ is pointless in follow mode
-        # (the next calc overwrites the fill) — grey it there, honest UI.
+        # (the engine computes per pass there) — grey it, honest UI.
         if hasattr(self, "btn_reach"):
             self.btn_reach.config(
                 state="disabled" if op.get("reach_follow_blank", False) else "normal")
@@ -1812,8 +1840,8 @@ class ProgramTab:
         cb_dir.pack(side="right", fill="x", expand=True)
         def _on_dir(event=None, _i=idx, _v=_dir_var, _m=_dir_map):
             self.app.params["operations"][_i]["direction"] = _m.get(_v.get(), "forward")
-            if self.app.params.get("calc_active", False):
-                self.app.update_scene("paths")
+            # R3 (one calc path): debounced async recalc.
+            self._schedule_auto_calc()
         cb_dir.bind("<<ComboboxSelected>>", _on_dir)
         self.helper.bind_tooltip(cb_dir,
             "Pasın kesim (ilerleme) yönü.\n"
@@ -1840,8 +1868,8 @@ class ProgramTab:
             cb_tm.pack(side="right", fill="x", expand=True)
             def _on_tm(event=None, _i=idx, _v=_tm_var, _m=_tm_map):
                 self.app.params["operations"][_i]["tilt_mode"] = _m.get(_v.get(), "normal")
-                if self.app.params.get("calc_active", False):
-                    self.app.update_scene("paths")
+                # R3 (one calc path): debounced async recalc.
+                self._schedule_auto_calc()
                 # Re-render so mode-specific fields (offset vs start/end) swap.
                 self.on_op_select(None, _flush=False)
             cb_tm.bind("<<ComboboxSelected>>", _on_tm)
@@ -1920,8 +1948,8 @@ class ProgramTab:
             cb_shape.pack(side="right", fill="x", expand=True)
             def _on_shape(event=None, _i=idx, _v=_shape_var):
                 self.app.params["operations"][_i]["pass_shape"] = _v.get()
-                if self.app.params.get("calc_active", False):
-                    self.app.update_scene("paths")
+                # R3 (one calc path): debounced async recalc.
+                self._schedule_auto_calc()
                 # Re-render so fields that only apply to certain shape modes
                 # (P1 X, P2 Radius, Exit Tension, Exit Mid Rot/t, Approach ∥ Surf)
                 # show/hide immediately.
@@ -1944,6 +1972,16 @@ class ProgramTab:
                                              "geometrik olarak hesaplanır — yaklaşıklama değil, gerçek yarıçap.\n"
                                              "Çok büyük değerler mevcut kol uzunluklarına göre otomatik sınırlanır.\n"
                                              "Tipik: 5–15 mm.")
+                # #81: exit_arc_angle is now PER-OP (this field); the Process-tab
+                # spinbox is only the default for ops that leave this empty.
+                self._add_prop_entry(idx, "exit_arc_angle", t("lbl_exit_arc"), op, is_float=True,
+                                     default_hint="= global",
+                                     tooltip="P2→P3 çıkış eğrisinin yay açısı (°, tanjant-kiriş). "
+                                             "Pozitif = dışa doğru kavis, negatif = içe, 0 = düz çizgi.\n"
+                                             "BOŞ = Process sekmesindeki genel değer kullanılır (eski davranış).\n"
+                                             "Bu alan doluysa SADECE bu operasyonu etkiler (#81).\n"
+                                             "Ters yönlü (reverse) paslarda kavis çıkış koluna taşınır; "
+                                             "mandrele giren bacak düz kalır (#82).")
 
             if pass_shape_val == "linear_approach":
                 self._add_prop_entry(idx, "exit_curve_tension", t("lbl_exit_tension"), op, is_float=True,
@@ -1973,8 +2011,8 @@ class ProgramTab:
             conf_var = tk.BooleanVar(value=bool(op.get("conformal_clearance_operation_specific", False)))
             def toggle_conformal(i=idx):
                 self.app.params["operations"][i]["conformal_clearance_operation_specific"] = conf_var.get()
-                if self.app.params.get("calc_active", False):
-                    self.app.update_scene("paths")
+                # R3 (one calc path): debounced async recalc.
+                self._schedule_auto_calc()
             ttk.Checkbutton(f_conf, variable=conf_var, command=toggle_conformal).pack(side="right")
             self.helper.bind_tooltip(f_conf,
                 "Temas noktası P2'yi mandrel yüzey normaline göre yerleştir (finishing gibi). "
@@ -1989,8 +2027,9 @@ class ProgramTab:
                 afs_var = tk.BooleanVar(value=bool(op.get("approach_follow_surface", False)))
                 def toggle_afs(i=idx):
                     self.app.params["operations"][i]["approach_follow_surface"] = afs_var.get()
-                    if self.app.params.get("calc_active", False):
-                        self.app.update_scene("paths")
+                    # R3 (one calc path): debounced async recalc instead of a
+                    # synchronous update_scene("paths") on the UI thread.
+                    self._schedule_auto_calc()
                 ttk.Checkbutton(f_afs, variable=afs_var, command=toggle_afs).pack(side="right")
                 self.helper.bind_tooltip(f_afs,
                     "Yalnızca linear_approach / linear_full modunda.\n"
@@ -2010,12 +2049,22 @@ class ProgramTab:
                                  tooltip="Spline giriş noktasının (P1) temas noktasından Z eksenindeki uzaklığı (mm). "
                                          "Büyük değer = rulo temas öncesi daha uzaktan yaklaşır. "
                                          "Tipik: 30–70 mm.")
-            # ── Exit-mode indicator (#68 A2). pass_angle set = ANGULAR (polar)
-            # mode: direction comes from Pass Angle, length from Reach — the
-            # engine IGNORES p3_x/p3_z there (legacy length fallback aside), so
-            # those fields are shown readonly. Empty pass_angle = RAW X/Z mode.
+            # ── Exit-mode indicator (#68 A2, #72 fix). pass_angle set = ANGULAR
+            # (polar) mode: direction comes from Pass Angle. p3_x/p3_z are locked
+            # ONLY when the engine truly ignores them — i.e. polar AND an explicit
+            # length source is active (reach set, or follow mode). In polar mode
+            # with reach EMPTY the legacy fallback still takes the LENGTH from
+            # |p3|, so the fields stay editable there (#72).
             _polar = op.get("pass_angle", None) is not None
+            _follow_pre = bool(op.get("reach_follow_blank", False))
+            try:
+                _rv = op.get("reach", None)
+                _reach_set = _rv not in (None, "") and float(_rv) > 0
+            except (TypeError, ValueError):
+                _reach_set = False
+            _p3_locked = _polar and (_reach_set or _follow_pre)
             f_xmode = ttk.Frame(self.f_prop_editor)
+            f_xmode._section = "path_shape"   # #78: follows section visibility
             f_xmode.pack(fill="x", padx=2, pady=(4, 1))
             tk.Label(f_xmode,
                      text=t("lbl_exit_mode_polar") if _polar else t("lbl_exit_mode_raw"),
@@ -2023,24 +2072,26 @@ class ProgramTab:
                      anchor="w").pack(side="left", padx=10)
 
             self._add_prop_entry(idx, "p3_x", t("lbl_p3x"), op, is_float=True,
-                                 readonly=_polar,
+                                 readonly=_p3_locked,
                                  tooltip="Çıkış noktasının (P3) temas noktasından X eksenindeki uzaklığı (mm). "
                                          "P1 X'ten bağımsız olarak ayarlanabilir. "
                                          "Default: boş = P1 X değeri kullanılır.\n"
-                                         "AÇISAL modda (Pass Angle dolu) motor bu alanı KULLANMAZ — "
-                                         "yön Pass Angle'dan, boy Reach'ten gelir (gri gösterilir).")
+                                         "AÇISAL modda Reach doluysa (veya sac takibi açıksa) motor bu "
+                                         "alanı KULLANMAZ → gri. Reach BOŞSA uzunluk hâlâ |p3|'ten gelir "
+                                         "→ düzenlenebilir kalır.")
             self._add_prop_entry(idx, "p3_z", t("lbl_p3z"), op, is_float=True,
-                                 readonly=_polar,
+                                 readonly=_p3_locked,
                                  tooltip="Spline çıkış noktasının (P3) temas noktasından Z eksenindeki uzaklığı (mm). "
                                          "Negatif değer = rulo temas sonrası mandrel'in içine doğru ilerler (pas uzunluğu). "
                                          "Tipik: -10 ile -40 mm arası.\n"
-                                         "AÇISAL modda (Pass Angle dolu) motor bu alanı KULLANMAZ (gri).")
+                                         "AÇISAL modda Reach doluysa (veya sac takibi açıksa) gri; "
+                                         "Reach boşsa uzunluk kaynağı budur → düzenlenebilir.")
 
-            # ── Reach source (#68 A1): Elle (manual) / Sacı takip (live). Same
-            # stored key as the old checkbox (reach_follow_blank) — the radio is
-            # purely a view; old .ssp files map 1:1. Switching back to Elle at
-            # ANY time releases the auto mode: the field unlocks and keeps the
-            # last computed value as an editable starting point (#68 guarantee).
+            # ── Reach source (#68 A1, reworked for engine-side follow): Elle
+            # (manual) / Sacı takip (live). Same stored key (reach_follow_blank);
+            # old .ssp files map 1:1. Follow mode is computed INSIDE the engine
+            # per pass — the op dict is never auto-rewritten, so switching back
+            # to Elle at ANY time simply reveals the untouched manual values (R2).
             _follow = bool(op.get("reach_follow_blank", False))
             f_rsrc = ttk.Frame(self.f_prop_editor)
             f_rsrc._pkey = "reach_follow_blank"
@@ -2048,11 +2099,18 @@ class ProgramTab:
             ttk.Label(f_rsrc, text=t("lbl_reach_source"), width=15).pack(side="left")
             rfb_var = tk.BooleanVar(value=_follow)
             def _set_reach_source(i=idx, v=rfb_var):
-                self.app.params["operations"][i]["reach_follow_blank"] = v.get()
-                if v.get():
-                    self._refresh_auto_reach()   # fill now so the field shows the live value
-                self.on_op_select(None, _flush=False)  # rebuild: lock/unlock + factor row
-                self._start_async_calc()
+                _op = self.app.params["operations"][i]
+                if v.get() and not _op.get("reach_follow_blank", False):
+                    # #73: robust follow needs a computable flange model — refuse
+                    # honestly instead of silently freezing a stale value.
+                    if self._blank_reach_values(_op) is None:
+                        v.set(False)
+                        messagebox.showinfo(t("msg_reach_title"), t("msg_follow_blocked"))
+                        return
+                self._push_undo(t("lbl_reach_source"))   # #77: mode switch is undoable
+                _op["reach_follow_blank"] = v.get()
+                self.on_op_select(None, _flush=False)  # rebuild: lock/unlock + modifier rows
+                self._schedule_auto_calc()
             btn_fill_now = ttk.Button(f_rsrc, text=t("btn_fill_reach_now"), width=9,
                                       state="disabled" if _follow else "normal",
                                       command=self.compute_reach_from_blank)
@@ -2060,7 +2118,7 @@ class ProgramTab:
             self.helper.bind_tooltip(btn_fill_now,
                 "Reach'i kalan sac flanşından BİR KEZ tahmin edip alana doldurur "
                 "(toolbar Reach⟲ ile aynı iş; Ctrl+Z ile geri alınır). "
-                "'Sacı takip et' açıkken gereksizdir (her hesapta zaten yenilenir) — gri.")
+                "'Sacı takip et' açıkken gereksizdir (motor pas başına zaten hesaplar) — gri.")
             rb_follow = ttk.Radiobutton(f_rsrc, text=t("rb_reach_follow"), value=True,
                                         variable=rfb_var, command=_set_reach_source)
             rb_follow.pack(side="right", padx=(4, 0))
@@ -2070,11 +2128,11 @@ class ProgramTab:
             self.helper.bind_tooltip(f_rsrc,
                 "Reach'in nereden geldiğini seçer.\n"
                 "Elle: aşağıdaki Reach alanına kendin yazarsın.\n"
-                "Sacı takip et: her hesaplamadan önce reach kalan sac flanşından "
-                "otomatik yenilenir — çıkış hep sacın ucunu 'öper'; Reach alanı "
-                "salt-okunur (gri) olur ve CANLI değeri gösterir. İstediğin an "
-                "Elle'ye dönebilirsin: alan açılır, son hesaplanan değer başlangıç "
-                "olarak kalır — hiçbir şey kilitlenmez. TAHMİN; Sac Yarıçapı gerekir.")
+                "Sacı takip et: motor HER PASIN reach'ini o pasın Z'sindeki kalan "
+                "sac flanşından hesaplar — çıkış her pasta sacın ucunu 'öper'. "
+                "Elle girilen değerler ASLA üzerine yazılmaz: Elle'ye döndüğünde "
+                "aynen durur. Çarpan (×) ve Kaydırma (mm) senin kontrolündedir. "
+                "TAHMİN; Sac Yarıçapı gerekir. Geçiş Ctrl+Z ile geri alınır.")
 
             _reach_var = self._add_prop_entry(
                 idx, "reach", t("lbl_reach"), op, is_float=True, readonly=_follow,
@@ -2082,26 +2140,37 @@ class ProgramTab:
                         "Boş/0 = eski davranış: uzunluk p3_x/p3_z'den gelir. "
                         "Değer girilince yön KORUNUR (Pass Angle varsa ondan, yoksa p3_x/p3_z "
                         "oranından) ve yalnızca uzunluk bu değere ölçeklenir.\n"
-                        "'Sacı takip et' açıkken salt-okunurdur ve her hesapta yenilenen "
-                        "CANLI değeri gösterir.")
+                        "'Sacı takip et' açıkken motor pas başına hesaplar; alan salt-okunur "
+                        "olur ve pas aralığını 'oto a→b' olarak gösterir. Elle değerin "
+                        "altta saklı kalır ve Elle'ye dönünce aynen geri gelir.")
             if _follow:
-                # Live read-out: _refresh_auto_reach pushes the new value into
-                # this var so the display can never go stale (#68 P1 fix).
-                self._reach_live_var = _reach_var
-                self._reach_live_idx = idx
+                # Read-out only: show the per-pass auto range the ENGINE will use
+                # (first pass → last pass). No saver exists, so this display text
+                # can never be written back into the op.
+                _fvals = self._blank_reach_values(op)
+                if _fvals is None:
+                    _reach_var.set(t("lbl_reach_auto_blocked"))
+                else:
+                    _reach_var.set(f"oto {_fvals[0]:g} → {_fvals[1]:g} mm")
 
             if _follow:
-                # Factor only matters for blank-derived reach — hidden otherwise
-                # so it can't masquerade as a general reach multiplier (#68 P3).
+                # Follow-mode MODIFIERS (user-owned, user request 2026-07-07):
+                # factor (×) and offset (mm) shape the blank-derived reach.
                 self._add_prop_entry(idx, "reach_blank_factor", t("lbl_reach_factor"), op, is_float=True,
-                                     tooltip="Sactan hesaplanan reach'i ÇARPAN ile ölçekler ('Sacı takip et' "
-                                             "ve Doldur ⟲ sonuçlarına uygulanır; elle girilen reach'e ETKİSİZ).\n"
+                                     tooltip="Sactan hesaplanan reach'i ÇARPAN ile ölçekler.\n"
                                              "1.00 = tam sac ucunu öp (varsayılan), 0.90 = %90 (ucundan "
                                              "önce dur), 1.10 = %110 (ucunu geç).\n"
-                                             "Boş = 1.00.")
+                                             "Boş = 1.00. Elle girilen reach'e ETKİSİZ.")
+                self._add_prop_entry(idx, "reach_blank_offset", t("lbl_reach_offset"), op, is_float=True,
+                                     tooltip="Sactan hesaplanan reach'e EKLENEN sabit mesafe (mm).\n"
+                                             "-5 = sac ucundan 5 mm ÖNCE dur, +3 = ucu 3 mm geç.\n"
+                                             "Çarpandan SONRA uygulanır: reach = flanş × çarpan + kaydırma.\n"
+                                             "Boş = 0. Elle girilen reach'e ETKİSİZ.")
 
-            # Progressive Reach fan (#68 A4: moved next to Reach — one concept,
-            # one home). Same gating as before: pass-angle mode + multi-pass.
+            # Progressive Reach fan (#68 A4: next to Reach — one concept, one
+            # home). Gating unchanged: pass-angle mode + multi-pass. The checkbox
+            # is YOURS (R2): follow mode never flips it — it is greyed there only
+            # because the engine's per-pass follow supersedes the fan while active.
             if _polar and count > 1:
                 f_reach = ttk.Frame(self.f_prop_editor)
                 f_reach._pkey = "progressive_reach_enabled"
@@ -2111,25 +2180,28 @@ class ProgramTab:
                 def toggle_reach(i=idx):
                     self.app.params["operations"][i]["progressive_reach_enabled"] = reach_var.get()
                     self.on_op_select(None)
-                    if self.app.params.get("calc_active", False):
-                        self.app.update_scene("paths")
-                ttk.Checkbutton(f_reach, variable=reach_var, command=toggle_reach).pack(side="right")
+                    # R3 (one calc path): debounced async recalc.
+                    self._schedule_auto_calc()
+                _cb_reach = ttk.Checkbutton(f_reach, variable=reach_var, command=toggle_reach)
+                _cb_reach.pack(side="right")
+                if _follow:
+                    _cb_reach.config(state="disabled")
                 self.helper.bind_tooltip(f_reach,
                     "P2→P3 kol uzunluğunu (stroke) paslar boyunca lineer değiştir.\n"
                     "İlk pas: mevcut Reach değerini kullanır.\n"
                     "Son pas: Son Pas Reach değerine ulaşır (kısaltmak için daha küçük gir).\n"
                     "Ara paslar: lineer interpolasyon.\n"
-                    "Açı yelpazesinden bağımsızdır — yön açıyla, uzunluk bununla ayarlanır; "
-                    "ikisi birlikte çalışır.\n"
-                    "Pass Angle boşsa bu ayar etkisizdir.")
+                    "Açı yelpazesinden bağımsızdır — yön açıyla, uzunluk bununla ayarlanır.\n"
+                    "Pass Angle boşsa etkisizdir. 'Sacı takip et' açıkken motor pas başına "
+                    "zaten hesapladığı için devre dışıdır (işaretin DEĞİŞMEZ, senindir).")
                 if op.get("progressive_reach_enabled", False):
                     self._add_prop_entry(idx, "progressive_reach_end", t("lbl_reach_end"), op,
-                                         is_float=True,
+                                         is_float=True, readonly=_follow,
                                          tooltip="P2→P3 kolunun SON pasta ulaşacağı uzunluk (mm). "
                                                  "İlk pas mevcut Reach değerini kullanır, "
                                                  "son pas bu değere iner/çıkar. "
-                                                 "Mandrel yukarı çıktıkça kalan flanş küçülür — "
-                                                 "her pasta çıkış strokunu kısaltmak için kullan.")
+                                                 "'Sacı takip et' açıkken motor pas başına hesaplar — "
+                                                 "bu alan o sırada salt-okunurdur (değerin korunur).")
 
             self._add_section_header("pass_angle", t("lbl_pass_angle_hdr"))
 
@@ -2151,8 +2223,9 @@ class ProgramTab:
                     self.app.params["operations"][i]["progressive_angle_enabled"] = prog_var.get()
                     # Re-render the editor so the fan end-angle field appears/hides
                     self.on_op_select(None)
-                    if self.app.params.get("calc_active", False):
-                        self.app.update_scene("paths")
+                    # R3 (one calc path): debounced async recalc instead of a
+                    # synchronous update_scene("paths") on the UI thread.
+                    self._schedule_auto_calc()
                 ttk.Checkbutton(f_prog, variable=prog_var, command=toggle_progressive).pack(side="right")
                 self.helper.bind_tooltip(f_prog,
                     "Açıyı paslar boyunca Pass Angle'dan yelpaze bitiş açısına doğru lineer artır.\n"
@@ -2200,8 +2273,8 @@ class ProgramTab:
             bp_var = tk.BooleanVar(value=bool(op.get("back_pass_enabled", False)))
             def toggle_bp(i=idx):
                 self.app.params["operations"][i]["back_pass_enabled"] = bp_var.get()
-                if self.app.params.get("calc_active", False):
-                    self.app.update_scene("paths")
+                # R3 (one calc path): debounced async recalc.
+                self._schedule_auto_calc()
                 # Swap Order / Back Feed / Back Arc X/Z only matter when back-pass
                 # is enabled — rebuild so they show/hide immediately.
                 self.on_op_select(None)
@@ -2218,8 +2291,9 @@ class ProgramTab:
                 bps_var = tk.BooleanVar(value=bool(op.get("back_pass_swapped", False)))
                 def toggle_bps(i=idx):
                     self.app.params["operations"][i]["back_pass_swapped"] = bps_var.get()
-                    if self.app.params.get("calc_active", False):
-                        self.app.update_scene("paths")
+                    # R3 (one calc path): debounced async recalc instead of a
+                    # synchronous update_scene("paths") on the UI thread.
+                    self._schedule_auto_calc()
                 ttk.Checkbutton(f_bps, variable=bps_var, command=toggle_bps).pack(side="right")
                 self.helper.bind_tooltip(f_bps,
                     "İleri ve geri pas sırasını ters çevirir. "
@@ -2262,8 +2336,8 @@ class ProgramTab:
             cb_shape.pack(side="right", fill="x", expand=True)
             def _on_shape(event=None, _i=idx, _v=_shape_var):
                 self.app.params["operations"][_i]["pass_shape"] = _v.get()
-                if self.app.params.get("calc_active", False):
-                    self.app.update_scene("paths")
+                # R3 (one calc path): debounced async recalc.
+                self._schedule_auto_calc()
             cb_shape.bind("<<ComboboxSelected>>", _on_shape)
             self.helper.bind_tooltip(cb_shape,
                 "spline: P1→P2→P3 tam spline eğrisi (varsayılan).\n"
@@ -2279,8 +2353,8 @@ class ProgramTab:
 
             def toggle_straight_line(i=idx):
                 self.app.params["operations"][i]["straight_line_mode"] = sl_var.get()
-                if self.app.params.get("calc_active", False):
-                    self.app.update_scene("paths")
+                # R3 (one calc path): debounced async recalc.
+                self._schedule_auto_calc()
 
             ttk.Checkbutton(f_sl, variable=sl_var, command=toggle_straight_line).pack(side="right")
             self.helper.bind_tooltip(f_sl, "Bitirme pasını mandrel konturunu takip eden çok noktalı yol yerine "
@@ -3162,6 +3236,23 @@ class ProgramTab:
             if interp_tilt:
                 ch["tilt_start"] = round(lerp(Ts, Te, a), 6)
                 ch["tilt_end"] = round(lerp(Ts, Te, b), 6)
+            # Per-pass pins (pass_edits) are keyed by op-LOCAL index — remap the
+            # keys inside this chunk's range to chunk-local, drop the rest, so a
+            # pin stays on the SAME physical pass after the split (#79).
+            _pe_all = op.get("pass_edits") or {}
+            if _pe_all:
+                _ch_pe = {}
+                for _k, _v in _pe_all.items():
+                    try:
+                        _ki = int(_k)
+                    except (TypeError, ValueError):
+                        continue
+                    if a <= _ki <= b and isinstance(_v, dict) and _v:
+                        _ch_pe[str(_ki - a)] = dict(_v)
+                if _ch_pe:
+                    ch["pass_edits"] = _ch_pe
+                else:
+                    ch.pop("pass_edits", None)
             chunks.append(ch)
             a = b + 1
         return chunks
@@ -3223,33 +3314,10 @@ class ProgramTab:
             op["progressive_reach_enabled"] = True
             op["progressive_reach_end"] = r_end
 
-    def _refresh_auto_reach(self):
-        """Opt-in #61 (option B): for every op flagged ``reach_follow_blank``, recompute
-        reach from the blank flange so the exit keeps KISSING the blank edge as start_z/
-        end_z change. Silent — called before each program-tab recalc. Returns True if any
-        op changed (so the tree can refresh)."""
-        changed = False
-        for i, op in enumerate(self.app.params.get("operations", [])):
-            if not op.get("reach_follow_blank"):
-                continue
-            vals = self._blank_reach_values(op)
-            if vals:
-                self._apply_blank_reach(op, vals)
-                changed = True
-                # #68 P1 fix: push the fresh value into the (readonly) editor
-                # field so the display can never go stale against the engine.
-                if getattr(self, "_reach_live_idx", None) == i and \
-                        getattr(self, "_reach_live_var", None) is not None:
-                    try:
-                        self._reach_live_var.set(str(op.get("reach", "")))
-                    except Exception:
-                        pass
-        if changed:
-            try:
-                self.refresh_ops_tree()
-            except Exception:
-                pass
-        return changed
+    # (_refresh_auto_reach removed 2026-07-07: follow-blank reach is computed
+    #  INSIDE the engine per pass — see path_generator.calculate_paths. The op
+    #  dict is never auto-rewritten; _blank_reach_values below remains for the
+    #  one-shot fill button and the editor's "oto a→b" read-out.)
 
     def compute_reach_from_blank(self):
         """Opt-in (#61 step 4): estimate the selected op's reach from the remaining blank
@@ -3369,6 +3437,26 @@ class ProgramTab:
         if _newly_fanned:
             _msg += "\n\n" + t("msg_angle_fan_note")
         messagebox.showinfo(t("msg_angle_title"), _msg)
+
+    def open_pass_table(self):
+        """Per-pass table popup (#80/#79): effective angle/reach/endpoint per
+        pass, warnings, staged pin edits. Read-only until [Uygula]."""
+        sel = self.tree_ops.selection()
+        if not sel:
+            messagebox.showinfo(t("pt_title_short"), t("msg_reach_noselect"))
+            return
+        try:
+            idx = int(sel[0])
+        except (ValueError, IndexError):
+            return
+        ops = self.app.params.get("operations", [])
+        if idx >= len(ops):
+            return
+        if ops[idx].get("type") in ("cutting", "bending"):
+            messagebox.showinfo(t("pt_title_short"), t("msg_reach_badtype"))
+            return
+        from ui.dialogs.pass_table import PassTableDialog
+        PassTableDialog(self.ui_root, self.app, self, idx)
 
     def open_split_op(self):
         """Split the selected multi-pass op into contiguous chunk-ops (#64). Opens the
@@ -3491,13 +3579,15 @@ class ProgramTab:
         except Exception:
             pass
 
-    def add_op(self, mode):
+    def add_op(self, mode, factory=False):
         if "operations" not in self.app.params:
             self.app.params["operations"] = []
         self._push_undo(t("btn_add_op"))
 
-        # Load from saved preset if available
-        preset = self.app.params.get("op_presets", {}).get(mode)
+        # Load from saved preset if available. factory=True bypasses the
+        # preset on purpose — escape hatch when the saved preset itself has
+        # been experimented into a corner (user request 2026-07-08).
+        preset = None if factory else self.app.params.get("op_presets", {}).get(mode)
         if preset:
             new_op = dict(preset)
             new_op["type"] = mode
@@ -3506,6 +3596,12 @@ class ProgramTab:
             self.refresh_ops_tree()
             return
 
+        self.app.params["operations"].append(self._factory_op(mode))
+        self.refresh_ops_tree()
+
+    def _factory_op(self, mode):
+        """Clean factory-default op dict for ``mode`` — NEVER reads op_presets.
+        Single source for '+ Ekle ▾ (fabrika temiz)' and 'Fabrika sıfırla'."""
         if mode in ("cutting", "bending"):
             # Cutting/bending: single radial plunge at mandrel end
             def_tool_id = "T0303"
@@ -3517,7 +3613,7 @@ class ProgramTab:
                 if self.ui_root.tool_library:
                     def_tool_id = self.ui_root.tool_library[0].get("id", "T0303")
 
-            new_op = {
+            return {
                 "type": mode, "enabled": True, "count": 1,
                 "tool_id": def_tool_id,
                 "r_tool": 0.0,
@@ -3526,9 +3622,6 @@ class ProgramTab:
                 "feed": 50.0, "feed_mode": "mm_min",
                 "speed": 300.0, "speed_mode": "RPM",
             }
-            self.app.params["operations"].append(new_op)
-            self.refresh_ops_tree()
-            return
 
         # Inherit rotation from last op
         def_rot = 10.0
@@ -3558,7 +3651,7 @@ class ProgramTab:
             _rt = first_tool.get("r_tool")
             def_r_tool = _rt if _rt is not None else first_tool.get("radius", 25.0)
 
-        new_op = {
+        return {
             "type": mode, "enabled": True, "count": 1,
             "tool_id": def_tool_id,
             "r_tool": def_r_tool,
@@ -3570,8 +3663,39 @@ class ProgramTab:
             "feed": 100.0, "speed": 500.0,
             "pass_shape": "spline",
         }
-        self.app.params["operations"].append(new_op)
+
+    def reset_op_to_factory(self):
+        """Escape hatch (user 2026-07-08): replace the selected op's parameters
+        with clean factory defaults — ignores op_presets, drops pins, follow
+        mode, fans, everything. Keeps type, name and enabled state. Undoable
+        (Ctrl+Z restores the old parameters)."""
+        sel = self.tree_ops.selection()
+        if not sel:
+            return
+        idx = int(sel[0])
+        ops = self.app.params.get("operations", [])
+        if idx >= len(ops):
+            return
+        old = ops[idx]
+        if not messagebox.askyesno(t("ctx_reset_factory"),
+                                   t("msg_reset_factory_confirm")):
+            return
+        self._push_undo(t("ctx_reset_factory"))
+        # Same stale-saver hazard as del_op: the editor widgets still hold the
+        # OLD op's values and would clobber the fresh dict on the next flush.
+        self._active_entry_savers = []
+        self._active_op_idx = None
+        for w in self.f_prop_editor.winfo_children():
+            w.destroy()
+        new_op = self._factory_op(old.get("type", "roughing"))
+        new_op["enabled"] = old.get("enabled", True)
+        if old.get("name"):
+            new_op["name"] = old["name"]
+        ops[idx] = new_op
         self.refresh_ops_tree()
+        self.tree_ops.selection_set(str(idx))
+        self.on_op_select(None, _flush=False)
+        self._schedule_auto_calc()
 
     def del_op(self):
         sel = self.tree_ops.selection()

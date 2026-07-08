@@ -71,6 +71,7 @@ CRITICAL_MODULES = [
     "ops_library",                    # op library core (#71), lazily imported
     "ui.dialogs.op_library_dialog",   # op library UI (#71), lazily imported
     "ui.dialogs.batch_edit_dialog",   # batch edit UI (#67), lazily imported
+    "ui.dialogs.pass_table",          # per-pass table (#80/#79), lazily imported
 ]
 
 

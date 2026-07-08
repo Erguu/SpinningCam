@@ -19,7 +19,7 @@
     "safety_clearance_roller_to_part": 0.0,
     "min_safety_gap": 0.0,
     "shell_thickness": 0.0,
-    "blank_radius": 310.0,
+    "blank_radius": 175.0,
     "blank_z_shift": 0.0,
     "roller_visual_radius": 25.0,
     "show_advanced_sliders": false,
@@ -39,22 +39,23 @@
     "collision_resolution": 0.25,
     "exit_arc_angle": 0.0,
     "clamp_zone_length": 0.0,
+    "show_deformed_blank": true,
+    "deformed_blank_offset": 0.0,
     "last_step_path": "C:/Users/PC/Documents/CAD_Files/meksika/18 konik kap.STEP",
-    "app_version": "1.003",
+    "app_version": "1.005",
+    "changelog_seen_version": "1.005",
     "op_presets": {
         "roughing": {
             "enabled": true,
-            "count": 1,
-            "clearance": 2.0,
-            "tool_id": "T0101",
-            "r_tool": 73.79,
-            "start_z": 22.0,
+            "count": 12,
+            "clearance": 4.5,
+            "tool_id": "T0103",
+            "r_tool": 74.31,
             "p1_x": 0.0,
             "step": 0.5,
-            "end_z": 22.0,
             "speed_mode": "RPM",
-            "speed": 750.0,
-            "feed": 240.0,
+            "speed": 600.0,
+            "feed": 300.0,
             "zones": [],
             "p1_x_end": 0.0,
             "p1_z_end": 0.0,
@@ -68,25 +69,32 @@
             "progressive_angle_enabled": true,
             "corner_blend": 5.0,
             "back_pass_mode": "mirror",
-            "back_pass_arc_z": 0.5,
+            "back_pass_arc_z": 0.1,
             "exit_mid_enabled": false,
             "exit_mid_z": -2.0,
             "approach_follow_surface": true,
-            "pass_angle": 113.0,
-            "p2_radius": 2.5,
+            "pass_angle": 90.0,
             "p1_z": 3.0,
-            "contact_zone_mm": 5.0,
-            "feed_contact": 120.0,
             "tilt_mode": "interp",
-            "tilt_start": 0.0,
-            "tilt_end": 45.0,
-            "p2_z_extend": 3.0,
-            "p3_x": 51.0,
+            "tilt_start": 18.529412,
+            "tilt_end": 18.529412,
+            "p2_z_extend": 1.0,
             "progressive_reach_enabled": true,
-            "exit_mid_t": 0.9,
-            "exit_mid_rotation": 50.0,
-            "progressive_angle_end": 110.0,
-            "progressive_reach_end": 56.0
+            "pass_overrides": {
+                "0": {
+                    "angle": 264.28,
+                    "reach": 46.23
+                }
+            },
+            "reach_follow_blank": false,
+            "start_z": 10.0,
+            "end_z": 15.0,
+            "progressive_reach_end": 41.47,
+            "direction": "forward",
+            "reach": 43.39,
+            "name": "Ro-Start (copy)",
+            "p2_radius": 2.0,
+            "progressive_angle_end": 178.0
         },
         "finishing": {
             "enabled": true,
@@ -137,18 +145,16 @@
     "num_finishing_passes": 0.0,
     "operations": [
         {
-            "enabled": true,
-            "count": 1,
+            "enabled": false,
+            "count": 12,
             "clearance": 2.0,
-            "tool_id": "T0101",
-            "r_tool": 73.79,
-            "start_z": 22.0,
+            "tool_id": "T0103",
+            "r_tool": 74.31,
             "p1_x": 0.0,
             "step": 0.5,
-            "end_z": 22.0,
             "speed_mode": "RPM",
-            "speed": 750.0,
-            "feed": 240.0,
+            "speed": 600.0,
+            "feed": 300.0,
             "zones": [],
             "p1_x_end": 0.0,
             "p1_z_end": 0.0,
@@ -162,26 +168,36 @@
             "progressive_angle_enabled": true,
             "corner_blend": 5.0,
             "back_pass_mode": "mirror",
-            "back_pass_arc_z": 0.5,
+            "back_pass_arc_z": 0.1,
             "exit_mid_enabled": false,
             "exit_mid_z": -2.0,
             "approach_follow_surface": true,
-            "pass_angle": 113.0,
-            "p2_radius": 2.5,
             "p1_z": 3.0,
-            "contact_zone_mm": 5.0,
-            "feed_contact": 120.0,
             "tilt_mode": "interp",
-            "tilt_start": 0.0,
-            "tilt_end": 45.0,
-            "p2_z_extend": 3.0,
-            "p3_x": 51.0,
+            "tilt_start": 18.529412,
+            "tilt_end": 18.529412,
+            "p2_z_extend": 2.0,
             "progressive_reach_enabled": true,
-            "exit_mid_t": 0.9,
-            "exit_mid_rotation": 50.0,
-            "progressive_angle_end": 110.0,
-            "progressive_reach_end": 56.0,
-            "type": "roughing"
+            "pass_overrides": {
+                "0": {
+                    "angle": 264.28,
+                    "reach": 46.23
+                }
+            },
+            "reach_follow_blank": true,
+            "start_z": 10.0,
+            "end_z": 15.0,
+            "direction": "forward",
+            "name": "Ro-Start (copy)",
+            "p2_radius": 2.0,
+            "type": "roughing",
+            "contact_zone_mm": 3.0,
+            "feed_contact": 240.0,
+            "exit_mid_t": 0.0,
+            "exit_arc_angle": 5.0,
+            "reach": 95.26,
+            "pass_angle": 110.0,
+            "progressive_angle_end": 160.0
         }
     ],
     "show_heatmap": 1.0,
@@ -229,7 +245,7 @@
     "_admin": true,
     "_last_license_path": "C:/Users/PC/Documents/Python_Projects/SpinningCam/admin.lic",
     "_last_settings_path": "C:/Users/PC/Documents/Python_Projects/SpinningCam/settings.json",
-    "sidebar_width": 963,
+    "sidebar_width": 902,
     "op_view_config": {
         "roughing": {
             "columns": [
@@ -254,6 +270,21 @@
                 "contact_zone_mm",
                 "feed_contact",
                 "feed_contact_end"
+            ],
+            "batch": [
+                "speed",
+                "feed",
+                "start_z",
+                "end_z",
+                "p2_radius",
+                "exit_curve_tension",
+                "exit_mid_rotation",
+                "reach",
+                "reach_blank_factor",
+                "pass_angle",
+                "clearance",
+                "rot",
+                "back_pass_arc_z"
             ]
         },
         "finishing": {
@@ -265,16 +296,36 @@
             "advanced": [
                 "proj_extend_bottom",
                 "proj_extend_top"
+            ],
+            "batch": [
+                "speed",
+                "feed",
+                "count",
+                "start_z",
+                "end_z",
+                "clearance"
             ]
         },
         "cutting": {
             "columns": [],
-            "advanced": []
+            "advanced": [],
+            "batch": [
+                "speed",
+                "feed",
+                "z_pos",
+                "plunge_x"
+            ]
         },
         "bending": {
             "columns": [],
-            "advanced": []
+            "advanced": [],
+            "batch": [
+                "speed",
+                "feed",
+                "z_pos",
+                "plunge_x"
+            ]
         }
     },
-    "op_view_show_advanced": false
+    "op_view_show_advanced": true
 }

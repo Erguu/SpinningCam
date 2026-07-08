@@ -302,6 +302,13 @@ class PathGenerator:
                 # convenience but _create_and_store_pass now uses it signed (+ = forward in Z).
                 p3_z = abs(p3_z)
 
+                # Per-pass contact target Z (moved up from below the reach block: the
+                # engine-side follow-blank reach needs this pass's Z).
+                if count <= 1:
+                    target_z = start_h
+                else:
+                    target_z = start_h + (i / (count - 1) * (end_h - start_h))
+
                 # Reach (#61): single authoritative exit-stroke magnitude |P2→P3|. Unset or
                 # <=0 keeps the legacy behavior EXACTLY (magnitude implied by p3_x/p3_z).
                 # When set, direction comes from pass_angle (below) or, in raw mode, from the
@@ -313,6 +320,45 @@ class PathGenerator:
                     _reach_v = None
                 if _reach_v is not None and _reach_v <= 0:
                     _reach_v = None
+
+                # ── Per-pass value sources (PROPOSAL_REACH_ANGLE_PRIORITY R1/R2) ──
+                # LENGTH priority : pass pin (pass_edits) > follow-blank (per pass,
+                #                   engine-side) > progressive reach fan > reach > |p3|.
+                # DIRECTION prio. : pass pin > progressive angle fan > pass_angle.
+                # Follow-blank now lives HERE: reach is recomputed from the flange
+                # model at THIS pass's Z on every calculation — the op dict is never
+                # auto-rewritten, so manual values underneath stay untouched (R2) and
+                # every calc entry point gets identical results (R3).
+                _pe_all = op.get("pass_edits") or {}
+                _pe = _pe_all.get(str(i)) or _pe_all.get(i) or {}
+                def _pe_f(_k, _d=_pe):
+                    _v = _d.get(_k, None)
+                    try:
+                        return float(_v) if _v not in (None, "") else None
+                    except (TypeError, ValueError):
+                        return None
+                _edit_angle = _pe_f("pass_angle") if not is_finish else None
+                _edit_reach = _pe_f("reach") if not is_finish else None
+
+                _follow_reach = None
+                if not is_finish and op.get("reach_follow_blank", False):
+                    _R_blank = float(params.get("blank_radius", 0.0) or 0.0)
+                    if _R_blank > 0:
+                        try:
+                            from process_planner import estimate_flange_reach
+                            _fr = estimate_flange_reach(mandrel_mgr, _R_blank, target_z)
+                        except Exception:
+                            _fr = 0.0
+                        if _fr > 0:
+                            try:
+                                _fb_fac = float(op.get("reach_blank_factor") or 1.0)
+                            except (TypeError, ValueError):
+                                _fb_fac = 1.0
+                            try:
+                                _fb_off = float(op.get("reach_blank_offset") or 0.0)
+                            except (TypeError, ValueError):
+                                _fb_off = 0.0
+                            _follow_reach = max(_fr * _fb_fac + _fb_off, 0.0)
 
                 # Pass Angle override — Option B: L3 = |P2→P3| preserved, only direction rotates.
                 # θ_A = angle of P2→P1 from +X in XZ. θ_B = θ_A + pass_angle. p3 = L3 * (cos θ_B, sin θ_B).
@@ -330,6 +376,8 @@ class PathGenerator:
                         except (TypeError, ValueError):
                             _prog_end = 180.0
                         _eff_angle += i * (_prog_end - _eff_angle) / (count - 1)
+                    if _edit_angle is not None:
+                        _eff_angle = _edit_angle   # pinned pass: manual beats auto (R2)
                     _L3 = _reach_v if _reach_v is not None else math.sqrt(p3_x ** 2 + abs(p3_z) ** 2)
                     # Progressive reach: sweep the P2→P3 stroke length across passes,
                     # independent of the direction sweep (progressive_angle). First pass
@@ -341,6 +389,10 @@ class PathGenerator:
                         except (TypeError, ValueError):
                             _reach_end = _L3
                         _L3 = max(_L3 + i * (_reach_end - _L3) / (count - 1), 0.0)
+                    if _follow_reach is not None:
+                        _L3 = _follow_reach        # follow-blank supersedes fan/reach
+                    if _edit_reach is not None:
+                        _L3 = _edit_reach          # pinned pass: manual beats all (R2)
                     if _L3 > 0.001:
                         _shape = op.get("pass_shape", "spline")
                         if _shape in ("linear_approach", "linear_full"):
@@ -361,10 +413,16 @@ class PathGenerator:
                 else:
                     # Raw exit mode (no pass angle): reach scales the (p3_x, p3_z) vector
                     # length, preserving its X/Z ratio (direction). Unset reach → unchanged.
-                    if _reach_v is not None:
+                    # Same length priority as polar: pin > follow-blank > reach.
+                    _raw_len = _reach_v
+                    if _follow_reach is not None:
+                        _raw_len = _follow_reach
+                    if _edit_reach is not None:
+                        _raw_len = _edit_reach
+                    if _raw_len is not None:
                         _cur = math.sqrt(p3_x ** 2 + p3_z ** 2)
                         if _cur > 1e-6:
-                            _s = _reach_v / _cur
+                            _s = _raw_len / _cur
                             p3_x *= _s
                             p3_z *= _s
 
@@ -385,11 +443,8 @@ class PathGenerator:
                         self.last_op_end_angle[op_index] = (
                             math.degrees(math.atan2(p3_z, p3_x)) if _fr > 1e-6 else 0.0)
 
-                if count <= 1:
-                    target_z = start_h
-                else:
-                    target_z = start_h + (i / (count - 1) * (end_h - start_h))
-
+                # (target_z is computed above the reach block — the per-pass follow
+                # reach needs it before P3 is resolved.)
                 p2_z_extend = float(op.get("p2_z_extend", 0.0)) if not is_finish else 0.0
                 contact_z   = target_z + p2_z_extend
 
@@ -412,8 +467,10 @@ class PathGenerator:
                 # in conformal); shifting the P3 offset inward by that clearance component
                 # cancels it out of the endpoint. NOTE: exact for base_rot=0 (linear approach
                 # / rotation off); auto-rotated splines rotate P3 about P2, so it is
-                # approximate there (documented; verify per case).
-                if _reach_v is not None:
+                # approximate there (documented; verify per case). Applies whenever an
+                # explicit length is in force — op reach, per-pass follow, or a pin.
+                if (_reach_v is not None or _follow_reach is not None
+                        or _edit_reach is not None):
                     # GUARD (fold-back + overlap): the clearance cancellation must not push a
                     # forward exit PAST the commanded direction. Near a ~180° fan the exit X
                     # shrinks to ~0; subtracting the full clearance would flip it negative
@@ -974,6 +1031,41 @@ class PathGenerator:
             pts[:, 0] += side * diff
         return pts
 
+    def _tangent_chord_arc(self, A, B, arc_ang_deg, check_res):
+        """Dense point run A→B in the XZ plane: straight line when arc_ang_deg≈0,
+        else a circular arc with the given tangent-chord angle (°). Positive =
+        bow outward (away from the spin axis, larger X), negative = inward.
+        The tangent-chord angle of a circular arc is identical at both ends, so
+        the same call serves either traversal direction. Shared by the exit leg
+        and — for reverse passes (#82) — the outgoing arm leg."""
+        A = np.asarray(A, dtype=float)
+        B = np.asarray(B, dtype=float)
+        seg_len = max(np.linalg.norm(B - A), 0.1)
+        try:
+            _ang = float(arc_ang_deg)
+        except (TypeError, ValueError):
+            _ang = 0.0
+        ang_rad = math.radians(abs(_ang))
+        if ang_rad < 1e-4:
+            return np.linspace(A, B, max(10, int(seg_len / check_res)))
+        chord_dir = (B - A) / seg_len
+        perp_xz = np.array([-chord_dir[2], 0.0, chord_dir[0]])
+        if perp_xz[0] < 0:
+            perp_xz = -perp_xz
+        _sign = 1.0 if _ang > 0 else -1.0
+        R = seg_len / (2.0 * math.sin(ang_rad))
+        arc_len = R * 2.0 * ang_rad
+        center = 0.5 * (A + B) - _sign * R * math.cos(ang_rad) * perp_xz
+        u1 = (A - center) / R
+        th1 = math.atan2(u1[2], u1[0])
+        sweep = _sign * 2.0 * ang_rad
+        n = max(10, int(arc_len / check_res))
+        t_vals = np.linspace(0.0, 1.0, n)
+        thetas = th1 + t_vals * sweep
+        return np.stack([center[0] + R * np.cos(thetas),
+                         np.zeros(n),
+                         center[2] + R * np.sin(thetas)], axis=1)
+
     def _create_and_store_pass(self, p1_x_offset, p1_z_offset, p3_z_offset, p3_x_offset, initial_p2, base_rot, auto_align, t_list, p_list, c_list, d_list, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_name, params, debug_lines=None, op=None):
             # --- Smart Spline Optimization V6 (Morphing) ---
             # Instead of rigid shifting, independently adjust control points based on where collision occurs.
@@ -1047,43 +1139,41 @@ class PathGenerator:
                     T1, T2, arc_pts = self._arc_fillet_at_p2(p2_arr, d1, d2, p2_radius, p1_z_off, p2p3_len, check_res)
                     _fillet_len = len(arc_pts)
 
+                    # Per-op exit_arc_angle (#81): the op's own value wins; the
+                    # Process-tab global is the default/fallback, so programs that
+                    # never set the op key are byte-identical.
+                    _arc_src = (op or {}).get("exit_arc_angle", None)
+                    if _arc_src in (None, ""):
+                        _arc_src = params.get("exit_arc_angle", 0.0)
+                    try:
+                        _exit_arc_deg = float(_arc_src)
+                    except (TypeError, ValueError):
+                        _exit_arc_deg = 0.0
+
+                    # #82 (user 2026-07-07, NEW DEFAULT): a reverse-direction linear
+                    # pass is traversed P3→P2→arm after the post-build flip. The leg
+                    # ENTERING the mandrel-near P2 must be the STRAIGHT one, and the
+                    # bow belongs on the outgoing arm — so swap which leg carries the
+                    # exit_arc curve. exit_mid is skipped in swap mode (it would curve
+                    # the entry leg). reverse_legacy_flip=True restores old behavior.
+                    _swap_legs = (pass_shape in ("linear_approach", "linear_full")
+                                  and (op or {}).get("direction", "forward") == "reverse"
+                                  and not (op or {}).get("reverse_legacy_flip", False))
+
                     if pass_shape == "linear_full":
                         n_ex         = max(2, int(np.linalg.norm(p3_arr - T2) / check_res))
                         exit_portion = np.linspace(T2, p3_arr, n_ex)
+                    elif _swap_legs:
+                        # Entry leg after reversal: always straight (#82).
+                        exit_portion = np.linspace(
+                            T2, p3_arr,
+                            max(10, int(max(np.linalg.norm(p3_arr - T2), 0.1) / check_res)))
                     else:
                         # Exit curve: circular arc T2 → P3.
                         # exit_arc_angle (°): tangent-chord angle at T2.
                         # Positive = bow outward (away from spin axis, larger X).
                         # Negative = bow inward. 0 = straight line (default).
-                        # R = chord / (2*sin(angle)), center offset = R*cos(angle)
-                        # on the side opposite the bow direction.
-                        exit_len     = max(np.linalg.norm(p3_arr - T2), 0.1)
-                        _arc_ang_deg = float(params.get("exit_arc_angle", 0.0))
-                        _arc_ang_rad = math.radians(abs(_arc_ang_deg))
-                        chord_dir    = (p3_arr - T2) / exit_len
-                        perp_xz      = np.array([-chord_dir[2], 0.0, chord_dir[0]])
-                        if perp_xz[0] < 0:
-                            perp_xz = -perp_xz
-                        if _arc_ang_rad < 1e-4:
-                            exit_portion = np.linspace(T2, p3_arr,
-                                                       max(10, int(exit_len / check_res)))
-                        else:
-                            _sign    = 1.0 if _arc_ang_deg > 0 else -1.0
-                            _R       = exit_len / (2.0 * math.sin(_arc_ang_rad))
-                            _arc_len = _R * 2.0 * _arc_ang_rad
-                            _center  = (0.5 * (T2 + p3_arr)
-                                        - _sign * _R * math.cos(_arc_ang_rad) * perp_xz)
-                            _u1      = (T2 - _center) / _R
-                            _th1     = math.atan2(_u1[2], _u1[0])
-                            _sweep   = _sign * 2.0 * _arc_ang_rad
-                            _n       = max(10, int(_arc_len / check_res))
-                            _t_vals  = np.linspace(0.0, 1.0, _n)
-                            _thetas  = _th1 + _t_vals * _sweep
-                            exit_portion = np.stack([
-                                _center[0] + _R * np.cos(_thetas),
-                                np.zeros(_n),
-                                _center[2] + _R * np.sin(_thetas)
-                            ], axis=1)
+                        exit_portion = self._tangent_chord_arc(T2, p3_arr, _exit_arc_deg, check_res)
 
                         # Mid-point rotation: pick M at exit_mid_t along the exit and rotate
                         # everything after it about M by exit_mid_rotation degrees (Y-axis,
@@ -1099,9 +1189,15 @@ class PathGenerator:
                             _tail = self._apply_rotation(exit_portion[_k + 1:], _emid_rot, _Mp)
                             exit_portion = np.vstack([exit_portion[:_k + 1], _tail])
 
-                    n_ap      = max(2, int(np.linalg.norm(T1 - ap_start) / check_res))
-                    approach  = np.linspace(ap_start, T1, n_ap)
-                    _ap_split = n_ap - 1   # ap_start → T1 reduces to 2 pts; fillet+exit stays dense
+                    if _swap_legs and pass_shape != "linear_full":
+                        # #82: the arm is the OUTGOING leg after reversal — it carries
+                        # the exit_arc bow instead (tangent-chord angle is symmetric at
+                        # both arc ends, so building pre-flip is equivalent).
+                        approach = self._tangent_chord_arc(ap_start, T1, _exit_arc_deg, check_res)
+                    else:
+                        n_ap     = max(2, int(np.linalg.norm(T1 - ap_start) / check_res))
+                        approach = np.linspace(ap_start, T1, n_ap)
+                    _ap_split = len(approach) - 1   # straight arm reduces to 2 pts; fillet+exit stays dense
                     if _fillet_len > 0:
                         pts_raw = np.vstack([approach[:-1], arc_pts, exit_portion[1:]])
                     else:

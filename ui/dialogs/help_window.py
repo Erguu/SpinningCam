@@ -300,43 +300,85 @@ REACH SOURCE & EXIT MODE (the editor's Path Shape section)
 ════════════════════════════════════════════════════════════════
 A status line shows which EXIT MODE the operation is in:
   • ANGULAR (Pass Angle set): direction comes from Pass Angle,
-    length from Reach. The P3 X/Z fields are NOT used by the
-    engine in this mode, so they are shown grey/readonly.
+    length from Reach. P3 X/Z are greyed ONLY when an explicit
+    length source is active (Reach set, or Follow-blank on) —
+    with Reach EMPTY the length still comes from |P3|, so the
+    fields stay editable there.
   • RAW X/Z (Pass Angle empty): P3 X/Z are the actual exit
     offsets; entering a Reach rescales that vector to the given
     length while keeping its direction.
 
 "Reach source" selects where the Reach value comes from:
   • Manual — you type it.
-  • Follow blank — before every calculation the reach is
-    recomputed from the remaining blank flange (× Blank factor)
-    so the exit always kisses the blank edge. The Reach field
-    turns grey/readonly and shows the LIVE value the engine will
-    use. The "Fill ⟲" button and the toolbar Reach⟲ grey out in
-    this mode — a one-shot fill would be overwritten anyway.
+  • Follow blank — the ENGINE recomputes the reach for EVERY
+    PASS from the remaining blank flange at that pass's own Z,
+    so each exit kisses the blank edge. Your own values are
+    NEVER overwritten: the Reach field shows the auto range
+    ("oto first→last") readonly, and switching back to Manual
+    reveals your numbers exactly as you left them. Two
+    modifiers are yours: Blank factor (×) and Blank offset
+    (mm, e.g. −5 = stop 5 mm before the edge); the result is
+    flange × factor + offset. The Progressive-Reach fan is
+    greyed here (the per-pass follow supersedes it) but its
+    checkbox is never flipped for you. Enabling Follow is
+    refused honestly if the flange model can't be computed
+    (needs Sheet Radius). The switch itself is undoable.
   • "Fill ⟲" (Manual mode) — estimates the reach from the blank
     ONCE and fills the field; undo with Ctrl+Z.
 
-NOTHING IS LOCKED IN: switch back to Manual at any time — the
-auto-refresh stops immediately, the field unlocks, and the last
-computed value stays as an editable starting point. The Blank
-factor field only appears in Follow-blank mode, because that is
-the only place it has any effect. Setting a Reach also anchors
-the exit ENDPOINT to be clearance-independent (same reach +
-different clearance = same absolute end position). The Pass
+Setting a Reach (or following the blank / pinning a pass) also
+anchors the exit ENDPOINT to be clearance-independent (same reach
++ different clearance = same absolute end position). The Pass
 Diagram window (formula panel) shows this whole chain with the
 selected operation's live values.
+
+
+PASS TABLE (Paslar ▦ — see every pass before you run)
+════════════════════════════════════════════════════════════════
+The Pass Table button (toolbar / right-click) opens one row per
+pass of the selected operation: contact Z, the EFFECTIVE angle
+and reach the engine will really use, the exit endpoint, the
+value SOURCE (manual / fan / follow / ⭑pin / legacy override)
+and warnings:
+  ⚠ clearance guard — this pass's endpoint sits ~clearance
+    further out than its anchored neighbors (near-180° exits);
+  ⚠ ~same as previous pass — endpoints closer than 2.5 mm do no
+    distinguishable extra work;
+  ⚠ reach≈0 — the pass falls back to the RAW default exit;
+  ⚠ exit beyond blank edge — the commanded reach overshoots the
+    ESTIMATED unformed flange at that Z: the tail of the pass is
+    an air move (needs Sheet Radius; fix: shorten reach, pin the
+    pass, or switch reach source to follow).
+Selecting a row highlights that pass in the 3D view.
+NOTE: warnings are recomputed from the CURRENT geometry — they
+legitimately appear/disappear when blank size, reach or angles
+change. The endpoint column ignores the iterative safety-floor
+push, so the 3D path can sit a few mm further out in X.
+
+PINNING: double-click an Angle or Reach cell to stage a per-pass
+value (✎). Staged edits touch NOTHING until [Apply], which
+writes them as ONE undo step; [Cancel] discards them. A pinned
+pass (⭑) keeps its value against fans and follow mode — the
+highest-priority source. "Unpin" removes pins AND any legacy
+hidden per-pass overrides on the selected rows (also undoable).
+Pins live inside the operation, so they survive copy, move and
+split (split remaps them to the right chunk).
 
 
 PASS DIRECTION (FORWARD / REVERSE)
 ════════════════════════════════════════════════════════════════
 Each roughing or finishing operation has a Direction setting.
-Forward (default) cuts in the normal direction. Reverse flips the
-cut direction of every pass so the roller travels the inverse way
-(e.g. tip→root). The path geometry is identical — only the
-traversal direction changes. In a multi-pass operation the order
-the passes are laid down stays the same; just the cut direction of
-each pass is reversed. Reverse and Back Pass can be combined.
+Forward (default) cuts in the normal direction. Reverse makes the
+roller travel the inverse way (e.g. tip→root). For linear-shape
+passes the geometry now swaps its leg roles (2026-07-08 default):
+the leg ENTERING the mandrel-near contact point is always the
+STRAIGHT arm, and the exit-arc curve moves to the outgoing leg —
+previously the roller entered along the curve, which is not what
+a reverse pass should do. With Exit Arc Angle = 0 nothing
+changes at all. The old behavior is available per op via the
+advanced key reverse_legacy_flip. In a multi-pass operation the
+order the passes are laid down stays the same; just each pass's
+travel is reversed. Reverse and Back Pass can be combined.
 
 
 BACK PASS (RETURN STROKE)
@@ -378,8 +420,20 @@ type text in the list; leave it empty to show the type again.
 Names are labels only — they never affect the toolpath.
 
 RIGHT-CLICK on any row opens a context menu with the row actions:
-Rename, Copy, On/Off, Continue ⤵, Split, Reach⟲, Angle⟲, Batch,
-Move up/down, Delete and the operation Library.
+Rename, Copy, On/Off, Reset to factory defaults, Continue ⤵,
+Split, Reach⟲, Angle⟲, Batch, Move up/down, Delete and the
+operation Library.
+
+ESCAPE HATCH — factory defaults: "+ Add ▾" normally copies your
+last "Save as Default" preset, so a preset polluted by experiments
+produces polluted "new" operations. The dropdown's lower section
+("— factory clean") adds an operation with CLEAN built-in defaults,
+ignoring the preset. Right-click → "Reset to factory defaults"
+does the same to an EXISTING stuck operation: all parameters are
+replaced (pins, follow mode, fans dropped), while type, name and
+on/off state are kept. Both are one Ctrl+Z step. Your saved preset
+itself is untouched — overwrite it with "Save as Default" on a
+clean operation when you want new defaults.
 
 The "Real End Z" column shows where each operation's LAST pass
 actually reaches in Z — its deepest contact point (P2), taken from
@@ -587,41 +641,84 @@ REACH KAYNAĞI VE ÇIKIŞ MODU (editörün Yol Şekli bölümü)
 ════════════════════════════════════════════════════════════════
 Bir durum satırı operasyonun hangi ÇIKIŞ MODUNDA olduğunu gösterir:
   • AÇISAL (Pass Angle dolu): yön Pass Angle'dan, uzunluk
-    Reach'ten gelir. Bu modda motor P3 X/Z alanlarını KULLANMAZ —
-    gri/salt-okunur gösterilirler.
+    Reach'ten gelir. P3 X/Z alanları YALNIZCA açık bir uzunluk
+    kaynağı etkinken grileşir (Reach dolu veya Sacı-takip açık) —
+    Reach BOŞKEN uzunluk hâlâ |P3|'ten gelir, alanlar
+    düzenlenebilir kalır.
   • HAM X/Z (Pass Angle boş): P3 X/Z gerçek çıkış ofsetleridir;
     Reach girilirse bu vektörün boyunu, yönünü koruyarak verilen
     uzunluğa ölçekler.
 
 "Reach kaynağı" Reach değerinin nereden geldiğini seçer:
   • Elle — kendin yazarsın.
-  • Sacı takip et — her hesaplamadan önce reach, kalan sac
-    flanşından (× Sac çarpanı) yeniden hesaplanır; çıkış hep sacın
-    ucunu öper. Reach alanı gri/salt-okunur olur ve motorun
-    kullanacağı CANLI değeri gösterir. "Doldur ⟲" düğmesi ve
-    toolbar'daki Reach⟲ bu modda grileşir — tek seferlik doldurma
-    zaten bir sonraki hesapta ezilirdi.
+  • Sacı takip et — MOTOR, HER PASIN reach'ini o pasın kendi
+    Z'sindeki kalan sac flanşından hesaplar; her çıkış sacın
+    ucunu öper. Senin değerlerin ASLA üzerine yazılmaz: Reach
+    alanı salt-okunur "oto ilk→son" aralığını gösterir; Elle'ye
+    dönünce kendi sayıların aynen ortaya çıkar. İki değiştirici
+    senindir: Sac çarpanı (×) ve Sac kaydırma (mm; örn. −5 =
+    kenardan 5 mm önce dur); sonuç = flanş × çarpan + kaydırma.
+    Progressive-Reach yelpazesi bu modda gridir (pas-başına
+    takip onu zaten kapsar) ama işaretin ASLA değiştirilmez.
+    Flanş modeli hesaplanamıyorsa (Sac Yarıçapı yok) mod
+    açılmaz ve dürüstçe söylenir. Geçişin kendisi Ctrl+Z ile
+    geri alınır.
   • "Doldur ⟲" (Elle modunda) — reach'i sactan BİR KEZ tahmin
     edip alana doldurur; Ctrl+Z ile geri alınır.
 
-HİÇBİR ŞEY KİLİTLENMEZ: istediğin an Elle'ye dön — otomatik
-yenileme aninda durur, alan açılır ve son hesaplanan değer
-düzenlenebilir başlangıç olarak kalır. Sac çarpanı alanı yalnızca
-Sacı-takip modunda görünür, çünkü yalnızca orada etkisi vardır.
-Reach girmek ayrıca çıkış BİTİŞ noktasını clearance'tan bağımsız
-kılar (aynı reach + farklı clearance = aynı mutlak bitiş konumu).
-Pass Diagram penceresi (formül paneli) bu zinciri seçili
-operasyonun canlı değerleriyle gösterir.
+Reach girmek (veya sacı takip / pas pinlemek) ayrıca çıkış BİTİŞ
+noktasını clearance'tan bağımsız kılar (aynı reach + farklı
+clearance = aynı mutlak bitiş konumu). Pass Diagram penceresi
+(formül paneli) bu zinciri seçili operasyonun canlı değerleriyle
+gösterir.
+
+
+PAS TABLOSU (Paslar ▦ — çalıştırmadan önce her pası gör)
+════════════════════════════════════════════════════════════════
+Pas Tablosu düğmesi (toolbar / sağ-tık) seçili operasyonun her
+pası için bir satır açar: temas Z'si, motorun GERÇEKTE
+kullanacağı açı ve reach, çıkış uç noktası, değerin KAYNAĞI
+(elle / yelpaze / takip / ⭑pin / eski override) ve uyarılar:
+  ⚠ klerens koruması — bu pasın ucu, demirli komşularından
+    ~klerens kadar dışarıda kalır (180°'ye yakın çıkışlar);
+  ⚠ öncekiyle ~aynı — uçlar 2.5 mm'den yakınsa pas ayırt
+    edilir iş yapmaz;
+  ⚠ reach≈0 — pas HAM varsayılan çıkışa düşer;
+  ⚠ sac ucu aşımı — komut edilen reach, o Z'deki TAHMİNİ
+    şekilsiz flanşı aşıyor: pasın kuyruğu boşta harekettir
+    (Sac Yarıçapı gerekir; çözüm: reach'i kısalt, pası pinle
+    veya reach kaynağını takibe al).
+Satır seçmek o pası 3B görünümde vurgular.
+NOT: uyarılar GÜNCEL geometriden yeniden hesaplanır — sac boyu,
+reach veya açılar değişince görünüp kaybolmaları normaldir. Uç
+noktası sütunu yinelemeli güvenlik-tabanı itmesini içermez; 3B
+yol X'te birkaç mm daha dışarıda olabilir.
+
+PİNLEME: Açı veya Reach hücresine çift tıkla → pas-başına değer
+BEKLEMEYE alınır (✎). Beklemedekiler [Uygula]'ya kadar HİÇBİR
+ŞEYE dokunmaz; Uygula hepsini TEK Ctrl+Z adımı olarak yazar,
+[İptal] atar. Pinli pas (⭑) değerini yelpazeye ve sac takibine
+karşı korur — en yüksek öncelikli kaynaktır. "Pin temizle"
+seçili satırlardaki pinleri VE eski tip gizli override'ları
+kaldırır (o da geri alınabilir). Pinler operasyonun içinde
+yaşar: kopyala, taşı ve böl'de korunurlar (böl, pinleri doğru
+parçaya yeniden eşler).
 
 
 PAS YÖNÜ (İLERİ / TERS)
 ════════════════════════════════════════════════════════════════
 Her kaba veya bitirme operasyonunun bir Yön ayarı vardır. İleri
-(varsayılan) normal yönde keser. Ters, her pasın kesim yönünü
-çevirir; rulo ters yönde ilerler (örn. uç→kök). Yol geometrisi
-aynıdır — yalnızca ilerleme yönü değişir. Çok paslı operasyonda
-pasların oluşturulma sırası aynı kalır; sadece her pasın kesim yönü
-ters döner. Ters yön ve Geri Pas birlikte kullanılabilir.
+(varsayılan) normal yönde keser. Ters'te rulo ters yönde ilerler
+(örn. uç→kök). Lineer şekilli paslarda geometri artık bacak
+rollerini değiştirir (2026-07-08 varsayılanı): mandrele yakın
+temas noktasına GİREN bacak her zaman DÜZ koldur; çıkış yayı
+(Exit Arc) çıkan bacağa taşınır — eskiden rulo mandrele eğri
+üzerinden giriyordu, ters pasın istediği bu değildir. Exit Arc
+Angle = 0 ise hiçbir şey değişmez. Eski davranış op başına
+reverse_legacy_flip anahtarıyla geri gelir. Çok paslı
+operasyonda pasların oluşturulma sırası aynı kalır; sadece her
+pasın ilerleyişi ters döner. Ters yön ve Geri Pas birlikte
+kullanılabilir.
 
 
 GERİ PAS (DÖNÜŞ HAMLESİ)
@@ -663,8 +760,20 @@ yerine görünür; boş bırakılırsa tekrar tip gösterilir. Ad yalnızca
 bir etikettir — takım yolunu asla etkilemez.
 
 Herhangi bir satıra SAĞ TIKLAMAK satır işlemlerini içeren menüyü
-açar: Yeniden adlandır, Kopyala, Aç/Kapat, Devam ⤵, Böl, Reach⟲,
-Açı⟲, Toplu, Yukarı/Aşağı taşı, Sil ve operasyon Kütüphanesi.
+açar: Yeniden adlandır, Kopyala, Aç/Kapat, Fabrika varsayılanına
+sıfırla, Devam ⤵, Böl, Reach⟲, Açı⟲, Toplu, Yukarı/Aşağı taşı,
+Sil ve operasyon Kütüphanesi.
+
+KAÇIŞ KAPISI — fabrika varsayılanları: "+ Ekle ▾" normalde son
+"Varsayılan Kaydet" ön ayarınızı kopyalar; deneylerle kirlenmiş bir
+ön ayar, kirli "yeni" operasyonlar üretir. Menünün alt bölümü
+("— fabrika temiz") ön ayarı YOK SAYARAK yerleşik temiz
+varsayılanlarla operasyon ekler. Sağ-tık → "Fabrika varsayılanına
+sıfırla" aynısını MEVCUT sıkışmış bir operasyona yapar: tüm
+parametreler değiştirilir (pinler, takip modu, yelpazeler silinir);
+tip, ad ve açık/kapalı durumu korunur. İkisi de tek Ctrl+Z adımıdır.
+Kayıtlı ön ayarınıza dokunulmaz — yeni varsayılan istediğinizde
+temiz bir operasyonda "Varsayılan Kaydet"e basın.
 
 "Gerçek Bitiş Z" sütunu her operasyonun SON pasının Z'de gerçekte
 nereye ulaştığını gösterir — en derin temas noktası (P2), takım

@@ -5,6 +5,99 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-08b — Pas tablosu düzeltmeleri (GUI smoke geri bildirimi)
+
+Kullanıcının ilk GUI smoke testi sonrası (`ui/dialogs/pass_table.py` +
+i18n + help_window + `_test_pass_table.py`):
+
+1. **`p2_z_extend` aynası:** tablo Z'si ve uç Z'si artık motorla aynı
+   (`contact_z = target_z + p2_z_extend`; klerens normali de contact_z'den).
+   Önceden 2 mm'lik extend tabloda görünmüyordu → uçlar motordan kayıktı.
+2. **YENİ uyarı "sac ucu aşımı" (`pt_warn_beyond_blank`):** komut edilen
+   reach o Z'deki tahmini flanşı >3 mm aşarsa "boşta hareket" uyarısı
+   (flanş>0.5 mm iken; sacın tamamen şekillendiği Z'lerde susar — duvar
+   üstünde kaymak normaldir). Kullanıcının "ilk pas çok uzakta ama uyarı
+   yok" şikâyetinin cevabı: 93° + reach 40 + küçük sac → ~32 mm boşta.
+3. **✎ hücre işareti:** beklemedeki düzenleme artık satır renginin yanında
+   HÜCRENİN kendisinde "✎ değer" olarak görünür (çift-tık okuma ✎'yi soyar).
+4. **Fabrika-temiz kaçış kapısı (`program_tab.py`):** "+ Ekle ▾" alt bölümü
+   "— fabrika temiz" ön ayarı (op_presets) YOK SAYARAK temiz op ekler;
+   sağ-tık → "Fabrika varsayılanına sıfırla" mevcut opun TÜM parametrelerini
+   `_factory_op()` ile değiştirir (tip/ad/açık-kapalı korunur, onay popup'ı,
+   tek undo). Kirlenmiş "Varsayılan Kaydet" ön ayarına dokunulmaz.
+GERİ ALMA: 1–3 tablo/görselleştirme katmanında, 4 yeni UI girişleri — motor
+değişmedi.
+
+---
+
+## 2026-07-08 — Reach/açı öncelik modeli P1–P4 (onaylı `PROPOSAL_REACH_ANGLE_PRIORITY.md`, TODO #72–#83)
+
+Kullanıcı kararları: pas tablosu = POPUP; tablo düzenlemeleri = BEKLEMELİ
+(Uygula/İptal); takip modu değiştiricileri = çarpan × + kaydırma mm (kullanıcıya
+ait); ters-pas geometri düzeltmesi = **YENİ VARSAYILAN**.
+
+### MOTOR (path_generator.py) — davranış değişiklikleri
+1. **Takip modu (reach_follow_blank) MOTORA taşındı, PAS BAŞINA:** her pasın
+   reach'i o pasın Z'sindeki flanştan = `flanş × reach_blank_factor +
+   reach_blank_offset` (YENİ anahtar, mm). Op dict'i ASLA otomatik yazılmaz
+   (R2) → #74/#75 ping-pong kökten öldü; UI'daki `_refresh_auto_reach`
+   SİLİNDİ. ⚠ ESKİ takip-modlu .ssp'lerde yol İYİLEŞİR ama DEĞİŞİR (eskiden
+   iki uç arası lineer yelpazeydi). GERİ ALMA: yok — Elle moda dönüp eski
+   sayıları elle gir (op'taki değerler aynen duruyor).
+2. **`pass_edits` (pas pinleri):** op-yerel `{pas_i: {pass_angle, reach}}` —
+   EN YÜKSEK öncelik (pin > takip > yelpaze > reach > |p3|). Böl (#64)
+   pinleri parça-yerel indekse yeniden eşler.
+3. **#81 `exit_arc_angle` artık OP-BAŞINA** (boş = Process-tab genel değeri →
+   eski programlar bit-aynı). Editör Yol Şekli bölümüne alan eklendi.
+4. **#82 TERS PAS YENİ VARSAYILAN (lineer şekiller):** mandrele giren bacak
+   DÜZ, exit-arc kavisi çıkan kola taşındı (`_tangent_chord_arc` helper; yay
+   tanjant-kiriş açısı iki uçta simetrik → flip öncesi kurmak eşdeğer).
+   exit_arc=0 → bit-aynı. GERİ ALMA: op'a `reverse_legacy_flip: true`.
+   Takas modunda exit_mid ATLANIR (giriş bacağını eğerdi). ⚠ FİZİKSEL
+   DOĞRULAMA GEREKLİ (kavisli ters paslar makinede yeniden kontrol).
+
+### UI (program_tab / process_tab / main / helpers)
+5. **PAS TABLOSU (`ui/dialogs/pass_table.py`, "Paslar ▦" + sağ-tık):** pas
+   başına Z/etkin açı/etkin reach/uç nokta/KAYNAK (elle-yelpaze-takip-⭑pin-
+   eski override)/uyarılar (klerens sıçraması, Δ<2.5mm yinelenen pas,
+   reach≈0 ham çıkış). Çift-tık → beklemeli düzenleme (✎), [Uygula] = TEK
+   undo adımı → `pass_edits`; [Pin temizle] pinleri + ESKİ gizli
+   override'ları (gui_pass_overrides) kaldırır. Satır seçimi 3B vurgular.
+   `compute_pass_rows` motor formüllerinin birebir aynası — motoru
+   değiştirirken senkron tut!
+6. **#76/#83 TEK HESAP YOLU:** program_tab'daki tüm senkron
+   `update_scene("paths")` toggle çağrıları → `_schedule_auto_calc()`;
+   Process-tab Hesapla → `_start_async_calc()`; `update_scene` canlı param
+   düzenlemelerinde ağır hesabı arka plana devrediyor (`_delegate_async`,
+   main.py) → sac yarıçapı değişince DONMA YOK. Startup/proje-yükleme
+   (force_path_calc) senkron kaldı.
+7. **#77 takip radyosu undo'lu + #73 korumalı** (flanş hesaplanamıyorsa mod
+   açılmaz, `msg_follow_blocked`). **#72:** p3_x/p3_z SADECE açısal+uzunluk
+   kaynağı etkinken kilitli (reach boşsa düzenlenebilir — legacy |p3| hâlâ
+   uzunluk kaynağı). **#75:** yelpaze checkbox'ı kullanıcının — takip
+   modunda gri ama ASLA çevrilmez. **#78:** çıkış-modu satırı `_section`
+   etiketi aldı. **#79 undo:** `OpUndoStack` artık `extra` yan-durumu
+   (gui_pass_overrides) saklıyor → 4'lü tuple (push/undo/redo İMZA DEĞİŞTİ).
+8. Reach alanı takip modunda "oto ilk→son mm" gösterir (saver'sız salt-okunur).
+
+### Testler
+- YENİ: `_test_pass_edits.py`, `_test_reverse_linear.py`, `_test_pass_table.py`.
+- YENİDEN YAZILDI (motor-taraflı takip): `_test_reach_follow.py`.
+- GÜNCELLENDİ: `_test_undo.py` (4'lü tuple + sidecar senaryosu),
+  `_test_program_tab_toolbar.py` (R2 + tablo + unpin senaryoları).
+- DEĞİŞMEDEN GEÇİYOR: `_test_reach`, `_test_reach_foldback`,
+  `_test_progressive_reach`, batch/split/continue/flange/surface/clamp/library.
+- ÖNCEDEN BOZUK (bu oturumdan BAĞIMSIZ, commit'li kodda da düşüyor):
+  `test_path_generator.py::test_empty_operations_list` (legacy op fallback),
+  `_test_real_end_z.py` (bayat sütun-indeks assert'i, #67 Sel kayması),
+  `_test_deformed_blank.py` (cp1254 konsol Δ karakteri).
+
+### Paketleme
+- `packaging_manifest.py` CRITICAL_MODULES += `ui.dialogs.pass_table`;
+  `check_packaging.py` statik GEÇİYOR.
+
+---
+
 ## 2026-07-07e — Reach/açı parametre sadeleştirme FAZ A (onaylı öneri) — TODO #68
 
 `PROPOSAL_68_REACH_ANGLE_UX.md` kullanıcı ONAYIYLA uygulandı. **SADECE görünüm
