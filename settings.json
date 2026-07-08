@@ -38,6 +38,14 @@
     "clearance_correction_per_point": 0.0,
     "collision_resolution": 0.25,
     "exit_arc_angle": 0.0,
+    "show_rulers": true,
+    "ruler_x_at_z": 0.0,
+    "ruler_z_at_x": -150.0,
+    "ruler_x_start": 0.0,
+    "ruler_x_end": -400.0,
+    "ruler_z_start": 0.0,
+    "ruler_z_end": 300.0,
+    "show_tip_paths": true,
     "clamp_zone_length": 0.0,
     "show_deformed_blank": true,
     "deformed_blank_offset": 0.0,
@@ -145,7 +153,7 @@
     "num_finishing_passes": 0.0,
     "operations": [
         {
-            "enabled": false,
+            "enabled": true,
             "count": 12,
             "clearance": 2.0,
             "tool_id": "T0103",
