@@ -157,6 +157,28 @@ Tip distance     The real-time gap between roller tip and mandrel
                  at the current roller position. Use this to verify
                  calibration looks sensible before running.
 
+Tip paths        Draws each pass at the roller TOUCH POINT instead of
+                 the roller centre. The stored path is the roller
+                 centre; this pulls the drawn line in by the tool
+                 radius (r_tool) so you see where the sheet is actually
+                 formed. Visual only — path generation, G-code and the
+                 simulation are untouched, and it redraws from the last
+                 result without recalculating. (Radial approximation;
+                 on steep walls the true contact point can shift a
+                 little along the surface normal.)
+
+Rulers           Two placeable scale bars — a horizontal X ruler and
+                 a vertical Z ruler — with mm tick marks. Placement:
+                 the X ruler sits at the Z level you set ("X ruler at
+                 Z"), the Z ruler at the X level you set ("Z ruler at
+                 X"). Direction & zero: each ruler runs from its Start
+                 to its End; the Start is the zero mark and labels read
+                 distance from it, so set Start at a feature to measure
+                 from there, and swap Start/End to flip direction.
+                 Leave End equal to Start to auto-fit the scene (with
+                 Start = 0 the labels then read true machine X / Z).
+                 Visual only — never affects toolpaths or G-code.
+
 Contact Zone     Draws a faded translucent red band around the
 Band             mandrel marking the contact zone — where the roller
                  slows to its contact feed. Path segments inside the
@@ -225,6 +247,31 @@ Uç mesafesi        Mevcut rulo konumunda rulo ucu ile mandrel
                    arasındaki anlık boşluk. Çalıştırmadan önce
                    kalibrasyonun mantıklı göründüğünü doğrulamak
                    için kullanın.
+
+Uç yolları         Her pası rulo MERKEZİ yerine rulo TEMAS
+                   NOKTASINDA çizer. Saklanan yol rulo merkezidir;
+                   bu seçenek çizilen çizgiyi takım yarıçapı (r_tool)
+                   kadar içeri çeker, böylece sacın gerçekte nerede
+                   şekillendiğini görürsünüz. Yalnızca görseldir — yol
+                   üretimi, G-code ve simülasyon değişmez; son
+                   sonuçtan yeniden çizilir, tekrar hesaplama yapılmaz.
+                   (Radyal yaklaşım; dik duvarlarda gerçek temas
+                   noktası yüzey normali boyunca biraz kayabilir.)
+
+Cetveller          Yerleştirilebilir iki ölçek çubuğu — yatay X
+                   cetveli ve dikey Z cetveli — mm taksimatlı. Konum:
+                   X cetveli belirlediğiniz Z seviyesine ("X cetveli Z
+                   konumu"), Z cetveli belirlediğiniz X seviyesine ("Z
+                   cetveli X konumu") oturur. Yön ve sıfır: her cetvel
+                   Başlangıç'tan Bitiş'e uzanır; Başlangıç sıfır
+                   işaretidir ve etiketler oradan itibaren mesafeyi
+                   okur — yani Başlangıç'ı bir özelliğe koyarak oradan
+                   ölçün, yönü çevirmek için Başlangıç/Bitiş'i
+                   değiştirin. Bitiş'i Başlangıç'a eşit bırakırsanız
+                   uzunluk sahneye göre otomatik ayarlanır (Başlangıç=0
+                   iken etiketler gerçek makine X / Z değerini okur).
+                   Yalnızca görseldir — takım yollarını veya G-code'u
+                   etkilemez.
 
 Temas Bölgesi      Mandrel etrafında soluk yarı saydam kırmızı bir
 Bandı              bant çizer — rulonun temas beslemesine (contact

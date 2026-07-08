@@ -5,6 +5,72 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-08d — Pasları rulo TEMAS NOKTASINDA gösterme (opt-in, görsel)
+
+Kullanıcı: "Yolları rulo merkezine göre çiziyoruz ama asıl işi rulo ucu yapıyor.
+Yol üretimini hiç bozmadan, rulo boyutu kadar görsel kaydırma ile temas noktasını
+görebilir miyiz? Bir onay kutusuyla."
+
+- **`main.py _shift_path_to_tip(p_arr, r_tool)`** (yeni): bir yolun KOPYASINI
+  mandrel ekseni X'ine doğru r_tool kadar radyal içeri çeker (merkez → temas
+  noktası; `update_deformed_blank` ile aynı ilişki, eksen geçişine karşı 0.1 mm
+  kısıtlı). Yalnızca ÇİZİLEN kopya kayar.
+- **Render döngüsü:** ana pas tüpü (`p_arr`) çizilmeden önce `show_tip_paths`
+  açıksa `_shift_path_to_tip(..., _rtool_for_pass(i))` uygulanır. Projeksiyon/
+  analiz/rapid/approach katmanları DEĞİŞMEZ.
+- **Yeniden çizim recalc'SIZ:** `_update_scene_impl` artık son render demetini
+  `self._last_render_tuple` içinde tutuyor; yeni `redraw_paths_cached()` bunu
+  `_pending_paths`'e koyup `update_scene("all", use_cached_paths=True)` çağırıyor.
+  Onay kutusu handler'ı bunu kullanır → auto-calc KAPALI olsa bile (varsayılan)
+  anında yeniden çizer, yol hesaplaması ÇALIŞMAZ.
+- **UI (`process_tab.py`):** "Yolları Rulo Ucunda Göster (temas noktası)" özel
+  onay kutusu (görsel bölümü, Pas Mesafe Çizgileri'nin altında).
+- **i18n:** `cb_show_tip_paths` (EN/TR/ES). **help_window:** "Tip paths /
+  Uç yolları" (EN+TR). **param:** `show_tip_paths` (varsayılan False).
+
+GERİ ALMA: tamamen görsel — path/G-code/simülasyona DOKUNMAZ (yalnızca çizilen
+tüpün X'i kayar). Kapatmak için onay kutusunu kaldır. Radyal yaklaşım (eğik
+yüzeylerde normal boyunca küçük sapma). Headless smoke: 200→170 (r_tool=30),
+Z korunuyor, aç/kapat cache'ten yeniden çiziyor. GUI smoke BEKLİYOR.
+
+---
+
+## 2026-07-08c — 3D görünüme yerleştirilebilir X/Z cetvelleri (opt-in)
+
+Kullanıcı isteği: "3D görünümde her iki eksen için, yerleştirilebilir ve
+mesafeleri doğrudan gösteren bir cetvel." Seçilen tasarım: sabit X ve Z ölçek
+çubukları (interaktif tıkla-ölç değil).
+
+- **Yeni param'lar (`main.py load_settings`):** `show_rulers` (bool, varsayılan
+  False), `ruler_x_at_z` (yatay X cetvelinin oturduğu Z seviyesi),
+  `ruler_z_at_x` (dikey Z cetvelinin oturduğu X seviyesi). Hepsi görsel-only.
+- **`main.py _update_rulers()`** (yeni; `_update_scene_impl` sonunda
+  `_update_grid_dynamic`'ten hemen sonra çağrılır). PyVista `add_ruler` ile iki
+  `vtkAxisActor2D` çizer/kaldırır. Her cetvel koordinat sıfırında sabitlenir →
+  taksimat etiketleri GERÇEK makine X/Z değerini (mm) okur. Span görünür
+  aktörlerden (mandrel/roller/shell/blank) otomatik, 50 mm'lik temiz uca
+  yuvarlanır; her 50 mm'de bir majör, 4 minör (=10 mm) taksimat.
+- **UI (`ui/tabs/process_tab.py`):** Görsel Ayarlar'da "Cetvelleri Göster"
+  onay kutusu + "X cetveli Z konumu" / "Z cetveli X konumu" spinbox'ları.
+- **i18n:** `cb_show_rulers`, `sp_ruler_x_at_z`, `sp_ruler_z_at_x` (EN/TR/ES).
+- **help_window.py:** VISUAL/GÖRSEL katmanlar bölümüne "Rulers/Cetveller".
+
+GERİ ALMA: tamamen görsel katman — takım yolu/G-code'a DOKUNMAZ. Kapatmak için
+onay kutusunu kaldır (varsayılan zaten kapalı). Headless smoke geçti (aç→2
+aktör, kapat→None). GUI smoke BEKLİYOR.
+
+**Ek (aynı gün):** Kullanıcı "cetvellerin yönünü ve başlangıç noktasını nasıl
+değiştiririm?" → her cetvele **Başlangıç/Bitiş** kontrolü eklendi. Yeni param'lar
+`ruler_x_start/ruler_x_end`, `ruler_z_start/ruler_z_end`. `_update_rulers` artık
+`pointa=Başlangıç`, `pointb=Bitiş` çiziyor → etiketler Başlangıç'tan mesafeyi
+okur (Başlangıç=sıfır işareti), Başlangıç→Bitiş yönü belirler. Bitiş==Başlangıç
+ise ESKİ otomatik-sığdırma davranışı (Başlangıç'tan sahne kenarına, 50 mm'ye
+yuvarlı) → varsayılan Başlangıç=0 ile etiketler hâlâ gerçek makine X/Z. UI'de
+4 yeni spinbox (process_tab), i18n `sp_ruler_x_start/_end`, `sp_ruler_z_start/_end`
+(EN/TR/ES), help_window EN+TR güncellendi.
+
+---
+
 ## 2026-07-08b — Pas tablosu düzeltmeleri (GUI smoke geri bildirimi)
 
 Kullanıcının ilk GUI smoke testi sonrası (`ui/dialogs/pass_table.py` +

@@ -49,12 +49,60 @@ class ProcessTab(ScrollableTabBase):
             "Referans noktaları için de aynı gösterge çizilir.\n"
             "Paso hesaplamalarını ETKİLEMEZ.")
 
+        self.helper.add_checkbox(self.content, self.app, "show_rulers", t("cb_show_rulers"),
+                                 "3D görünüme yerleştirilebilir X ve Z ölçek çubukları (cetvel) ekler. "
+                                 "Yatay X cetveli 'X cetveli Z konumu' değerindeki Z seviyesine, dikey Z "
+                                 "cetveli 'Z cetveli X konumu' değerindeki X seviyesine yerleşir. "
+                                 "Etiketler doğrudan makine X / Z değerini (mm) gösterir. "
+                                 "Uzunluk sahneye göre otomatik ayarlanır. Yalnızca GÖRSELDİR — paso "
+                                 "hesaplamalarını veya G-code'u ETKİLEMEZ.")
+        self.helper.add_spinbox(self.content, self.app, "ruler_x_at_z", t("sp_ruler_x_at_z"), -500, 1000, 5,
+                                "Yatay X cetvelinin oturacağı Z seviyesi (mm). Cetveli ilgilendiğin "
+                                "Z konumuna taşımak için değiştir.")
+        self.helper.add_spinbox(self.content, self.app, "ruler_x_start", t("sp_ruler_x_start"), -500, 1000, 5,
+                                "X cetvelinin BAŞLANGIÇ noktası (mm) — cetvelin sıfır işareti burada durur. "
+                                "Etiketler bu noktadan itibaren mesafeyi gösterir. Başlangıç→Bitiş yönü "
+                                "cetvelin yönünü belirler.")
+        self.helper.add_spinbox(self.content, self.app, "ruler_x_end", t("sp_ruler_x_end"), -500, 1000, 5,
+                                "X cetvelinin BİTİŞ noktası (mm). Bitiş < Başlangıç ise cetvel -X yönünde "
+                                "ilerler. Bitiş'i Başlangıç'a EŞİT bırakırsan uzunluk sahneye göre otomatik "
+                                "ayarlanır (Başlangıç=0 iken etiketler gerçek makine X değerini okur).")
+        self.helper.add_spinbox(self.content, self.app, "ruler_z_at_x", t("sp_ruler_z_at_x"), -500, 1000, 5,
+                                "Dikey Z cetvelinin oturacağı X seviyesi (mm). Cetveli ilgilendiğin "
+                                "X konumuna taşımak için değiştir.")
+        self.helper.add_spinbox(self.content, self.app, "ruler_z_start", t("sp_ruler_z_start"), -500, 1000, 5,
+                                "Z cetvelinin BAŞLANGIÇ noktası (mm) — cetvelin sıfır işareti burada durur. "
+                                "Etiketler bu noktadan itibaren mesafeyi gösterir. Başlangıç→Bitiş yönü "
+                                "cetvelin yönünü belirler.")
+        self.helper.add_spinbox(self.content, self.app, "ruler_z_end", t("sp_ruler_z_end"), -500, 1000, 5,
+                                "Z cetvelinin BİTİŞ noktası (mm). Bitiş < Başlangıç ise cetvel -Z yönünde "
+                                "ilerler. Bitiş'i Başlangıç'a EŞİT bırakırsan uzunluk sahneye göre otomatik "
+                                "ayarlanır (Başlangıç=0 iken etiketler gerçek makine Z değerini okur).")
+
         self.helper.add_checkbox(self.content, self.app, "show_analysis_lines", t("cb_show_analysis"),
                                  "Her pas noktasında mandrel yüzeyine olan clearance mesafesini çizgi olarak göster. "
                                  "Heatmap ile birlikte çarpışma noktalarını tespit etmek için kullanılır.")
         self.helper.add_checkbox(self.content, self.app, "show_pass_dist_lines", t("cb_show_dist_lines"),
                                  "Her pasın mandrel yüzeyine en yakın noktasından mandrel yüzeyine mesafe çizgisi göster. "
                                  "Siyan çizgi ve mm etiketi olarak görünür.")
+        f_tip_paths = ttk.Frame(self.content)
+        f_tip_paths.pack(fill="x", padx=10, pady=2)
+        var_tip_paths = tk.BooleanVar(value=bool(self.app.params.get("show_tip_paths", False)))
+        def on_tip_paths_toggle():
+            # Visual-only: store the flag then redraw from the CACHED paths so no
+            # recalculation is triggered (path data / G-code are never touched).
+            self.app.params["show_tip_paths"] = var_tip_paths.get()
+            self.app.redraw_paths_cached()
+        cb_tip_paths = ttk.Checkbutton(f_tip_paths, text=t("cb_show_tip_paths"),
+                                       variable=var_tip_paths, command=on_tip_paths_toggle)
+        cb_tip_paths.pack(anchor="w")
+        self.helper.bind_tooltip(cb_tip_paths,
+            "Pasları rulo MERKEZİ yerine rulo TEMAS NOKTASINDA (uç) çiz.\n"
+            "Her çizilen yol, o pasın rulo yarıçapı (r_tool) kadar mandrel eksenine\n"
+            "doğru radyal olarak içeri kaydırılır — böylece sacın gerçekte nerede\n"
+            "şekillendiğini görürsün. TAMAMEN GÖRSELDİR: yol hesaplamasını, G-code'u\n"
+            "veya simülasyonu ETKİLEMEZ, yalnızca 3B'de gösterilen çizgiyi taşır.\n"
+            "(Radyal yaklaşım; eğik yüzeylerde temas noktası normal boyunca hafifçe kayabilir.)")
 
         # Camera Controls
         f_cam = ttk.Frame(self.content)

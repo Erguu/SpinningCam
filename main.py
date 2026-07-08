@@ -135,6 +135,26 @@ class SpinningApp:
             "workspace_z_min": 0.0,
             "workspace_z_max": 500.0,
 
+            # Placeable 3D rulers (visual only — never affect toolpaths).
+            # X ruler = horizontal scale bar at Z = ruler_x_at_z; runs from
+            #   ruler_x_start -> ruler_x_end along X (labels = distance from Start).
+            # Z ruler = vertical scale bar at X = ruler_z_at_x; runs from
+            #   ruler_z_start -> ruler_z_end along Z (labels = distance from Start).
+            # End == Start => auto-fit the scene from Start (Start=0 => labels read
+            # true machine X / Z). Start -> End sets the direction.
+            "show_rulers": False,
+            "ruler_x_at_z": 0.0,
+            "ruler_z_at_x": 0.0,
+            "ruler_x_start": 0.0,
+            "ruler_x_end": 0.0,
+            "ruler_z_start": 0.0,
+            "ruler_z_end": 0.0,
+
+            # Draw the passes at the roller TOUCH POINT (tip) instead of the roller
+            # centre — visual only, pulls each drawn line in by r_tool. No effect on
+            # path generation or G-code.
+            "show_tip_paths": False,
+
             # Clamp / counter-press zone (TODO #62). The base region of the part is
             # held between the counter-press and the mandrel and is NOT machined.
             #   clamp_zone_length   = per-part override (mm, measured UP from the
@@ -480,6 +500,17 @@ class SpinningApp:
             except Exception:
                 pass
 
+    def redraw_paths_cached(self):
+        """Redraw the scene from the LAST computed paths, without recalculating —
+        for visual-only toggles such as show_tip_paths. If nothing has been
+        calculated yet, falls back to a normal (calculating) update."""
+        tup = getattr(self, "_last_render_tuple", None)
+        if tup is not None:
+            self._pending_paths = tup
+            self.update_scene("all", use_cached_paths=True)
+        else:
+            self.update_scene("all", force_path_calc=True)
+
     def _rtool_for_pass(self, k):
         """Roller radius r_tool of the op that owns global pass index k."""
         ops = self.params.get("operations", [])
@@ -492,6 +523,23 @@ class SpinningApp:
                 return float(op.get("r_tool", 25.0) or 25.0)
             total += span
         return float(ops[0].get("r_tool", 25.0) or 25.0) if ops else 25.0
+
+    def _shift_path_to_tip(self, p_arr, r_tool):
+        """VISUAL-ONLY: return a copy of a toolpath pulled radially inward by the
+        roller radius r_tool, so the drawn line sits at the roller TOUCH POINT
+        instead of the roller centre. Path generation is untouched — this only
+        moves what gets rendered.
+
+        The stored path point is the roller centre; the contact point is r_tool
+        nearer the spin axis (the same relation update_deformed_blank uses). Shift
+        is radial about the mandrel centre X, clamped so it never crosses the axis.
+        """
+        cx = float(self.params.get("mandrel_pos_x_offset", 0.0))
+        out = np.array(p_arr, dtype=float)
+        dx = out[:, 0] - cx
+        sgn = np.where(dx < 0.0, -1.0, 1.0)
+        out[:, 0] = cx + sgn * np.maximum(np.abs(dx) - float(r_tool), 0.1)
+        return out
 
     def update_deformed_blank(self, render=False):
         """(#63) Faded-blue overlay of the blank as bent by the SELECTED pass. Built DIRECTLY
@@ -898,6 +946,9 @@ class SpinningApp:
                 else:
                     self.sync_operation_r_tools()   # ops pull r_tool from library before calc
                     paths, projs, cps, devs, rapids, debug_lines = self.path_gen.calculate_paths(self.params, self.gui_pass_overrides, self.mandrel_mgr, visual_roller_pos=roller_pos)
+                # Keep the last full render tuple so a VISUAL-ONLY toggle (e.g. tip
+                # paths) can redraw from it without a recalculation.
+                self._last_render_tuple = (paths, projs, cps, devs, rapids, debug_lines)
                 self.check_angled_clearance()   # advisory only, never alters paths
 
                 # Build per-path type list. Must mirror calculate_paths' toolpath
@@ -946,6 +997,11 @@ class SpinningApp:
                     if len(p) > 1:
                         try:
                             p_arr = np.array(p, dtype=float)
+                            # VISUAL-ONLY: draw at the roller touch point (tip) instead
+                            # of the roller centre when the user asks for it. Path data
+                            # itself is unchanged — only this rendered copy moves.
+                            if self.params.get("show_tip_paths", False):
+                                p_arr = self._shift_path_to_tip(p_arr, self._rtool_for_pass(i))
                             n_pts = len(p_arr)
 
                             def _seg_poly(pts, straight):
@@ -994,7 +1050,7 @@ class SpinningApp:
                             ))
                         except Exception as e:
                             logger.error(f"Render failed path {i}: {e}")
-                            try: self.actors["paths"].append(self.plotter.add_lines(np.array(p, dtype=float), color=col, width=lw))
+                            try: self.actors["paths"].append(self.plotter.add_lines(p_arr, color=col, width=lw))
                             except: pass
                     else:
                         try: self.actors["paths"].append(self.plotter.add_lines(p, color=col, width=5))
@@ -1275,6 +1331,89 @@ class SpinningApp:
             
         # Fix Visual Bug: Update Grid logic dynamically
         self._update_grid_dynamic()
+
+        # Placeable X/Z scale bars (visual only)
+        self._update_rulers()
+
+    def _update_rulers(self):
+        """Draw two placeable scale bars — one along X, one along Z — as a visual
+        overlay. Purely cosmetic: never touches toolpaths or G-code.
+
+        Placement (where the bar sits, perpendicular to what it measures):
+          ruler_x_at_z -> Z level the horizontal X-ruler sits at
+          ruler_z_at_x -> X level the vertical Z-ruler sits at
+        Extent + direction (along the axis the bar measures):
+          ruler_x_start / ruler_x_end -> X ruler runs Start -> End
+          ruler_z_start / ruler_z_end -> Z ruler runs Start -> End
+        Labels read the distance FROM the Start mark (0 at Start), so the Start is
+        the ruler's zero and Start -> End sets the direction. When End == Start the
+        extent auto-fits the visible scene (mandrel/roller/shell/blank), anchored at
+        Start — so the factory default Start=0 makes the labels read machine X / Z.
+        """
+        for key in ("ruler_x", "ruler_z"):
+            a = self.actors.get(key)
+            if a is not None:
+                try: self.plotter.remove_actor(a)
+                except Exception: pass
+                self.actors[key] = None
+
+        if not self.params.get("show_rulers", False):
+            return
+
+        # Scene bounds from the visible solid actors (same set the grid uses).
+        xmin, xmax, zmin, zmax = 0.0, 100.0, 0.0, 100.0
+        got = False
+        for k in ("mandrel", "roller", "shell", "blank"):
+            act = self.actors.get(k)
+            if act and act.GetVisibility():
+                b = act.GetBounds()
+                if not got:
+                    xmin, xmax, zmin, zmax = b[0], b[1], b[4], b[5]
+                    got = True
+                else:
+                    xmin = min(xmin, b[0]); xmax = max(xmax, b[1])
+                    zmin = min(zmin, b[4]); zmax = max(zmax, b[5])
+        xmin = max(xmin, -500.0); zmin = max(zmin, -500.0)
+
+        def _auto_end(start, lo, hi, step=50.0):
+            """End when the user leaves it equal to Start: extend from Start toward
+            whichever scene edge is farther, rounded out to a clean multiple of
+            `step` so major labels land on round mm."""
+            edge = hi if abs(hi - start) >= abs(lo - start) else lo
+            if abs(edge - start) < step:
+                edge = start + (step if edge >= start else -step)
+            return (math.ceil(edge / step) * step) if edge >= 0 else (math.floor(edge / step) * step)
+
+        z_at = float(self.params.get("ruler_x_at_z", 0.0))
+        x_at = float(self.params.get("ruler_z_at_x", 0.0))
+        x_start = float(self.params.get("ruler_x_start", 0.0))
+        x_end   = float(self.params.get("ruler_x_end", 0.0))
+        z_start = float(self.params.get("ruler_z_start", 0.0))
+        z_end   = float(self.params.get("ruler_z_end", 0.0))
+        if x_end == x_start:
+            x_end = _auto_end(x_start, xmin, xmax)
+        if z_end == z_start:
+            z_end = _auto_end(z_start, zmin, zmax)
+
+        def _n_labels(span):
+            return max(2, int(abs(span) / 50.0) + 1)   # a major tick every 50 mm
+
+        try:
+            self.actors["ruler_x"] = self.plotter.add_ruler(
+                pointa=(x_start, 0.0, z_at), pointb=(x_end, 0.0, z_at),
+                title="X mm", number_labels=_n_labels(x_end - x_start), label_format="%.0f",
+                number_minor_ticks=4, tick_length=6, minor_tick_length=3,
+                font_size_factor=0.5, label_color="black", tick_color="black")
+        except Exception as e:
+            logger.warning(f"X ruler render failed: {e}")
+        try:
+            self.actors["ruler_z"] = self.plotter.add_ruler(
+                pointa=(x_at, 0.0, z_start), pointb=(x_at, 0.0, z_end),
+                title="Z mm", number_labels=_n_labels(z_end - z_start), label_format="%.0f",
+                number_minor_ticks=4, tick_length=6, minor_tick_length=3,
+                font_size_factor=0.5, label_color="black", tick_color="black")
+        except Exception as e:
+            logger.warning(f"Z ruler render failed: {e}")
 
     def _active_fwd_pass_idx(self):
         """Map active_editing_pass_idx (a toolpath-list index, which includes

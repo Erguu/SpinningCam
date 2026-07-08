@@ -271,6 +271,18 @@ STRINGS = {
     "cb_show_tip_dist":     {"EN": "Show Tip Distance (ΔX / ΔZ to mandrel)",
                              "TR": "Uç Mesafesini Göster (ΔX / ΔZ mandrel'e)",
                              "ES": "Mostrar Distancia de Punta (ΔX / ΔZ al mandril)"},
+    "cb_show_rulers":       {"EN": "Show Rulers (X & Z scale bars)",
+                             "TR": "Cetvelleri Göster (X ve Z ölçek çubukları)",
+                             "ES": "Mostrar Reglas (barras de escala X y Z)"},
+    "cb_show_tip_paths":    {"EN": "Show Paths at Roller Tip (touch point)",
+                             "TR": "Yolları Rulo Ucunda Göster (temas noktası)",
+                             "ES": "Mostrar Trayectorias en la Punta del Rodillo (punto de contacto)"},
+    "sp_ruler_x_at_z":      {"EN": "X ruler at Z (mm)",              "TR": "X cetveli Z konumu (mm)",     "ES": "Regla X en Z (mm)"},
+    "sp_ruler_z_at_x":      {"EN": "Z ruler at X (mm)",              "TR": "Z cetveli X konumu (mm)",     "ES": "Regla Z en X (mm)"},
+    "sp_ruler_x_start":     {"EN": "X ruler start (mm)",             "TR": "X cetveli başlangıç (mm)",    "ES": "Inicio regla X (mm)"},
+    "sp_ruler_x_end":       {"EN": "X ruler end (mm, =start→auto)",  "TR": "X cetveli bitiş (mm, =baş→oto)", "ES": "Fin regla X (mm, =inicio→auto)"},
+    "sp_ruler_z_start":     {"EN": "Z ruler start (mm)",             "TR": "Z cetveli başlangıç (mm)",    "ES": "Inicio regla Z (mm)"},
+    "sp_ruler_z_end":       {"EN": "Z ruler end (mm, =start→auto)",  "TR": "Z cetveli bitiş (mm, =baş→oto)", "ES": "Fin regla Z (mm, =inicio→auto)"},
 
     # ── Machine Tab ───────────────────────────────────────────────────────
     "lbl_machine_settings": {"EN": "Machine Settings",              "TR": "Makine Ayarları",            "ES": "Configuración de Máquina"},
