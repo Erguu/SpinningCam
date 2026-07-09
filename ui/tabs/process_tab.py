@@ -55,29 +55,29 @@ class ProcessTab(ScrollableTabBase):
                                  "cetveli 'Z cetveli X konumu' değerindeki X seviyesine yerleşir. "
                                  "Etiketler doğrudan makine X / Z değerini (mm) gösterir. "
                                  "Uzunluk sahneye göre otomatik ayarlanır. Yalnızca GÖRSELDİR — paso "
-                                 "hesaplamalarını veya G-code'u ETKİLEMEZ.")
+                                 "hesaplamalarını veya G-code'u ETKİLEMEZ.", mode="rulers")
         self.helper.add_spinbox(self.content, self.app, "ruler_x_at_z", t("sp_ruler_x_at_z"), -500, 1000, 5,
                                 "Yatay X cetvelinin oturacağı Z seviyesi (mm). Cetveli ilgilendiğin "
-                                "Z konumuna taşımak için değiştir.")
+                                "Z konumuna taşımak için değiştir.", mode="rulers")
         self.helper.add_spinbox(self.content, self.app, "ruler_x_start", t("sp_ruler_x_start"), -500, 1000, 5,
                                 "X cetvelinin BAŞLANGIÇ noktası (mm) — cetvelin sıfır işareti burada durur. "
                                 "Etiketler bu noktadan itibaren mesafeyi gösterir. Başlangıç→Bitiş yönü "
-                                "cetvelin yönünü belirler.")
+                                "cetvelin yönünü belirler.", mode="rulers")
         self.helper.add_spinbox(self.content, self.app, "ruler_x_end", t("sp_ruler_x_end"), -500, 1000, 5,
                                 "X cetvelinin BİTİŞ noktası (mm). Bitiş < Başlangıç ise cetvel -X yönünde "
                                 "ilerler. Bitiş'i Başlangıç'a EŞİT bırakırsan uzunluk sahneye göre otomatik "
-                                "ayarlanır (Başlangıç=0 iken etiketler gerçek makine X değerini okur).")
+                                "ayarlanır (Başlangıç=0 iken etiketler gerçek makine X değerini okur).", mode="rulers")
         self.helper.add_spinbox(self.content, self.app, "ruler_z_at_x", t("sp_ruler_z_at_x"), -500, 1000, 5,
                                 "Dikey Z cetvelinin oturacağı X seviyesi (mm). Cetveli ilgilendiğin "
-                                "X konumuna taşımak için değiştir.")
+                                "X konumuna taşımak için değiştir.", mode="rulers")
         self.helper.add_spinbox(self.content, self.app, "ruler_z_start", t("sp_ruler_z_start"), -500, 1000, 5,
                                 "Z cetvelinin BAŞLANGIÇ noktası (mm) — cetvelin sıfır işareti burada durur. "
                                 "Etiketler bu noktadan itibaren mesafeyi gösterir. Başlangıç→Bitiş yönü "
-                                "cetvelin yönünü belirler.")
+                                "cetvelin yönünü belirler.", mode="rulers")
         self.helper.add_spinbox(self.content, self.app, "ruler_z_end", t("sp_ruler_z_end"), -500, 1000, 5,
                                 "Z cetvelinin BİTİŞ noktası (mm). Bitiş < Başlangıç ise cetvel -Z yönünde "
                                 "ilerler. Bitiş'i Başlangıç'a EŞİT bırakırsan uzunluk sahneye göre otomatik "
-                                "ayarlanır (Başlangıç=0 iken etiketler gerçek makine Z değerini okur).")
+                                "ayarlanır (Başlangıç=0 iken etiketler gerçek makine Z değerini okur).", mode="rulers")
 
         self.helper.add_checkbox(self.content, self.app, "show_analysis_lines", t("cb_show_analysis"),
                                  "Her pas noktasında mandrel yüzeyine olan clearance mesafesini çizgi olarak göster. "

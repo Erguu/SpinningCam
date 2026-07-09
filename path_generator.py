@@ -521,7 +521,7 @@ class PathGenerator:
                     # effective_p1_z extends the approach arm so its START stays at target_z - p1_z
                     # while its END reaches contact_z = target_z + p2_z_extend.
                     effective_p1_z = p1_z + p2_z_extend
-                    self._create_and_store_pass(p1_x, effective_p1_z, p3_z, p3_x, gp_Pnt(p2_x, 0, p2_z), base_rot, auto_align, toolpaths, projections, control_points, deviations, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_label, params, debug_lines, op=op)
+                    self._create_and_store_pass(p1_x, effective_p1_z, p3_z, p3_x, gp_Pnt(p2_x, 0, p2_z), base_rot, auto_align, toolpaths, projections, control_points, deviations, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_label, params, debug_lines, op=op, op_clearance=op_clearance)
                 
                 # Check newly added path for Rapids
                 if len(toolpaths) > prev_paths_len:
@@ -1066,7 +1066,138 @@ class PathGenerator:
                          np.zeros(n),
                          center[2] + R * np.sin(thetas)], axis=1)
 
-    def _create_and_store_pass(self, p1_x_offset, p1_z_offset, p3_z_offset, p3_x_offset, initial_p2, base_rot, auto_align, t_list, p_list, c_list, d_list, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_name, params, debug_lines=None, op=None):
+    def _bezier_bow(self, A, B, bow_mm, check_res, bias=0.5):
+        """Dense point run A→B in the XZ plane that bows sideways by `bow_mm`,
+        using a quadratic Bézier. Unlike _tangent_chord_arc, this is
+        parameterized by BOW HEIGHT (mm), not by a tangent-chord angle, so it is
+        stable in exactly the regime that breaks the arc:
+
+          • Endpoints A and B are reproduced EXACTLY (t=0 → A, t=1 → B), so a
+            pinned P3 (reach-follow / progressive-angle) never moves.
+          • The visible bow height is `bow_mm` and grows monotonically — the
+            curve can never sweep past a semicircle and fold back on itself the
+            way a tangent-chord arc does once its angle exceeds ~90° (that fold
+            is the "funny movement" on steep last passes). Ideal for the (b)
+            case where P2 and P3 sit at nearly the same Z and the exit must bow
+            out and come back without looping.
+
+        `bias` (0.05–0.95, default 0.5) slides the single control point ALONG
+        the chord, which moves where the fullest part of the bow sits: <0.5 pulls
+        it toward A (hug then peel), >0.5 toward B (lift late). Because A and B
+        carry no perpendicular component, the peak perpendicular deviation stays
+        exactly `bow_mm` regardless of bias — only its spatial position shifts.
+
+        Bow SIDE uses a FIXED handedness: perp = (−chord_z, +chord_x), i.e. the
+        chord rotated +90° in XZ, with the sign carried by bow_mm. This is the
+        key to a consistent bow across a progressive-angle fan: the exit chord
+        sweeps through the radial direction as the fan opens (pass_angle < 90°
+        → below radial, > 90° → above), and ANY "keep it on the +X / away-from-
+        part side" rule flips the perpendicular's Z-sign exactly at that radial
+        crossing — which is why the first pass used to bow the opposite way to
+        the rest. A fixed handedness rotates smoothly with the chord and never
+        flips, so every pass in a fan bows the same way; +bow leans toward the
+        mandrel top (+Z), −bow toward the base. Staying clear of the part is
+        handled separately (see _make_bow_leg), not by the side choice."""
+        A = np.asarray(A, dtype=float)
+        B = np.asarray(B, dtype=float)
+        seg_len = max(np.linalg.norm(B - A), 0.1)
+        try:
+            _bow = float(bow_mm)
+        except (TypeError, ValueError):
+            _bow = 0.0
+        if abs(_bow) < 1e-4:
+            return np.linspace(A, B, max(10, int(seg_len / check_res)))
+        try:
+            _bias = min(max(float(bias), 0.05), 0.95)
+        except (TypeError, ValueError):
+            _bias = 0.5
+        chord_dir = (B - A) / seg_len
+        perp_xz = np.array([-chord_dir[2], 0.0, chord_dir[0]])   # fixed +90° handedness
+        # Quadratic Bézier: the curve reaches half the control-point offset at
+        # t=0.5, so lift the control point by 2·bow to make the peak == bow_mm.
+        # The along-chord position of the control point (_bias) shifts where that
+        # peak lands without changing its height.
+        ctrl = A + _bias * (B - A) + (2.0 * _bow) * perp_xz
+        n = max(10, int(seg_len / check_res))
+        t = np.linspace(0.0, 1.0, n).reshape(-1, 1)
+        return (1 - t) ** 2 * A + 2 * (1 - t) * t * ctrl + t ** 2 * B
+
+    def _bow_penetration(self, pts, mandrel_mgr, center_x, r_tool,
+                         blank_thick, shell_offset, clearance):
+        """Worst interior clearance violation (mm, >=0) of a bow leg against the
+        clearance-offset surface at `clearance`. Radial test (all path points
+        have y=0, so distance-to-axis = |x - center_x|); the surface radius Z is
+        CLAMPED into the mandrel range (not skipped) so a bow poking past the
+        top edge is still caught. Endpoints are excluded — they are pinned."""
+        pts = np.asarray(pts, dtype=float)
+        if len(pts) < 3:
+            return 0.0
+        m_min_z = mandrel_mgr.props.get("min_z", float('-inf'))
+        m_top_z = mandrel_mgr.props.get("top_z", float('inf'))
+        worst = 0.0
+        for i in range(1, len(pts) - 1):
+            sx, sz = pts[i, 0], pts[i, 2]
+            zc = min(max(sz, m_min_z), m_top_z)
+            m_rad = max(0.0, mandrel_mgr.get_radius_fast(zc))
+            required = m_rad + blank_thick + shell_offset + r_tool + clearance
+            pen = required - abs(sx - center_x)
+            if pen > worst:
+                worst = pen
+        return worst
+
+    def _make_bow_leg(self, A, B, bow_mm, check_res, mandrel_mgr,
+                      center_x, r_tool, blank_thick, shell_offset,
+                      clearance, do_trim, pass_name="", bias=0.5):
+        """Build a bow leg A→B (via _bezier_bow) and keep it clear of the part:
+
+          • do_trim=True  → TRIM: build the FULL requested bow, then push any
+            interior point that crosses the `clearance` surface radially back
+            out to exactly that surface. The bow keeps its full shape wherever
+            it fits and rides the clearance contour only across the infeasible
+            stretch. Endpoints stay pinned. (User 2026-07-08: preferred, because
+            on a short steep last pass a big bow survives instead of collapsing.)
+          • do_trim=False → CLAMP: shrink the bow AMPLITUDE until no interior
+            point violates — a smaller but perfectly smooth bow (no kink).
+
+        Either way the leg never comes closer to the part than `clearance`, so
+        the shared uniform-shift correction downstream never fires for the bow
+        and P3 / the approach arm are left exactly where reach & angle put them."""
+        m_min_z = mandrel_mgr.props.get("min_z", float('-inf'))
+        m_top_z = mandrel_mgr.props.get("top_z", float('inf'))
+        if do_trim:
+            curve = self._bezier_bow(A, B, bow_mm, check_res, bias=bias)
+            side = 1.0 if (float(np.mean(curve[:, 0])) - center_x) >= 0 else -1.0
+            moved = 0
+            for i in range(1, len(curve) - 1):     # keep endpoints pinned
+                sx, sz = curve[i, 0], curve[i, 2]
+                zc = min(max(sz, m_min_z), m_top_z)
+                m_rad = max(0.0, mandrel_mgr.get_radius_fast(zc))
+                required = m_rad + blank_thick + shell_offset + r_tool + clearance
+                if abs(sx - center_x) < required - 1e-6:
+                    curve[i, 0] = center_x + side * required   # ride the contour
+                    moved += 1
+            if moved:
+                logger.info(
+                    f"[PARAM_DEBUG] '{pass_name}' exit_bow TRIMMED: {moved} pt(s) "
+                    f"rode the clearance contour ({clearance:.2f}mm)")
+            return curve
+        # CLAMP: geometric shrink of the amplitude until it fits.
+        amp = float(bow_mm)
+        curve = self._bezier_bow(A, B, amp, check_res, bias=bias)
+        for _ in range(14):
+            pen = self._bow_penetration(curve, mandrel_mgr, center_x, r_tool,
+                                        blank_thick, shell_offset, clearance)
+            if pen <= 0.05 or abs(amp) < 0.05:
+                break
+            amp *= 0.85
+            curve = self._bezier_bow(A, B, amp, check_res, bias=bias)
+        if abs(amp - float(bow_mm)) > 0.05:
+            logger.info(
+                f"[PARAM_DEBUG] '{pass_name}' exit_bow CLAMPED "
+                f"{float(bow_mm):+.1f} → {amp:+.1f}mm (clearance {clearance:.2f}mm)")
+        return curve
+
+    def _create_and_store_pass(self, p1_x_offset, p1_z_offset, p3_z_offset, p3_x_offset, initial_p2, base_rot, auto_align, t_list, p_list, c_list, d_list, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_name, params, debug_lines=None, op=None, op_clearance=0.0):
             # --- Smart Spline Optimization V6 (Morphing) ---
             # Instead of rigid shifting, independently adjust control points based on where collision occurs.
             
@@ -1150,6 +1281,34 @@ class PathGenerator:
                     except (TypeError, ValueError):
                         _exit_arc_deg = 0.0
 
+                    # Exit bow (mm) — stable alternative to exit_arc_angle for the
+                    # P2→P3 curve. Set (non-zero) → the exit/arm is a bow-height
+                    # Bézier that keeps P3 pinned and never folds, so it survives
+                    # steep near-vertical last passes (reach-follow + progressive
+                    # angle) that make exit_arc_angle loop. 0/empty → arc behavior
+                    # (byte-identical default).
+                    _bow_src = (op or {}).get("exit_bow", None)
+                    try:
+                        _exit_bow = float(_bow_src) if _bow_src not in (None, "") else 0.0
+                    except (TypeError, ValueError):
+                        _exit_bow = 0.0
+                    # Bow side uses a fixed handedness (see _bezier_bow — no
+                    # first-pass flip across the fan), and the leg is kept clear
+                    # of the part at the op's own clearance — never below the
+                    # hard safety floor. exit_bow_trim (default ON) rides the
+                    # clearance contour where a big bow won't fit; OFF clamps the
+                    # amplitude smaller instead.
+                    _bow_floor = float(params.get("min_safety_gap",
+                                                  params.get("target_clearance", 0.0)))
+                    _bow_clear = max(float(op_clearance), _bow_floor)
+                    _bow_trim  = bool((op or {}).get("exit_bow_trim", True))
+                    # exit_bow_bias (0.05–0.95, default 0.5): slides the fullest
+                    # part of the bow toward P2 (<0.5) or P3 (>0.5).
+                    try:
+                        _bow_bias = float((op or {}).get("exit_bow_bias", 0.5))
+                    except (TypeError, ValueError):
+                        _bow_bias = 0.5
+
                     # #82 (user 2026-07-07, NEW DEFAULT): a reverse-direction linear
                     # pass is traversed P3→P2→arm after the post-build flip. The leg
                     # ENTERING the mandrel-near P2 must be the STRAIGHT one, and the
@@ -1161,19 +1320,32 @@ class PathGenerator:
                                   and not (op or {}).get("reverse_legacy_flip", False))
 
                     if pass_shape == "linear_full":
-                        n_ex         = max(2, int(np.linalg.norm(p3_arr - T2) / check_res))
-                        exit_portion = np.linspace(T2, p3_arr, n_ex)
+                        if abs(_exit_bow) > 1e-4:
+                            exit_portion = self._make_bow_leg(
+                                T2, p3_arr, _exit_bow, check_res, mandrel_mgr,
+                                center_x, r_tool, blank_thick, shell_offset,
+                                _bow_clear, _bow_trim, pass_name, bias=_bow_bias)
+                        else:
+                            n_ex         = max(2, int(np.linalg.norm(p3_arr - T2) / check_res))
+                            exit_portion = np.linspace(T2, p3_arr, n_ex)
                     elif _swap_legs:
                         # Entry leg after reversal: always straight (#82).
                         exit_portion = np.linspace(
                             T2, p3_arr,
                             max(10, int(max(np.linalg.norm(p3_arr - T2), 0.1) / check_res)))
                     else:
-                        # Exit curve: circular arc T2 → P3.
-                        # exit_arc_angle (°): tangent-chord angle at T2.
-                        # Positive = bow outward (away from spin axis, larger X).
-                        # Negative = bow inward. 0 = straight line (default).
-                        exit_portion = self._tangent_chord_arc(T2, p3_arr, _exit_arc_deg, check_res)
+                        # Exit curve T2 → P3. exit_bow (mm) wins when set: a
+                        # bow-height Bézier that keeps P3 fixed and never folds.
+                        # Otherwise the tangent-chord arc — exit_arc_angle (°):
+                        # positive = bow outward (larger X), negative = inward,
+                        # 0 = straight line (default).
+                        if abs(_exit_bow) > 1e-4:
+                            exit_portion = self._make_bow_leg(
+                                T2, p3_arr, _exit_bow, check_res, mandrel_mgr,
+                                center_x, r_tool, blank_thick, shell_offset,
+                                _bow_clear, _bow_trim, pass_name, bias=_bow_bias)
+                        else:
+                            exit_portion = self._tangent_chord_arc(T2, p3_arr, _exit_arc_deg, check_res)
 
                         # Mid-point rotation: pick M at exit_mid_t along the exit and rotate
                         # everything after it about M by exit_mid_rotation degrees (Y-axis,
@@ -1191,9 +1363,15 @@ class PathGenerator:
 
                     if _swap_legs and pass_shape != "linear_full":
                         # #82: the arm is the OUTGOING leg after reversal — it carries
-                        # the exit_arc bow instead (tangent-chord angle is symmetric at
-                        # both arc ends, so building pre-flip is equivalent).
-                        approach = self._tangent_chord_arc(ap_start, T1, _exit_arc_deg, check_res)
+                        # the exit bow instead (both the bow and the tangent-chord arc
+                        # are symmetric at their ends, so building pre-flip is equivalent).
+                        if abs(_exit_bow) > 1e-4:
+                            approach = self._make_bow_leg(
+                                ap_start, T1, _exit_bow, check_res, mandrel_mgr,
+                                center_x, r_tool, blank_thick, shell_offset,
+                                _bow_clear, _bow_trim, pass_name, bias=_bow_bias)
+                        else:
+                            approach = self._tangent_chord_arc(ap_start, T1, _exit_arc_deg, check_res)
                     else:
                         n_ap     = max(2, int(np.linalg.norm(T1 - ap_start) / check_res))
                         approach = np.linspace(ap_start, T1, n_ap)

@@ -380,6 +380,53 @@ Diagram window (formula panel) shows this whole chain with the
 selected operation's live values.
 
 
+EXIT CURVE SHAPE (bowing the P2→P3 leg) — linear shapes
+════════════════════════════════════════════════════════════════
+Reach and Pass Angle decide WHERE the exit ends (P3). Two knobs
+decide the SHAPE of the curve between P2 and P3 — both leave P3
+exactly where the reach/angle put it, so they never fight
+Follow-blank or the Progressive-Angle fan:
+
+  • Exit Arc Angle (°) — a tangent-chord circular arc. Positive
+    bows outward, negative inward, 0 = straight. Simple, but it is
+    parameterized by ANGLE: the arc sweep is TWICE the angle, so
+    past ~90° it swings beyond a semicircle and folds back on
+    itself. On steep near-vertical last passes (high Pass Angle /
+    reach-follow) that fold is the "funny movement" where the tail
+    curls over.
+
+  • Exit Bow (mm) — the stable alternative. Parameterized by bow
+    HEIGHT in millimetres, using a Bézier that reproduces P2 and P3
+    exactly and grows monotonically — it CANNOT fold no matter how
+    far you push it. Positive bows toward the mandrel top (+Z),
+    negative toward the base, 0/empty = off. The side uses a fixed
+    handedness, so EVERY pass in a progressive-angle fan bows the
+    same way even as the exit tilts across the radial direction —
+    no first-pass flip. Best when P2 and P3 sit at nearly the same
+    Z and you want the exit to bow out and come back cleanly. When
+    set, Exit Bow takes over from Exit Arc Angle. Typical 5–30 mm.
+    (Replaces the old, non-functional "Exit Tension" field.)
+
+  • Bow Bias (0–1) — where the bow's fullest point sits along the
+    P2→P3 leg. 0.5 (default) centres it; lower pulls the peak toward
+    P2, higher toward P3. The peak HEIGHT stays exactly Exit Bow mm
+    and the endpoints stay pinned — only the peak's along-leg
+    position moves. Only active while Exit Bow is set. Clamped to
+    0.05–0.95.
+
+  A bow never violates clearance — it is kept at the operation's own
+  clearance (never below the hard safety floor), and P3 and the
+  P1→P2 arm always stay where reach and angle put them. The "Bow
+  Trim to Clr" toggle chooses HOW:
+    • ON (default) — TRIM: the full bow is built, and only the part
+      that would come too close is pushed back out to ride the
+      clearance contour; the rest keeps the full bow. So a large bow
+      survives even on a short, steep last pass (small tangent kink
+      where it meets/leaves the contour).
+    • OFF — CLAMP: the bow amplitude is shrunk until it just fits —
+      a smaller but perfectly smooth bow (no kink).
+
+
 PASS TABLE (Paslar ▦ — see every pass before you run)
 ════════════════════════════════════════════════════════════════
 The Pass Table button (toolbar / right-click) opens one row per

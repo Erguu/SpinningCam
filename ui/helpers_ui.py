@@ -14,6 +14,27 @@ def _fmt_num(v):
     return f"{f:g}"
 
 
+def scroll_not_edit(widget):
+    """Make the mouse wheel over an input widget SCROLL the enclosing tab instead
+    of changing the widget's value.
+
+    ttk.Spinbox and ttk.Combobox bind <MouseWheel> at the class level to
+    increment / cycle their value, so hovering one while scrolling the page
+    silently edits it (user report 2026-07-08). Bind a widget-level handler that
+    walks up to the nearest Canvas ancestor, scrolls it, and returns "break" so
+    the class-level value change never runs. Safe no-op if there is no Canvas
+    ancestor."""
+    def _on_wheel(event):
+        w = widget
+        while w is not None:
+            if isinstance(w, tk.Canvas):
+                w.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                break
+            w = getattr(w, "master", None)
+        return "break"
+    widget.bind("<MouseWheel>", _on_wheel)
+
+
 class UIHelper:
     # Faded hint styling (default value + allowed range shown under a field).
     HINT_COLOR = "#9a9a9a"
@@ -63,10 +84,10 @@ class UIHelper:
         lbl = tk.Label(f, text=text, bg=color, fg="white", font=("Arial", 10, "bold"), anchor="w", padx=5)
         lbl.pack(fill="x")
 
-    def add_spinbox(self, parent, app, key, title, min_val, max_val, step, tooltip=""):
+    def add_spinbox(self, parent, app, key, title, min_val, max_val, step, tooltip="", mode="all"):
         f = ttk.Frame(parent)
         f.pack(fill="x", padx=10, pady=2)
-        
+
         title_row = ttk.Frame(f)
         title_row.pack(fill="x")
         ttk.Label(title_row, text=title).pack(side="left", anchor="w")
@@ -74,16 +95,17 @@ class UIHelper:
 
         # Tkinter Spinbox works with strings mostly
         var = tk.DoubleVar(value=app.params.get(key, 0.0))
-        
+
         def on_change(*args):
-             app.on_param_change(key, var.get(), "all")
-        
+             app.on_param_change(key, var.get(), mode)
+
         sb = ttk.Spinbox(f, from_=min_val, to=max_val, increment=step, textvariable=var)
         sb.pack(fill="x")
         sb.bind("<Return>", lambda e: on_change())
         sb.bind("<FocusOut>", lambda e: on_change())
         sb.bind("<Button-1>", lambda event: event.widget.focus_force())
         sb.configure(command=on_change) # Arrows
+        scroll_not_edit(sb)   # wheel scrolls the tab, never edits the value
         self.bind_tooltip(sb, tooltip)
         self.bind_tooltip(f, tooltip)
 
@@ -114,14 +136,14 @@ class UIHelper:
         self.bind_tooltip(e, tooltip)
         self.bind_tooltip(f, tooltip)
 
-    def add_checkbox(self, parent, app, key, title, tooltip=""):
+    def add_checkbox(self, parent, app, key, title, tooltip="", mode="all"):
         f = ttk.Frame(parent)
         f.pack(fill="x", padx=10, pady=2)
-        
+
         var = tk.BooleanVar(value=bool(app.params.get(key, False)))
         def on_toggle():
             val = var.get()
-            app.on_param_change(key, val, "all")
+            app.on_param_change(key, val, mode)
             
         cb = ttk.Checkbutton(f, text=title, variable=var, command=on_toggle)
         cb.pack(anchor="w")

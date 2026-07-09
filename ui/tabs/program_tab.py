@@ -3,7 +3,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from ui.dialogs.zone_manager import ZoneManager
 from ui.dialogs.tool_manager import ToolManager
-from ui.helpers_ui import _fmt_num
+from ui.helpers_ui import _fmt_num, scroll_not_edit
 from i18n import t
 
 # Accurate default each op-parameter field falls back to when left empty.
@@ -13,8 +13,9 @@ from i18n import t
 # fall back to another field, e.g. "= Feed").
 # clearance is handled per-op-type via the default_hint argument at its two call
 # sites (roughing = target_clearance, finishing = allowance+safety).
-# exit_curve_tension is intentionally absent: it was removed from path
-# generation, so the field no longer has any effect (no honest default to show).
+# exit_bow is intentionally absent: unset/empty means "off" (0 mm bow, i.e. the
+# exit falls back to the arc/straight default), so there is no honest constant to
+# show as a faded hint — an empty field already reads as "no bow".
 OP_PARAM_DEFAULTS = {
     # ── Fixed-constant defaults ──────────────────────────────────────────
     "count": 1,
@@ -30,6 +31,7 @@ OP_PARAM_DEFAULTS = {
     "reach_blank_factor": 1.0,
     "p2_z_extend": 0,
     "p2_radius": 0,
+    "exit_bow_bias": 0.5,
     "exit_mid_t": 0.5,
     "exit_mid_rotation": 0,
     "proj_extend_bottom": 0,
@@ -74,7 +76,8 @@ OP_PARAM_UNIVERSE = {
         "name", "tool_id", "count", "direction",
         "tilt_mode", "tilt_start", "tilt_end", "tilt_offset",
         "start_z", "end_z", "p2_z_extend", "proj_extend_bottom", "proj_extend_top",
-        "pass_shape", "p2_radius", "exit_arc_angle", "exit_curve_tension", "exit_mid_rotation",
+        "pass_shape", "p2_radius", "exit_arc_angle", "exit_bow", "exit_bow_bias",
+        "exit_bow_trim", "exit_mid_rotation",
         "exit_mid_t", "conformal_clearance_operation_specific",
         "approach_follow_surface", "p1_x", "p1_z", "p3_x", "p3_z", "reach",
         "reach_follow_blank", "reach_blank_factor", "reach_blank_offset",
@@ -113,7 +116,8 @@ OP_PARAM_LABELS = {
     "clearance": "lbl_clearance", "pass_shape": "lbl_shape_mode",
     "straight_line_mode": "lbl_straight_line",
     "p2_radius": "lbl_p2_radius", "exit_arc_angle": "lbl_exit_arc",
-    "exit_curve_tension": "lbl_exit_tension",
+    "exit_bow": "lbl_exit_bow", "exit_bow_bias": "lbl_exit_bow_bias",
+    "exit_bow_trim": "lbl_exit_bow_trim",
     "exit_mid_rotation": "lbl_exit_mid_rot", "exit_mid_t": "lbl_exit_mid_t",
     "conformal_clearance_operation_specific": "lbl_conformal_clr",
     "approach_follow_surface": "lbl_approach_surf",
@@ -148,8 +152,8 @@ GROUP_DEPS = {
 # are currently visible (avoids stray empty section titles in Basic view).
 SECTION_KEYS = {
     "speed_feed": ["speed_mode", "speed", "feed_mode", "feed"],
-    "path_shape": ["pass_shape", "p2_radius", "exit_arc_angle", "exit_curve_tension",
-                   "exit_mid_rotation", "exit_mid_t",
+    "path_shape": ["pass_shape", "p2_radius", "exit_arc_angle", "exit_bow",
+                   "exit_bow_bias", "exit_bow_trim", "exit_mid_rotation", "exit_mid_t",
                    "conformal_clearance_operation_specific",
                    "approach_follow_surface", "p1_x", "p1_z", "p3_x", "p3_z", "reach",
                    "reach_follow_blank", "reach_blank_factor", "reach_blank_offset",
@@ -189,7 +193,7 @@ _DEFAULT_COLUMNS = {
 _BATCH_ELIGIBLE = {
     "speed", "feed", "count", "start_z", "end_z", "p2_z_extend",
     "proj_extend_bottom", "proj_extend_top", "p2_radius",
-    "exit_curve_tension", "exit_mid_rotation", "exit_mid_t",
+    "exit_bow", "exit_bow_bias", "exit_mid_rotation", "exit_mid_t",
     "p1_x", "p1_z", "p3_x", "p3_z", "reach", "reach_blank_factor",
     "pass_angle", "progressive_angle_end", "progressive_reach_end",
     "clearance", "rot", "contact_zone_mm", "feed_contact",
@@ -1109,6 +1113,25 @@ class ProgramTab:
             self.frame.after_cancel(self._auto_calc_debounce_id)
         self._auto_calc_debounce_id = self.frame.after(delay_ms, self._fire_auto_calc)
 
+    def _schedule_forced_calc(self, delay_ms=300):
+        """Debounced recalc that is NOT gated by the auto-calculate setting.
+
+        For the follow-mode reach knobs (factor/offset): their only purpose is to
+        reshape the engine-computed reach, so with manual calc editing them must
+        still refresh the 3D/sim blank overlay — otherwise it keeps the cached
+        reach and the knob appears dead. Shares the same debounce id as the
+        auto-calc timer so the two never double-fire."""
+        if self._auto_calc_debounce_id is not None:
+            self.frame.after_cancel(self._auto_calc_debounce_id)
+        self._auto_calc_debounce_id = self.frame.after(delay_ms, self._fire_forced_calc)
+
+    def _fire_forced_calc(self):
+        self._auto_calc_debounce_id = None
+        if self.app._calc_running:
+            self._schedule_forced_calc(delay_ms=150)
+            return
+        self._start_async_calc()
+
     def _fire_auto_calc(self):
         self._auto_calc_debounce_id = None
         # Respect the auto-calc setting: with it off, toggling / editing ops
@@ -1720,6 +1743,7 @@ class ProgramTab:
             if not tool_ids: tool_ids = ["T0101", "T0202"]
             cb_tool = ttk.Combobox(f_tool, values=tool_ids, width=15)
             cb_tool.pack(side="right")
+            scroll_not_edit(cb_tool)
             cb_tool.set(op.get("tool_id", "T0101"))
             _cb_r_var = tk.StringVar()
             def _init_cb_r_var():
@@ -1785,6 +1809,7 @@ class ProgramTab:
 
         cb_tool = ttk.Combobox(f_tool, values=tool_ids, width=15)
         cb_tool.pack(side="right")
+        scroll_not_edit(cb_tool)
         cb_tool.set(op.get("tool_id", "T0101"))
 
         _r_var = tk.StringVar()
@@ -1838,6 +1863,7 @@ class ProgramTab:
         cb_dir = ttk.Combobox(f_dir, values=list(_dir_map.keys()), textvariable=_dir_var,
                               state="readonly", width=16)
         cb_dir.pack(side="right", fill="x", expand=True)
+        scroll_not_edit(cb_dir)
         def _on_dir(event=None, _i=idx, _v=_dir_var, _m=_dir_map):
             self.app.params["operations"][_i]["direction"] = _m.get(_v.get(), "forward")
             # R3 (one calc path): debounced async recalc.
@@ -1866,6 +1892,7 @@ class ProgramTab:
             cb_tm = ttk.Combobox(f_tm, values=list(_tm_map.keys()), textvariable=_tm_var,
                                  state="readonly", width=16)
             cb_tm.pack(side="right", fill="x", expand=True)
+            scroll_not_edit(cb_tm)
             def _on_tm(event=None, _i=idx, _v=_tm_var, _m=_tm_map):
                 self.app.params["operations"][_i]["tilt_mode"] = _m.get(_v.get(), "normal")
                 # R3 (one calc path): debounced async recalc.
@@ -1946,6 +1973,7 @@ class ProgramTab:
             cb_shape = ttk.Combobox(f_shape, values=_shape_opts, textvariable=_shape_var,
                                     state="readonly", width=16)
             cb_shape.pack(side="right", fill="x", expand=True)
+            scroll_not_edit(cb_shape)
             def _on_shape(event=None, _i=idx, _v=_shape_var):
                 self.app.params["operations"][_i]["pass_shape"] = _v.get()
                 # R3 (one calc path): debounced async recalc.
@@ -1982,16 +2010,48 @@ class ProgramTab:
                                              "Bu alan doluysa SADECE bu operasyonu etkiler (#81).\n"
                                              "Ters yönlü (reverse) paslarda kavis çıkış koluna taşınır; "
                                              "mandrele giren bacak düz kalır (#82).")
+                # Exit Bow (mm) — kararlı P2→P3 kavis kontrolü (açı yerine YÜKSEKLİK).
+                self._add_prop_entry(idx, "exit_bow", t("lbl_exit_bow"), op, is_float=True,
+                                     tooltip="P2→P3 çıkış eğrisinin kavis YÜKSEKLİĞİ (mm). "
+                                             "Pozitif = mandrel tepesine (+Z), negatif = tabana (−Z), 0/boş = kapalı.\n"
+                                             "Çıkış Yay Açısı'ndan (°) FARKI: açıyla değil MİLİMETREYLE ölçülür, "
+                                             "bu yüzden P3'ü OYNATMAZ ve asla kendi üstüne katlanmaz.\n"
+                                             "Sabit el-yönü: kademeli açı yelpazesinde TÜM paslar aynı yöne "
+                                             "kavislenir — ilk pas ters yöne kaçmaz.\n"
+                                             "Reach-follow + kademeli açı ile dikleşen SON paslarda bile bozulmaz "
+                                             "(Yay Açısı bu bölgede yarım daireyi aşıp 'komik hareket' yapar).\n"
+                                             "P2 ile P3 aynı Z'ye yakınken (kavis yapıp geri dön) idealdir.\n"
+                                             "Clearance'ı asla ihlal etmez (bkz. Kavis Kırp). "
+                                             "DOLUYSA Çıkış Yay Açısı'nın yerini alır. Tipik: 5–30 mm.")
+                # Exit Bow Bias — where the fullest part of the bow sits.
+                self._add_prop_entry(idx, "exit_bow_bias", t("lbl_exit_bow_bias"), op, is_float=True,
+                                     tooltip="Kavisin EN DOLGUN noktasının kiriş üzerindeki konumu (0.05–0.95, "
+                                             "varsayılan 0.5 = orta).\n"
+                                             "< 0.5 → tepe P2'ye yakın (önce yüzeyi kucaklar, sonra ayrılır).\n"
+                                             "> 0.5 → tepe P3'e yakın (geç kalkış, P3'e yakın dolgunlaşır).\n"
+                                             "Kavis YÜKSEKLİĞİNİ değiştirmez, yalnızca tepenin yerini kaydırır. "
+                                             "Sadece exit_bow doluyken etkilidir.")
+                # Exit Bow Trim toggle — how the bow respects clearance.
+                f_ebt = ttk.Frame(self.f_prop_editor)
+                f_ebt._pkey = "exit_bow_trim"
+                f_ebt.pack(fill="x", padx=2, pady=1)
+                ttk.Label(f_ebt, text=t("lbl_exit_bow_trim"), width=15).pack(side="left")
+                ebt_var = tk.BooleanVar(value=bool(op.get("exit_bow_trim", True)))
+                def toggle_ebt(i=idx, _v=ebt_var):
+                    self.app.params["operations"][i]["exit_bow_trim"] = _v.get()
+                    self._schedule_auto_calc()
+                ttk.Checkbutton(f_ebt, variable=ebt_var, command=toggle_ebt).pack(side="right")
+                self.helper.bind_tooltip(f_ebt,
+                    "Çıkış Kavisi clearance'ı nasıl korusun (sadece exit_bow doluyken).\n"
+                    "AÇIK (varsayılan) = KIRP: kavis TAM boyunda üretilir; parçaya fazla "
+                    "yaklaşan kısım op'un KENDİ clearance yüzeyine kadar dışarı itilir "
+                    "(o bölgede yüzeye paralel gider), sonra kavis devam eder. "
+                    "Kısa/dik son pasta bile büyük kavis korunur; küçük teğet kırılması olur.\n"
+                    "KAPALI = KISALT: kavis GENLİĞİ, hiçbir nokta clearance'ı ihlal etmeyene "
+                    "kadar küçültülür — daha küçük ama tamamen pürüzsüz kavis (kırılmasız).\n"
+                    "Her iki modda da P3 ve P1→P2 kolu YERİNDE kalır (clearance ihlali yok).")
 
             if pass_shape_val == "linear_approach":
-                self._add_prop_entry(idx, "exit_curve_tension", t("lbl_exit_tension"), op, is_float=True,
-                                     tooltip="P2→P3 çıkış eğrisinin kıvrım miktarı (P2→P3 mesafesinin oranı).\n"
-                                             "Varsayılan: 0.4  (P2→P3 uzunluğunun %40'ı kadar kontrol noktası yüksekliği).\n"
-                                             "Büyük değer → daha kıvrımlı çıkış, küçük değer → P3'e neredeyse düz çizgi.\n"
-                                             "Önerilen aralık: 0.1–1.5.\n"
-                                             "Geri pas da aynı değeri kullanır: bp_arc_x/z=0 iken geri pas, "
-                                             "ileri çıkış eğrisinin tam tersidir.")
-
                 # Exit Mid Rotation — M noktasından sonrasını M etrafında döndürür
                 self._add_prop_entry(idx, "exit_mid_rotation", t("lbl_exit_mid_rot"), op, is_float=True,
                                      tooltip="P2→P3 çıkış eğrisi üzerinde bir M noktası seçip, M'den SONRASINI "
@@ -2157,11 +2217,13 @@ class ProgramTab:
                 # Follow-mode MODIFIERS (user-owned, user request 2026-07-07):
                 # factor (×) and offset (mm) shape the blank-derived reach.
                 self._add_prop_entry(idx, "reach_blank_factor", t("lbl_reach_factor"), op, is_float=True,
+                                     rebuild=True, force_calc=True,
                                      tooltip="Sactan hesaplanan reach'i ÇARPAN ile ölçekler.\n"
                                              "1.00 = tam sac ucunu öp (varsayılan), 0.90 = %90 (ucundan "
                                              "önce dur), 1.10 = %110 (ucunu geç).\n"
                                              "Boş = 1.00. Elle girilen reach'e ETKİSİZ.")
                 self._add_prop_entry(idx, "reach_blank_offset", t("lbl_reach_offset"), op, is_float=True,
+                                     rebuild=True, force_calc=True,
                                      tooltip="Sactan hesaplanan reach'e EKLENEN sabit mesafe (mm).\n"
                                              "-5 = sac ucundan 5 mm ÖNCE dur, +3 = ucu 3 mm geç.\n"
                                              "Çarpandan SONRA uygulanır: reach = flanş × çarpan + kaydırma.\n"
@@ -2334,6 +2396,7 @@ class ProgramTab:
             cb_shape = ttk.Combobox(f_shape, values=_shape_opts, textvariable=_shape_var,
                                     state="readonly", width=16)
             cb_shape.pack(side="right", fill="x", expand=True)
+            scroll_not_edit(cb_shape)
             def _on_shape(event=None, _i=idx, _v=_shape_var):
                 self.app.params["operations"][_i]["pass_shape"] = _v.get()
                 # R3 (one calc path): debounced async recalc.
@@ -2376,10 +2439,18 @@ class ProgramTab:
         cb = ttk.Combobox(f, values=values, state="readonly")
         cb.set(curr)
         cb.pack(side="right", fill="x", expand=True)
+        scroll_not_edit(cb)   # wheel scrolls the panel, never cycles the value
 
         def save(e):
+            # Read the combo BEFORE flushing: _flush_entries() runs the entry
+            # savers, and any field with rebuild=True (Pass Count, Pass Angle…)
+            # calls on_op_select() which DESTROYS this combobox and rebuilds the
+            # panel. Reading cb.get() afterwards would hit a dead widget and lose
+            # the selection — the reason Speed/Feed Mode "wouldn't change" while
+            # Direction (reads a StringVar) did. (user report 2026-07-08)
+            new_val = cb.get()
+            self.app.params["operations"][op_idx][key] = new_val
             self._flush_entries()
-            self.app.params["operations"][op_idx][key] = cb.get()
             self.on_op_select(None)
             self.update_time_estimate()
 
@@ -2388,7 +2459,7 @@ class ProgramTab:
         self.helper.bind_tooltip(f, tooltip)
 
     def _add_prop_entry(self, op_idx, key, label, op_dict, is_int=False, is_float=False, tooltip="", rebuild=False,
-                        default_hint=None, readonly=False):
+                        default_hint=None, readonly=False, force_calc=False):
         f = ttk.Frame(self.f_prop_editor)
         f._pkey = key
         f.pack(fill="x", padx=2, pady=1)
@@ -2420,6 +2491,12 @@ class ProgramTab:
                 self.refresh_ops_tree()
                 if self.app.params.get("auto_calculate_paths", False):
                     self._schedule_auto_calc()
+                elif force_calc:
+                    # Follow-mode visual tuning knobs (reach factor/offset): recompute
+                    # even with manual calc, so the 3D/sim blank overlay reflects the
+                    # new reach. Without this the overlay keeps the cached reach and
+                    # the factor looks ignored (user report 2026-07-08).
+                    self._schedule_forced_calc()
                 if rebuild:
                     # Re-render the property panel so visibility of fields that
                     # depend on this value (e.g. Pass Count -> Feed Contact End,
@@ -2509,7 +2586,7 @@ class ProgramTab:
             cf_   = bool(op.get("conformal_clearance_operation_specific", False))
             pa_r  = op.get("pass_angle", None)
             pa_   = float(pa_r) if pa_r is not None else None
-            ten_  = float(op.get("exit_curve_tension", 0.4))
+            bow_  = float(op.get("exit_bow", 0.0) or 0.0)
 
             h("── P1  (entry point) ───")
             f("P1.Z = P2.Z − p1_z")
@@ -2582,15 +2659,20 @@ class ProgramTab:
                 v(f"= {rot_:.0f}°")
                 n("  +° rotates toward tip")
                 sp()
-            if shape == "linear_approach":
-                h("── exit_curve_tension ──")
-                f("bezier ctrl point Z pos:")
-                f("  ctrl.Z = P2.Z")
-                f("    + (P3.Z−P2.Z) × t")
-                v(f"  = P2.Z + {p3z_*ten_:.1f} mm")
-                v(f"  t = {ten_:.2f}")
-                n("  0 → ctrl stays at P2.Z")
-                n("  1 → ctrl at P3.Z level")
+            if shape in ("linear_approach", "linear_full") and abs(bow_) > 1e-4:
+                h("── exit_bow ─────────────")
+                f("P2→P3 bow HEIGHT (mm):")
+                f("  Bézier, endpoints fixed")
+                v(f"  = {bow_:+.0f} mm")
+                n("  + → top(+Z), − → base")
+                n("  same side every pass;")
+                n("  keeps P3 pinned; trims")
+                n("  to clr; never folds")
+                bias_ = min(max(float(op.get("exit_bow_bias", 0.5) or 0.5),
+                                0.05), 0.95)
+                f(f"bias {bias_:.2f}: peak pos")
+                n("  0=near P2 · 1=near P3")
+                n("  (height unchanged)")
                 sp()
             h("── step ─────────────────")
             f("radial spacing per pass")
@@ -2699,9 +2781,24 @@ class ProgramTab:
         conformal   = bool(op.get("conformal_clearance_operation_specific", False))
         pa_raw      = op.get("pass_angle", None)
         pa          = float(pa_raw) if pa_raw is not None else None
-        exit_tension = float(op.get("exit_curve_tension", 0.4))
+        exit_bow    = float(op.get("exit_bow", 0.0) or 0.0)
+        exit_bow_bias = min(max(float(op.get("exit_bow_bias", 0.5) or 0.5), 0.05), 0.95)
         pos_x = self.app.params.get("roller_positive_x_side", True)
         xs = 1.0 if pos_x else -1.0   # +1 = mandrel below, -1 = mandrel above
+        # exit_bow (mm) → perpendicular Bézier control point (visual only, scaled
+        # + clamped). Fixed handedness (chord rotated +90°), sign carried by the
+        # bow value — mirrors the engine's _bezier_bow so every pass bows the same
+        # way (no first-pass flip). The control point also slides along the chord
+        # by exit_bow_bias (peak position). Peak of a quadratic Bézier is half the
+        # control offset, so lift by 2× to match.
+        _bow_px = max(-70.0, min(70.0, exit_bow * 3.0))
+        def ebow_ctrl(A, B):
+            mx = A[0] + exit_bow_bias * (B[0] - A[0])
+            my = A[1] + exit_bow_bias * (B[1] - A[1])
+            dx, dy = B[0] - A[0], B[1] - A[1]
+            L = _m.hypot(dx, dy) or 1.0
+            px, py = -dy / L, dx / L        # fixed +90° handedness (no flip)
+            return (mx + px * 2.0 * _bow_px, my + py * 2.0 * _bow_px)
 
         is_linear = shape in ("linear_approach", "linear_full")
         is_full   = (shape == "linear_full")
@@ -2874,7 +2971,7 @@ class ProgramTab:
             if is_full:
                 canvas.create_line(*zp(*P2g), *zp(*P3g), fill=C_GHOST, width=1, dash=(4,3))
             else:
-                gctrl = (P2g[0] + (P3g[0]-P2g[0]) * exit_tension, P2g[1])
+                gctrl = ebow_ctrl(P2g, P3g)
                 canvas.create_line(*zpts(qbez(P2g, gctrl, P3g, n=24)),
                                    fill=C_GHOST, width=1, dash=(4,3))
         else:
@@ -2893,7 +2990,7 @@ class ProgramTab:
 
         elif shape == "linear_approach":
             canvas.create_line(*zp(*P1), *zp(*P2), fill=C_PATH, width=pw)
-            ctrl_e = (P2[0] + (P3[0]-P2[0]) * exit_tension, P2[1])
+            ctrl_e = ebow_ctrl(P2, P3)
             canvas.create_line(*zpts(qbez(P2, ctrl_e, P3)), fill=C_PATH, width=pw)
             if p2r > 0.5:
                 zx2, zy2 = zp(*P2);  zrr = max(5, int(18*zoom))
@@ -2952,12 +3049,12 @@ class ProgramTab:
                         f"pass_angle\n{pa:.0f}°", C_ANG, sz=8,
                         anchor="w" if _m.cos(am) >= 0 else "e")
 
-        # Exit tension label (uses leader line to avoid crowding P2)
-        if shape == "linear_approach":
-            ctrl_e_pt = (P2[0] + (P3[0]-P2[0]) * exit_tension, P2[1])
+        # Exit bow label (uses leader line to avoid crowding P2)
+        if shape == "linear_approach" and abs(exit_bow) > 1e-4:
+            ctrl_e_pt = ebow_ctrl(P2, P3)
             _et_lbl = (ctrl_e_pt[0] + 8, ctrl_e_pt[1] + xs * 34)
             leader_text(ctrl_e_pt, _et_lbl,
-                        f"exit_tension\n{exit_tension:.2f}", C_ANG, sz=8)
+                        f"exit_bow\n{exit_bow:+.0f}mm", C_ANG, sz=8)
 
         # Rotation arc (spline only) — leader line keeps label away from pass_angle text
         if not is_linear and abs(rot) > 0.5:

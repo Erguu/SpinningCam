@@ -369,7 +369,10 @@ program yoksa `_default_cfg` ile makul varsayılana düşer.
 **Exit yolu şekli (`path_generator.py` ~814):**
 | Parametre | Açıklama |
 |-----------|----------|
-| `exit_arc_angle` (°) | T2→P3 dairesel yayı için tanjant-kiriş açısı. 0=düz. Pozitif=dışa (X artar), negatif=içe. R=chord/(2·sin α). `exit_bow` ve `exit_curve_tension` kaldırıldı. |
+| `exit_arc_angle` (°) | T2→P3 dairesel yayı için tanjant-kiriş açısı. 0=düz. Pozitif=dışa (X artar), negatif=içe. R=chord/(2·sin α). UYARI: sweep=2·α, ~90°'den sonra KATLANIR. |
+| `exit_bow` (mm) | (2026-07-08e) exit_arc_angle'a kararlı alternatif: kavis YÜKSEKLİĞİ ile parametrize kuadratik Bézier (`_bezier_bow`, path_generator.py). Uç noktalar birebir korunur → P3 oynamaz; asla katlanmaz. SABİT el-yönü (perp=kiriş+90°) → yelpazede ilk-pas ters-yön YOK. Set ise arc yerine geçer. Sadece linear şekiller. `exit_curve_tension` (ölü hayalet alan) bununla değiştirildi. |
+| `exit_bow_bias` (0–1, vars. 0.5) | (2026-07-09) kavisin tepe noktasının P2→P3 bacağı üzerindeki konumu. `_bezier_bow`/`_make_bow_leg` `bias=` param; Bézier ctrl kiriş boyunca kayar (`ctrl = A + bias·(B−A) + 2·bow·perp`). Tepe YÜKSEKLİĞİ = exit_bow mm sabit, uçlar sabit — sadece konum kayar. 0.05–0.95'e kırpılır. Sadece exit_bow doluyken etkili. |
+| `exit_bow_trim` (bool, vars. True) + `_make_bow_leg`/`_bow_penetration` | (2026-07-08e 2.tur) bow clearance'ı asla ihlal etmez, op'un KENDİ clearance'ında korunur (üniform shift'e düşmez → P3/kol sabit). True=KIRP (tam bow, ihlal eden noktalar kontura biner), False=KISALT (genlik küçültülür, pürüzsüz). `_create_and_store_pass(op_clearance=)` yeni param. |
 
 Spline / geri pas: tüm parametreler `None` → orijinal critical-split davranışı.
 Bkz. `LAST_CHANGES.md` 2026-06-17 (üç ayrı entry).

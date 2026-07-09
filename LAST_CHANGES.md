@@ -5,6 +5,138 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-09 — Çıkış Kavisi tepe konumu (`exit_bow_bias`, 0–1) (opt-in)
+exit_bow kavisinin en dolgun noktasının P2→P3 bacağı üzerinde NEREDE olacağını
+ayarlar. Kuadratik Bézier kontrol noktası kiriş boyunca kaydırılır
+(`ctrl = A + bias·(B−A) + 2·bow·perp`): tepe YÜKSEKLİĞİ tam `exit_bow` mm kalır,
+uç noktalar (P2, P3) sabit kalır — yalnızca tepenin bacak-boyu konumu kayar.
+- **`path_generator.py`:** `_bezier_bow` + `_make_bow_leg` `bias=0.5` parametresi
+  aldı (0.05–0.95'e kırpılır); linear dal `exit_bow_bias`'ı okuyup 3 çağrı yerine
+  `bias=_bow_bias` geçiriyor. Headless: bias 0.2/0.5/0.8 → tepe-konum 0.345/0.495/0.645,
+  tepe-yükseklik 8.0 sabit, uçlar sabit; bias=0.5 varsayılanla BAYT-AYNI.
+- **UI (`program_tab.py`):** exit_bow altına "Kavis Konumu (0-1)" alanı; OP_PARAM
+  universe/labels/section/batch/defaults güncellendi. Pas Diyagramı ASCII cheat-sheet
+  bias satırı + canvas `ebow_ctrl` bias'a göre `mx/my` konumlandırıyor.
+- **i18n:** `lbl_exit_bow_bias` (EN/TR/ES). **help_window:** "EXIT CURVE SHAPE"
+  bölümüne Bow Bias maddesi.
+
+**Geri alma:** alanı 0.5 bırak (veya boş) → tam merkezli kavis, eski davranış.
+
+## 2026-07-08f — 4 hata düzeltmesi (cetvel kamera, kaydırma-düzenleme, hız modu, reach çarpanı)
+
+Kullanıcı 4 hata bildirdi:
+
+**1. Cetvel (ruler) ayarı kamerayı uzaklaştırıyor + hesaplama tetikliyor.**
+İKİ kök neden:
+(a) `plotter.add_ruler()` içeride `add_actor(..., reset_camera=True)` sabit kodlu
+→ cetvel her çizildiğinde (her cetvel ayarında VE cetvel açıkken her sahne
+güncellemesinde) kamera tüm aktörlere "fit" olup uzaklaşıyor. Fix: `_update_rulers`
+add_ruler çağrılarından önce `camera_position`'ı snapshot alıp sonra geri yükler →
+cetveller artık gerçek statik overlay.
+(b) cetvel spinbox'ları `on_param_change(..., "all")` → `update_scene("all")`
+auto-calc açıksa yolları yeniden hesaplıyordu. Fix: cetvel denetimlerine hafif
+`"rulers"` modu (`helpers_ui.add_spinbox/add_checkbox`'a `mode=` parametresi;
+`process_tab` cetvel satırları `mode="rulers"`). `on_param_change` bu modda
+yalnızca `_render_rulers_only()` çağırır (yeni, `main.py`) — hesaplama yapmaz.
+
+**2. İmleç input kutusundayken kaydırma değeri değiştiriyor.**
+Kök neden: ttk.Spinbox/Combobox tekerleği sınıf düzeyinde değeri artırır; sekme
+sayfası da tekerlekle kaydırır → ikisi birden. Fix: yeni `helpers_ui.scroll_not_edit()`
+widget düzeyinde `<MouseWheel>`'i en yakın Canvas ata yönlendirip `"break"` döner
+(değeri asla değiştirmez). Tüm spinbox'lara + operasyon combobox'larına
+(hız/besleme modu, takım, yön, şekil, tilt) uygulandı.
+
+**3. "Fabrika temiz" roughing op'unda Hız Modu RPM'e değişmiyor (dropdown açılıyor,
+seçim yok sayılıyor).** Kök neden: `_add_prop_combo.save` önce `_flush_entries()`
+çağırıyordu; `rebuild=True` alanların (Pas Sayısı, Pass Angle) saver'ı
+`on_op_select()` ile tüm paneli — combobox dâhil — YIKIP yeniden kuruyor, sonra
+`cb.get()` ölü widget'tan okuyor → seçim kayboluyordu. (Yön combosu çalışıyordu
+çünkü StringVar okuyor, flush etmiyor.) Fix: `cb.get()` flush'tan ÖNCE okunuyor.
+
+**4. Follow modda reach çarpanı (reach_blank_factor) simülasyon sac gösterimini
+etkilemiyor.** Motor + overlay matematiği çarpanı DOĞRU uyguluyor (headless
+doğrulandı: 0.5 çarpanı flanş yarıçap uzanımını yarıya indiriyor). Sorun: overlay
+`last_calculated_paths`'ten çiziliyor; manuel-calc modunda çarpanı değiştirmek
+yeniden hesap tetiklemiyordu → overlay bayat reach ile kalıyor, çarpan yok
+sayılmış gibi görünüyor. Fix: `reach_blank_factor`/`reach_blank_offset` alanları
+artık `rebuild=True` ("oto a→b" okuması anında güncellenir) + `force_calc=True`
+(yeni `_schedule_forced_calc`/`_fire_forced_calc` — auto-calc kapalı olsa bile
+arka planda debounce'lı yeniden hesap → overlay/sim tazelenir).
+
+**Doğrulama:** 4 dosya derlendi; `_test_reach_follow`, `_test_deformed_blank`,
+`_test_program_tab_toolbar`, `_test_pass_table` GEÇTİ. GUI smoke testi + commit
+BEKLİYOR. Geri alma: değişiklikler `helpers_ui.py`, `main.py`,
+`ui/tabs/process_tab.py`, `ui/tabs/program_tab.py`'de izole.
+
+---
+
+## 2026-07-08e — Çıkış Kavisi (exit_bow, mm): kararlı P2→P3 eğri kontrolü (opt-in)
+
+Kullanıcı: "Follow modda P3'ü bozamayız, doğru. Genel açı için progressive'li
+pass_angle var, o iyi. `exit_arc_angle` gibi ama onu tatmin etmeyen bir şey
+istiyorum — P2 ile P3 arasında ESNEK bir eğri; P3'ü (ve reach-follow / progressive
+açıyı) BOZMASIN. `exit_arc_angle`'ı belli bir noktadan sonra artırınca son paslar
+bozuluyor, komik hareketler yapıyor." → Seçenek (b): P2 ile P3 yakın Z'de, dışa
+kavis yapıp geri dönen eğri.
+
+**Kök neden (exit_arc_angle bozulması):** `_tangent_chord_arc` yayı AÇI ile
+parametrize (`sweep = 2·α`), yani ~90°'den sonra yarım daireyi aşıp kendi üstüne
+KATLANIYOR — dik/near-vertical son paslardaki "komik hareket" bu. Ayrıca yalnızca
+linear şekillerde etkili; `spline` şeklinde hiç uygulanmıyordu.
+
+- **`path_generator.py _bezier_bow(A, B, bow_mm, check_res)`** (yeni): P2→P3 (veya
+  T2→P3) arasını AÇI yerine mm KAVİS YÜKSEKLİĞİ ile eğen kuadratik Bézier. Uç
+  noktalar A/B birebir korunur (P3 asla oynamaz) ve monoton büyür → ne kadar
+  artırılırsa artırılsın ASLA katlanmaz. + = tepe (+Z), − = taban (−Z), 0/boş = kapalı.
+- **Bağlama (`_create_and_store_pass` linear dalı):** yeni `exit_bow` op alanı
+  okunur; set ise çıkış (ve ters paslarda `_swap_legs` çıkış kolu, ayrıca
+  `linear_full` düz çıkış) bow-Bézier ile üretilir; boş/0 ise ESKİ davranış
+  (tangent-chord yay / düz) → varsayılan byte-aynı.
+- **`exit_bow` reach/açıdan BAĞIMSIZ:** headless doğrulandı — bow=0 vs bow=25 ile
+  son nokta (P3) BİREBİR aynı ([130,0,120]); bow sadece eğrinin şeklini değiştiriyor
+  (max X 130 → 149.5). Yani follow mode + progressive angle'a dokunmuyor.
+- **ÖLÜ ALAN TEMİZLİĞİ:** `exit_curve_tension` (path gen'de zaten OKUNMUYORDU,
+  hayalet alan) UI/universe/labels/section/batch listelerinden çıkarıldı; yerine
+  `exit_bow` kondu. Op dict'te eski değer kalırsa zararsız (yok sayılır).
+- **UI (`program_tab.py`):** `is_linear` bloğunda exit_arc_angle'ın hemen altında
+  "Çıkış Kavisi (mm)" alanı (her iki linear şekilde). Pas Diyagramı hem ASCII
+  cheat-sheet hem canvas artık exit_bow'u çiziyor (`ebow_ctrl` dik-Bézier ctrl,
+  görsel ölçek 3px/mm, ±70px clamp).
+- **i18n:** `lbl_exit_bow` (EN/TR/ES). **help_window:** yeni "EXIT CURVE SHAPE"
+  bölümü (arc-fold sorununu ve bow farkını açıklıyor).
+
+**2. TUR (kullanıcı geri bildirimi — yön + clearance):**
+- **Yön hatası (#2 "ilk pas ters yöne kavisleniyor"):** Kök neden = bow yan-yön
+  "global +X'e sabitle" kuralıydı; kademeli açı yelpazesi çıkış kirişini RADYAL
+  yönden geçirince (pass_angle<90 → radyalin altı, >90 → üstü) dik bileşenin işareti
+  TAM o geçişte dönüyordu → ilk pas ters. Yüzey-normali çapası da silindirde AYNI
+  sonucu verir (kanıtlandı). Gerçek fix: `_bezier_bow` artık SABİT el-yönü kullanıyor
+  (perp = kiriş +90°, işaret bow'dan), kiriş ile pürüzsüz döner, ASLA dönmez → tüm
+  paslar aynı yöne. Doğrulandı: down-out ΔZ=+14, up-out ΔZ=+1.3 (ikisi de +Z).
+- **Clearance ihlali (#3 "−20'de bazı paslar clearance'ı aşıyor + kolun clearance'ı
+  artıyor"):** Kök neden = içe kavis tabanı deldiğinde mevcut ÜNİFORM shift TÜM pası
+  (p1/p2/p3) dışarı ötelıyordu → P3 oynuyor + P1→P2 kolu fazla açılıyor. Fix: yeni
+  `_make_bow_leg` + `_bow_penetration`; bow, op'un KENDİ clearance'ında (asla güvenlik
+  tabanının altında değil) korunuyor:
+  - **`exit_bow_trim` AÇIK (yeni op alanı, varsayılan True) = KIRP:** tam bow üretilir,
+    yalnızca ihlal eden noktalar radyal olarak clearance yüzeyine itilir (o bölgede
+    kontura biner), gerisi tam bow. Kısa/dik son pasta büyük bow korunur.
+  - **KAPALI = KISALT:** bow genliği ihlal bitene kadar %15 adımlarla küçültülür
+    (pürüzsüz, kırılmasız). Her iki modda da P3 + kol YERİNDE (üniform shift tetiklenmez).
+  - `_create_and_store_pass`'e `op_clearance` parametresi eklendi (çağrı yerinde geçildi).
+  Doğrulandı: −20 içe bow → trim & clamp min-clearance = 5.0 (op clr, ihlal yok), P3/kol
+  birebir sabit.
+- **UI:** exit_bow altına "Kavis Kırp (clr)" onay kutusu (`exit_bow_trim`, is_linear).
+  universe/labels/section güncellendi; i18n `lbl_exit_bow_trim` (EN/TR/ES). Pas Diyagramı
+  `ebow_ctrl` sabit el-yönüne çevrildi. help_window "EXIT CURVE SHAPE" + trim/clamp yazıldı.
+
+**Geri alma:** exit_bow alanını boş bırak → tam eski davranış. `_bezier_bow`
+ve tüm dallanmalar `abs(_exit_bow) > 1e-4` ile korumalı. Regresyon: `_test_reverse_linear`
+GEÇTİ (exit_arc/ters-bacak bozulmadı).
+**BEKLEYEN:** GUI smoke (alanı gir, kutuyu değiştir, diyagramı gör) + FİZİKSEL doğrulama
+(dik son paslarda katlanma + ters-yön gitti mi, trim gouge yok mu). spline şeklinde
+henüz YOK (sadece linear).
+
 ## 2026-07-08d — Pasları rulo TEMAS NOKTASINDA gösterme (opt-in, görsel)
 
 Kullanıcı: "Yolları rulo merkezine göre çiziyoruz ama asıl işi rulo ucu yapıyor.

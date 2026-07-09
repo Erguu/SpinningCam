@@ -1335,6 +1335,22 @@ class SpinningApp:
         # Placeable X/Z scale bars (visual only)
         self._update_rulers()
 
+    def _render_rulers_only(self):
+        """Redraw ONLY the placeable scale bars, then render once — no camera
+        reset and no path recalc. Used by the ruler controls (mode="rulers") so
+        adjusting a ruler is a static, cheap visual update."""
+        _was = bool(getattr(self.plotter, "suppress_rendering", False))
+        self.plotter.suppress_rendering = True
+        try:
+            self._update_rulers()
+        finally:
+            self.plotter.suppress_rendering = _was
+        if not _was:
+            try:
+                self.plotter.render()
+            except Exception:
+                pass
+
     def _update_rulers(self):
         """Draw two placeable scale bars — one along X, one along Z — as a visual
         overlay. Purely cosmetic: never touches toolpaths or G-code.
@@ -1398,6 +1414,12 @@ class SpinningApp:
         def _n_labels(span):
             return max(2, int(abs(span) / 50.0) + 1)   # a major tick every 50 mm
 
+        # plotter.add_ruler() hardcodes reset_camera=True (re-fits the view to all
+        # actors), so redrawing the scale bars would zoom the camera away on every
+        # ruler tweak — and on every scene update while rulers are on. Snapshot the
+        # camera and restore it after, keeping the bars a static overlay (user
+        # report 2026-07-08).
+        _cam = self.plotter.camera_position
         try:
             self.actors["ruler_x"] = self.plotter.add_ruler(
                 pointa=(x_start, 0.0, z_at), pointb=(x_end, 0.0, z_at),
@@ -1414,6 +1436,10 @@ class SpinningApp:
                 font_size_factor=0.5, label_color="black", tick_color="black")
         except Exception as e:
             logger.warning(f"Z ruler render failed: {e}")
+        try:
+            self.plotter.camera_position = _cam   # undo add_ruler's forced re-fit
+        except Exception:
+            pass
 
     def _active_fwd_pass_idx(self):
         """Map active_editing_pass_idx (a toolpath-list index, which includes
@@ -1506,6 +1532,14 @@ class SpinningApp:
         if mode in ["paths", "shell_and_paths"]:
              if not self.params.get("auto_calculate_paths", False):
                  return
+
+        # Placeable X/Z scale bars are a pure visual overlay: redraw ONLY them.
+        # Going through update_scene("all") would reset the camera (line ~1320)
+        # and, with auto-calc on, re-run path generation — so every small ruler
+        # nudge "zoomed the camera away" and recalculated (user report 2026-07-08).
+        if mode == "rulers":
+            self._render_rulers_only()
+            return
 
         self.update_scene(mode)
 

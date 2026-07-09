@@ -38,14 +38,14 @@
     "clearance_correction_per_point": 0.0,
     "collision_resolution": 0.25,
     "exit_arc_angle": 0.0,
-    "show_rulers": true,
+    "show_rulers": false,
     "ruler_x_at_z": 0.0,
     "ruler_z_at_x": -150.0,
     "ruler_x_start": 0.0,
     "ruler_x_end": -400.0,
     "ruler_z_start": 0.0,
     "ruler_z_end": 300.0,
-    "show_tip_paths": true,
+    "show_tip_paths": false,
     "clamp_zone_length": 0.0,
     "show_deformed_blank": true,
     "deformed_blank_offset": 0.0,
@@ -197,15 +197,15 @@
             "end_z": 15.0,
             "direction": "forward",
             "name": "Ro-Start (copy)",
-            "p2_radius": 2.0,
             "type": "roughing",
             "contact_zone_mm": 3.0,
             "feed_contact": 240.0,
             "exit_mid_t": 0.0,
-            "exit_arc_angle": 5.0,
             "reach": 95.26,
-            "pass_angle": 110.0,
-            "progressive_angle_end": 160.0
+            "pass_angle": 91.0,
+            "progressive_angle_end": 160.0,
+            "exit_bow": 20.0,
+            "exit_bow_bias": 0.5
         }
     ],
     "show_heatmap": 1.0,
@@ -253,7 +253,7 @@
     "_admin": true,
     "_last_license_path": "C:/Users/PC/Documents/Python_Projects/SpinningCam/admin.lic",
     "_last_settings_path": "C:/Users/PC/Documents/Python_Projects/SpinningCam/settings.json",
-    "sidebar_width": 902,
+    "sidebar_width": 1464,
     "op_view_config": {
         "roughing": {
             "columns": [
