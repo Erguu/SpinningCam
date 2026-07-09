@@ -213,6 +213,19 @@ _DEFAULT_BATCH_KEYS = {
 }
 
 
+# #84 — preset border colors for the "highlight a parameter label" feature.
+# name (stored in op_view_config[type]["highlight"][key]) -> hex drawn around
+# the label's text in the property editor. Purely visual; no default highlights.
+BORDER_COLORS = {
+    "red":    "#e02424",
+    "green":  "#2ca02c",
+    "blue":   "#1f77b4",
+    "orange": "#ff8c00",
+    "purple": "#9467bd",
+    "yellow": "#e0c000",
+}
+
+
 def _default_cfg(op_type):
     """Resolved fallback config for an op type with no saved op_view_config."""
     uni = OP_PARAM_UNIVERSE.get(op_type, [])
@@ -221,6 +234,8 @@ def _default_cfg(op_type):
         "columns":  [k for k in _DEFAULT_COLUMNS.get(op_type, []) if k in uni],
         "advanced": [k for k in uni if k not in basic],
         "batch":    [k for k in uni if k in _DEFAULT_BATCH_KEYS],
+        # #84 — no parameter is highlighted by default.
+        "highlight": {},
     }
 
 
@@ -541,7 +556,10 @@ class ProgramTab:
                 # to the curated default. An explicit [] (user unticked all)
                 # is respected — only a MISSING key falls back.
                 "batch":    list(stored["batch"]) if "batch" in stored
-                            else _default_cfg(op_type)["batch"]}
+                            else _default_cfg(op_type)["batch"],
+                # #84 — per-param border color map ({key: color_name}); older
+                # configs simply have none.
+                "highlight": dict(stored.get("highlight", {}))}
 
     def _hidden_keys(self, op_type):
         """Set of param keys to hide from the editor for this op type given the
@@ -574,6 +592,52 @@ class ProgramTab:
                 keys = SECTION_KEYS.get(sec, [])
                 if not any(k in visible for k in keys):
                     w.pack_forget()
+
+    def _apply_label_highlights(self, op_type):
+        """#84 — draw a colored rectangle border around the TEXT label of any
+        parameter the user flagged with a border color in Customize View.
+
+        Purely visual and non-destructive: the value and the input control are
+        untouched. Every parameter row in the editor is a frame tagged with
+        ``_pkey`` whose FIRST child is the text label (the control is packed to
+        the right), so we only need to re-wrap that first child in a colored
+        frame. Called after ``_apply_field_visibility`` so hidden rows are
+        already forgotten (wrapping a hidden row is harmless — it stays hidden).
+        """
+        hl = self._view_cfg(op_type).get("highlight", {})
+        if not hl:
+            return
+        for row in self.f_prop_editor.winfo_children():
+            key = getattr(row, "_pkey", None)
+            if not key or key not in hl:
+                continue
+            color = BORDER_COLORS.get(hl.get(key))
+            if not color:
+                continue
+            kids = row.winfo_children()
+            if not kids:
+                continue
+            lbl = kids[0]  # the text label is always the first (left) child
+            try:
+                side = lbl.pack_info().get("side", "left")
+            except tk.TclError:
+                continue
+            # A frame with a 1px colored highlight ring acts as a THIN border;
+            # its interior keeps the default (opaque system) background so the
+            # label text stays fully readable — a hollow rectangle, not a fill.
+            # re-pack via in_ keeps the label's real parent (the row), so the
+            # editor's visibility/ordering logic is unaffected.
+            border = tk.Frame(row, highlightbackground=color,
+                              highlightcolor=color, highlightthickness=1, bd=0)
+            lbl.pack_forget()
+            border.pack(side=side)
+            lbl.pack(in_=border, padx=1, pady=1)
+            # The label's real parent is still the row (in_ only borrows the
+            # frame for geometry), so it's a sibling of `border`. `border` was
+            # created last, so by default it stacks ABOVE the label and hides
+            # the text. Raise the label back above the border — text on top,
+            # only the 1px ring remains visible around it.
+            lbl.lift(border)
 
     def _add_section_header(self, section_id, text, separator=True):
         """A section header frame tagged for visibility control. Returns the
@@ -1782,6 +1846,7 @@ class ProgramTab:
                                          "Mandrel merkezinden itibaren radyal mesafe. "
                                          "Takım bu X'e kadar besleme hızında ilerler.")
             self._apply_field_visibility(op_type)
+            self._apply_label_highlights(op_type)   # #84
             return
 
         # Zones Button
@@ -2428,6 +2493,7 @@ class ProgramTab:
         # section headers) unless the global Advanced toggle is on. Runs for
         # both the roughing and finishing branches.
         self._apply_field_visibility(op_type)
+        self._apply_label_highlights(op_type)   # #84
 
     def _add_prop_combo(self, op_idx, key, label, values, op_dict, tooltip=""):
         f = ttk.Frame(self.f_prop_editor)

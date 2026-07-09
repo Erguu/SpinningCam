@@ -82,7 +82,8 @@ class SpinningApp:
             "first_pass_p2_contact_z_abs": 10.0, 
             "y_rotation_degrees": 10.0,
             "calc_active": True,
-            "cam_azimuth": 0.0, "cam_elevation": 0.0, "cam_roll": 90.0,
+            "cam_azimuth": 0.0, "cam_elevation": 0.0, "cam_roll": 90.0, "cam_distance": 800.0,
+            "camera_presets": [],
             "mandrel_rot_x": 0.0, "mandrel_rot_y": 0.0, "mandrel_rot_z": 0.0,
             "mandrel_pos_x_offset": 0.0, "mandrel_pos_z_offset": 0.0,
             "p1_p3_x_offset_from_p2": 40.0, 
@@ -510,6 +511,22 @@ class SpinningApp:
             self.update_scene("all", use_cached_paths=True)
         else:
             self.update_scene("all", force_path_calc=True)
+
+    def apply_camera_preset(self, index):
+        """Jump the camera to saved preset #index (0-based). VISUAL ONLY; silently
+        no-ops if that slot is empty. Bound to number keys 1-9 (see
+        SpinningCamWindow._bind_camera_preset_keys) and to the "Go" buttons in the
+        Saved Views list. Writes the canonical orbit params then a camera-only
+        scene update, exactly like the on-screen buttons, so the view persists."""
+        lst = self.params.get("camera_presets", []) or []
+        if not (0 <= index < len(lst)) or not hasattr(self, "plotter"):
+            return
+        p = lst[index]
+        self.params["cam_elevation"] = float(p.get("el", 0.0))
+        self.params["cam_roll"] = float(p.get("roll", 90.0))
+        self.params["cam_distance"] = float(p.get("dist", 800.0))
+        self.params["cam_azimuth"] = float(p.get("az", 0.0))
+        self.update_scene("camera")
 
     def _rtool_for_pass(self, k):
         """Roller radius r_tool of the op that owns global pass index k."""
@@ -1316,18 +1333,43 @@ class SpinningApp:
                 except Exception as _e:
                     logger.warning(f"Tip distance display failed: {_e}")
 
-        # 5. Camera
+        # 5. Camera — singularity-free orbit reconstruction.
+        # The camera is rebuilt from azimuth/elevation/roll as a CONTINUOUS
+        # orthonormal frame (position + explicit orthogonal up), so tilting
+        # vertically never gimbal-locks or flips. The previous approach set
+        # up=(0,0,1) then camera.roll, which left `up` nearly parallel to the
+        # view direction at high elevation (up·fwd ≈ -1) — that was the "flip /
+        # stick near the top" the user reported. up·fwd is now exactly 0 for
+        # every angle. At el=0 this yields the same up=(1,0,0) as before, so the
+        # Front/Back/Left/Right presets are visually unchanged.
         if update_type in ["all", "camera"]:
             az = math.radians(self.params.get("cam_azimuth", 0.0))
             el = math.radians(self.params.get("cam_elevation", 0.0))
-            dist = 800; cx = self.params["mandrel_pos_x_offset"]
-            new_x = cx + dist * math.cos(el) * math.sin(az)
-            new_y = dist * math.cos(el) * math.cos(az)
-            new_z = 50 + dist * math.sin(el)
-            self.plotter.camera.position = (new_x, new_y, new_z)
+            roll = math.radians(self.params.get("cam_roll", 90.0))
+            dist = float(self.params.get("cam_distance", 800.0))
+            cx = self.params["mandrel_pos_x_offset"]
+            ce, se = math.cos(el), math.sin(el)
+            ca, sa = math.cos(az), math.sin(az)
+            # focal→camera direction (unit vector)
+            dx, dy, dz = ce * sa, ce * ca, se
+            self.plotter.camera.position = (cx + dist * dx, dist * dy, 50 + dist * dz)
             self.plotter.camera.focal_point = (cx, 0, 50)
-            self.plotter.camera.up = (0, 0, 1)
-            self.plotter.camera.roll = self.params["cam_roll"]
+            # forward = -d; base up is orthogonal to d and continuous through the
+            # poles (never degenerates), then rolled about the view direction.
+            fx, fy, fz = -dx, -dy, -dz
+            ubx, uby, ubz = -sa * se, -ca * se, ce
+            # Rodrigues rotation of the base-up about forward by -roll (the -roll
+            # sign reproduces the legacy roll orientation for the default views).
+            cr, sr = math.cos(-roll), math.sin(-roll)
+            crx = fy * ubz - fz * uby
+            cry = fz * ubx - fx * ubz
+            crz = fx * uby - fy * ubx
+            adot = fx * ubx + fy * uby + fz * ubz
+            self.plotter.camera.up = (
+                ubx * cr + crx * sr + fx * adot * (1 - cr),
+                uby * cr + cry * sr + fy * adot * (1 - cr),
+                ubz * cr + crz * sr + fz * adot * (1 - cr),
+            )
             
         # Fix Visual Bug: Update Grid logic dynamically
         self._update_grid_dynamic()

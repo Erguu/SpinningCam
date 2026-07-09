@@ -6,6 +6,15 @@ here with short, operator-facing bullet lines (what changed, not how it was code
 """
 
 CHANGELOG = {
+    "1.006": [
+        "Camera: every viewing angle is now reachable with the on-screen buttons — no more angles you could only get with the mouse. Separate Horizontal, Vertical, Roll and Zoom buttons (fine ±5° and coarse ±15°).",
+        "Camera views now STICK — buttons and presets no longer snap back when the scene redraws.",
+        "Fixed vertical tilt flipping upside-down / getting stuck near the top or bottom (it now rotates smoothly all the way around in every direction).",
+        "Fixed the Horizontal and Vertical buttons acting swapped/reversed; arrows now match the on-screen motion.",
+        "Saved Views: store any number of your own named camera angles with '＋ Save current view…', then recall (Go) or delete (✕) them. Saved views are remembered between sessions.",
+        "Number keys 1-9 jump straight to your saved views (1 = first view, and so on). Works while looking at the 3D view; ignored while typing in a field.",
+        "Customize…: an optional colored Border can now highlight a parameter's label in the editor, so key fields stand out.",
+    ],
     "1.005": [
         "Undo / Redo for operation-list actions (↶/↷ buttons, Ctrl+Z / Ctrl+Y): Split, Delete, Move, Add, Continue ⤵, Reach⟲, Angle⟲, On/Off, library inserts and batch edits — up to 50 steps back.",
         "Batch edit: tick the new ☑ column (or Shift/Ctrl-select rows), then change ONE parameter on all targeted operations at once (+= add / = set / ×= scale) with a live old→new preview. The whole batch is a single undo step.",

@@ -3,9 +3,26 @@
     "first_pass_p2_contact_z_abs": 9.999999406318238e-08,
     "y_rotation_degrees": 30.0,
     "calc_active": true,
-    "cam_azimuth": 0.0,
-    "cam_elevation": 0.0,
+    "cam_azimuth": -180.0,
+    "cam_elevation": -180.0,
     "cam_roll": 90.0,
+    "cam_distance": 800.0,
+    "camera_presets": [
+        {
+            "name": "Default",
+            "az": 0.0,
+            "el": 0.0,
+            "roll": 90.0,
+            "dist": 800.0
+        },
+        {
+            "name": "CNC",
+            "az": -180.0,
+            "el": -180.0,
+            "roll": 90.0,
+            "dist": 800.0
+        }
+    ],
     "mandrel_rot_x": 90.0,
     "mandrel_rot_y": 0.0,
     "mandrel_rot_z": 0.0,
@@ -253,7 +270,7 @@
     "_admin": true,
     "_last_license_path": "C:/Users/PC/Documents/Python_Projects/SpinningCam/admin.lic",
     "_last_settings_path": "C:/Users/PC/Documents/Python_Projects/SpinningCam/settings.json",
-    "sidebar_width": 1464,
+    "sidebar_width": 594,
     "op_view_config": {
         "roughing": {
             "columns": [
@@ -285,7 +302,6 @@
                 "start_z",
                 "end_z",
                 "p2_radius",
-                "exit_curve_tension",
                 "exit_mid_rotation",
                 "reach",
                 "reach_blank_factor",
@@ -293,7 +309,16 @@
                 "clearance",
                 "rot",
                 "back_pass_arc_z"
-            ]
+            ],
+            "highlight": {
+                "start_z": "green",
+                "end_z": "green",
+                "exit_bow": "red",
+                "exit_bow_bias": "red",
+                "reach_blank_factor": "red",
+                "pass_angle": "blue",
+                "clearance": "red"
+            }
         },
         "finishing": {
             "columns": [
@@ -312,7 +337,8 @@
                 "start_z",
                 "end_z",
                 "clearance"
-            ]
+            ],
+            "highlight": {}
         },
         "cutting": {
             "columns": [],
@@ -322,7 +348,8 @@
                 "feed",
                 "z_pos",
                 "plunge_x"
-            ]
+            ],
+            "highlight": {}
         },
         "bending": {
             "columns": [],
@@ -332,7 +359,8 @@
                 "feed",
                 "z_pos",
                 "plunge_x"
-            ]
+            ],
+            "highlight": {}
         }
     },
     "op_view_show_advanced": true

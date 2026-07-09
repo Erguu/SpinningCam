@@ -321,8 +321,9 @@ pasif op'lar hesaplamaya/G-code'a girmez (zaten `op.get("enabled")` ile atlanıy
 | Dinamik tablo sütunları | `program_tab.py` | `rebuild_tree_columns()`, `_column_union()`, `_cell_value()` |
 | Alan satırı etiketleri | `program_tab.py` | helper'larda `f._pkey`, inline blok'larda `_pkey`, başlıklarda `_section` |
 | Araç çubuğu düğme + Gelişmiş kutusu | `program_tab.py` | `_create_widgets` (`btn_customize`, `var_show_adv`) |
-| Özelleştir diyaloğu | `ui/dialogs/view_customizer.py` | `ViewCustomizerDialog` |
+| Özelleştir diyaloğu | `ui/dialogs/view_customizer.py` | `ViewCustomizerDialog` (Column/Advanced/Batch/**Border** sütunları) |
 | Kalıcılık + yükleme düzeltmesi | `main.py` | `load_project` (global anahtar korunur, .ssp'de config yoksa reset) |
+| **#84 Etiket renkli çerçeve vurgusu** (GÖRSEL, opt-in) | `program_tab.py` | `BORDER_COLORS`, `_apply_label_highlights()`; config `op_view_config[tip]["highlight"]={key:renk}` |
 
 **Kurallar:** SADECE görünüm katmanı — gizli alan değeri/takım yolu DEĞİŞMEZ.
 `op_view_config` (program başına, .ssp) = {tip: {columns, advanced}}; `op_view_show_advanced`

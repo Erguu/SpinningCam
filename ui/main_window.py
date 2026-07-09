@@ -60,11 +60,65 @@ class SpinningCamWindow(tk.Tk):
 
         self.app.plotter.show(auto_close=False, interactive_update=True)
 
+        self._bind_camera_preset_keys()
+
         self.after(600, self._startup_tasks)
         self.check_sim_loop()
         self._create_menu()
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+    def _bind_camera_preset_keys(self):
+        """Number keys 1-9 jump to saved camera views (Process tab → Saved Views,
+        listed 1., 2., …). Bound BOTH on the Tk toplevel — so it works when focus
+        is in the control panel, while ignoring keystrokes typed into an entry —
+        and on the VTK render window, so it also works when the 3D view has focus.
+        Numpad digits require NumLock ON (keysym KP_1…KP_9). Visual only."""
+        _TEXT = ("Entry", "TEntry", "Text", "TCombobox", "Spinbox", "TSpinbox")
+
+        def _make_tk(idx):
+            def _cb(event):
+                try:
+                    if event.widget.winfo_class() in _TEXT:
+                        return  # user is typing a number into a field
+                except Exception:
+                    pass
+                self.app.apply_camera_preset(idx)
+            return _cb
+
+        for n in range(1, 10):
+            tk_cb = _make_tk(n - 1)
+            self.bind(f"<Key-{n}>", tk_cb)
+            self.bind(f"<KP_{n}>", tk_cb)
+
+        # 3D-view (VTK) focus: a single KeyPressEvent observer reads the pressed
+        # digit straight off the interactor. This covers both the main number row
+        # and the numpad, and avoids pyvista.add_key_event (which rejects callbacks
+        # that take arguments and only matches one exact keysym per registration).
+        try:
+            self.app.plotter.iren.add_observer("KeyPressEvent", self._on_vtk_key)
+        except Exception:
+            pass
+
+    def _on_vtk_key(self, *args):
+        """VTK KeyPressEvent handler: number keys 1-9 jump to saved camera views.
+        Reads GetKeyCode (the typed char, '1'..'9' for both main row and numpad
+        with NumLock) with a GetKeySym fallback for KP_/digit keysyms."""
+        try:
+            vi = self.app.plotter.iren.interactor
+            code = vi.GetKeyCode() or ""
+            sym = vi.GetKeySym() or ""
+        except Exception:
+            return
+        idx = None
+        if len(code) == 1 and code in "123456789":
+            idx = int(code) - 1
+        elif sym[:3] == "KP_" and sym[3:].isdigit():
+            idx = int(sym[3:]) - 1
+        elif sym.isdigit():
+            idx = int(sym) - 1
+        if idx is not None:
+            self.app.apply_camera_preset(idx)
 
     def _create_menu(self):
         menubar = tk.Menu(self)

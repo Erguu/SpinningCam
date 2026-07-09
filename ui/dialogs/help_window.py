@@ -112,6 +112,21 @@ NAVIGATING THE 3D VIEW
   Zoom         Scroll wheel
   Reset view   Use the preset buttons (Front, ISO, etc.)
 
+CAMERA BUTTONS (Process tab → Visual Settings)
+Every angle you can reach with the mouse is also reachable with
+buttons, and views you set with the buttons STICK (they no longer
+snap back when the scene redraws):
+  Presets        Front / Back / Left / Right / Top / Iso
+  Horizontal     orbit left/right  (±5° fine, ±15° coarse)
+  Vertical       tilt up/down      (±5° fine, ±15° coarse)
+  Roll / Zoom    ⟲ ⟳ tilt the horizon;  🔍＋ / 🔍－ zoom
+  Reset Camera   back to the default angle
+  Saved Views    "＋ Save current view…" stores the current angle
+                 under a name; each saved view has Go / ✕ (delete).
+                 Saved views persist in settings.json. Number keys
+                 1-9 jump straight to the matching saved view (they
+                 are ignored while you type in a field).
+
 If the geometry disappears or gets clipped, use the Fix View
 button — it resets the camera clipping range.
 
@@ -200,6 +215,21 @@ quick collision check.
   Kaydır        Orta tıklayıp sürükle  (veya Shift + sol tık)
   Yakınlaştır   Fare tekerleği
   Görünüm sıfırla   Hazır görünüm düğmeleri (Önden, İzometrik vb.)
+
+KAMERA DÜĞMELERİ (Proses sekmesi → Görsel Ayarlar)
+Fareyle ulaşabildiğin her açıya düğmelerle de ulaşabilirsin ve
+düğmelerle ayarladığın görünüm SABİT KALIR (sahne yeniden
+çizilince artık geri sıçramaz):
+  Önayarlar     Ön / Arka / Sol / Sağ / Üst / İzo
+  Yatay         sola/sağa döndür  (±5° ince, ±15° kaba)
+  Dikey         yukarı/aşağı eğ   (±5° ince, ±15° kaba)
+  Eksen/Zoom    ⟲ ⟳ ufku eğ;  🔍＋ / 🔍－ yakınlık
+  Kamerayı Sıfırla   varsayılan açıya döner
+  Kayıtlı Görünümler   "＋ Mevcut görünümü kaydet…" o anki açıyı
+                 bir adla saklar; her görünümün Git / ✕ (sil)
+                 düğmesi var. Kayıtlı görünümler settings.json'da tutulur.
+                 1-9 rakam tuşları ilgili kayıtlı görünüme anında
+                 geçer (bir alana yazı yazarken yoksayılır).
 
 Geometri kaybolur veya kırpılırsa Görünümü Düzelt düğmesini
 kullanın — kamera kırpma aralığını sıfırlar.
@@ -630,7 +660,12 @@ which you rarely touch. Two controls tame this:
     parameter can be basic for one type and advanced for another.
     A third "Batch" checkbox picks which parameters the Batch edit
     dialog offers (numeric parameters only; "—" means the
-    parameter cannot be batch-edited).
+    parameter cannot be batch-edited). A "Border" dropdown draws a
+    colored rectangle around that parameter's LABEL in the property
+    editor (Red / Green / Blue / Orange / Purple / Yellow, or "—"
+    for none) — a visual flag to point another user at the
+    parameters that matter for this program. It borders only the
+    label text, never the input box, and never changes any value.
 
   - The "Advanced" checkbox in the toolbar is a global view switch.
     Off: the editor shows only the parameters NOT marked advanced —

@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from i18n import t
-from ui.tabs.program_tab import _default_cfg, _BATCH_ELIGIBLE
+from ui.tabs.program_tab import _default_cfg, _BATCH_ELIGIBLE, BORDER_COLORS
 
 # Op types shown as tabs, with their display-label i18n keys.
 _OP_TYPES = [
@@ -10,6 +10,19 @@ _OP_TYPES = [
     ("finishing", "op_type_finishing"),
     ("cutting",   "op_type_cutting"),
     ("bending",   "op_type_bending"),
+]
+
+# #84 — Border color choices for the highlight feature. Order matters (dropdown
+# order). First entry ("") = no border. Each color name maps to a hex in
+# program_tab.BORDER_COLORS; the label is shown translated in the dropdown.
+_BORDER_CHOICES = [
+    ("",       "vc_border_none"),
+    ("red",    "vc_border_red"),
+    ("green",  "vc_border_green"),
+    ("blue",   "vc_border_blue"),
+    ("orange", "vc_border_orange"),
+    ("purple", "vc_border_purple"),
+    ("yellow", "vc_border_yellow"),
 ]
 
 
@@ -31,14 +44,20 @@ class ViewCustomizerDialog(tk.Toplevel):
         self.pt = program_tab
 
         self.title(t("dlg_customize_view"))
-        self.geometry("620x600")
+        self.geometry("720x600")
         self.transient(parent)
         self.focus_force()
 
-        # self._vars[op_type][key] = (col_var, adv_var, bat_var or None);
+        # self._vars[op_type][key] = (col_var, adv_var, bat_var or None, bdr_var);
         # _order preserves layout. bat_var is None for non-numeric params.
+        # bdr_var (#84) is a StringVar holding the translated border-color label.
         self._vars = {}
         self._order = {}
+
+        # #84 — translated dropdown label <-> internal color name, both ways.
+        self._bdr_disp = {name: t(key) for name, key in _BORDER_CHOICES}
+        self._bdr_rev = {disp: name for name, disp in self._bdr_disp.items()}
+        self._bdr_values = [self._bdr_disp[name] for name, _ in _BORDER_CHOICES]
 
         self._create_widgets()
 
@@ -66,6 +85,7 @@ class ViewCustomizerDialog(tk.Toplevel):
     # Fixed pixel width of the three checkbox columns — shared by the header
     # and the body rows so everything lines up in true columns.
     _COLW = 76
+    _BORDERW = 96   # #84 — border-color dropdown column
     _SB_W = 18   # vertical-scrollbar width the header must skip over
 
     def _build_type_tab(self, parent, op_type):
@@ -76,7 +96,8 @@ class ViewCustomizerDialog(tk.Toplevel):
         f_hdr.columnconfigure(0, weight=1)
         for c in (1, 2, 3):
             f_hdr.columnconfigure(c, minsize=self._COLW)
-        f_hdr.columnconfigure(4, minsize=self._SB_W)
+        f_hdr.columnconfigure(4, minsize=self._BORDERW)
+        f_hdr.columnconfigure(5, minsize=self._SB_W)
         ttk.Label(f_hdr, text=t("vc_col_param"),
                   font=("Arial", 9, "bold")).grid(row=0, column=0, sticky="w")
         ttk.Label(f_hdr, text=t("vc_col_show"),
@@ -85,6 +106,8 @@ class ViewCustomizerDialog(tk.Toplevel):
                   font=("Arial", 9, "bold")).grid(row=0, column=2)
         ttk.Label(f_hdr, text=t("vc_col_batch"),
                   font=("Arial", 9, "bold")).grid(row=0, column=3)
+        ttk.Label(f_hdr, text=t("vc_col_border"),
+                  font=("Arial", 9, "bold")).grid(row=0, column=4)
         ttk.Separator(parent, orient="horizontal").pack(fill="x", padx=6)
 
         # Scrollable body
@@ -107,44 +130,65 @@ class ViewCustomizerDialog(tk.Toplevel):
         col_set = set(cfg["columns"])
         adv_set = set(cfg["advanced"])
         bat_set = set(cfg.get("batch", []))
+        bdr_map = cfg.get("highlight", {})
 
         self._vars[op_type] = {}
         self._order[op_type] = list(keys)
 
         # One shared grid for all rows: label column stretches, the three
         # checkbox columns are fixed-width and centered — true columns, no
-        # per-row drift from pack + character-based widths.
+        # per-row drift from pack + character-based widths. Column 4 = border.
         body.columnconfigure(0, weight=1)
         for c in (1, 2, 3):
             body.columnconfigure(c, minsize=self._COLW)
+        body.columnconfigure(4, minsize=self._BORDERW)
 
         for r, k in enumerate(keys):
+            # Two grid rows per parameter: content on the even row, a thin
+            # horizontal rule on the odd row so it's clear at a glance which
+            # label lines up with which checkbox/dropdown across the width.
+            gr = r * 2
             ttk.Label(body, text=self.pt._param_label(k)).grid(
-                row=r, column=0, sticky="w", padx=(6, 4), pady=1)
+                row=gr, column=0, sticky="w", padx=(6, 4), pady=3)
 
             adv_var = tk.BooleanVar(value=(k in adv_set))
             col_var = tk.BooleanVar(value=(k in col_set))
-            ttk.Checkbutton(body, variable=col_var).grid(row=r, column=1)
-            ttk.Checkbutton(body, variable=adv_var).grid(row=r, column=2)
+            ttk.Checkbutton(body, variable=col_var).grid(row=gr, column=1)
+            ttk.Checkbutton(body, variable=adv_var).grid(row=gr, column=2)
             if k in _BATCH_ELIGIBLE:
                 bat_var = tk.BooleanVar(value=(k in bat_set))
-                ttk.Checkbutton(body, variable=bat_var).grid(row=r, column=3)
+                ttk.Checkbutton(body, variable=bat_var).grid(row=gr, column=3)
             else:
                 # Non-numeric param: batch modes (+=/=/×=) don't apply.
                 bat_var = None
-                ttk.Label(body, text="—").grid(row=r, column=3)
-            self._vars[op_type][k] = (col_var, adv_var, bat_var)
+                ttk.Label(body, text="—").grid(row=gr, column=3)
+
+            # #84 — border-color dropdown. Any param can be highlighted.
+            cur_name = bdr_map.get(k, "")
+            if cur_name not in self._bdr_disp:
+                cur_name = ""   # stale/unknown color falls back to none
+            bdr_var = tk.StringVar(value=self._bdr_disp[cur_name])
+            cbb = ttk.Combobox(body, values=self._bdr_values, textvariable=bdr_var,
+                               state="readonly", width=9)
+            cbb.grid(row=gr, column=4, padx=(4, 6), pady=1)
+            self._vars[op_type][k] = (col_var, adv_var, bat_var, bdr_var)
+
+            # Row separator (skip after the last row).
+            if r < len(keys) - 1:
+                ttk.Separator(body, orient="horizontal").grid(
+                    row=gr + 1, column=0, columnspan=5, sticky="ew")
 
     # ------------------------------------------------------------------
     def _reset_defaults(self):
         for op_type, _ in _OP_TYPES:
             d = _default_cfg(op_type)
             cols, adv, bat = set(d["columns"]), set(d["advanced"]), set(d["batch"])
-            for k, (col_var, adv_var, bat_var) in self._vars.get(op_type, {}).items():
+            for k, (col_var, adv_var, bat_var, bdr_var) in self._vars.get(op_type, {}).items():
                 col_var.set(k in cols)
                 adv_var.set(k in adv)
                 if bat_var is not None:
                     bat_var.set(k in bat)
+                bdr_var.set(self._bdr_disp[""])   # #84 — no highlights by default
 
     def _apply(self):
         cfg = {}
@@ -156,6 +200,10 @@ class ViewCustomizerDialog(tk.Toplevel):
                 "advanced": [k for k in order if vars_[k][1].get()],
                 "batch":    [k for k in order
                              if vars_[k][2] is not None and vars_[k][2].get()],
+                # #84 — {key: color_name} for params with a border color set.
+                "highlight": {k: self._bdr_rev[vars_[k][3].get()]
+                              for k in order
+                              if self._bdr_rev.get(vars_[k][3].get())},
             }
         self.app.params["op_view_config"] = cfg
         self.pt.after_view_config_changed()

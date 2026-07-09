@@ -104,124 +104,207 @@ class ProcessTab(ScrollableTabBase):
             "veya simülasyonu ETKİLEMEZ, yalnızca 3B'de gösterilen çizgiyi taşır.\n"
             "(Radyal yaklaşım; eğik yüzeylerde temas noktası normal boyunca hafifçe kayabilir.)")
 
-        # Camera Controls
-        f_cam = ttk.Frame(self.content)
-        f_cam.pack(fill="x", padx=10, pady=5)
+        # ---------------- Camera Controls ----------------
+        # All camera buttons drive the CANONICAL orbit params
+        # (cam_azimuth / cam_elevation / cam_roll / cam_distance) through
+        # on_param_change(..., "camera"). The live camera object is rebuilt from
+        # those params on every full scene redraw (main.py ~1320), so poking the
+        # camera directly would just snap back — going through the params makes
+        # every view PERSIST. Purely visual: never touches toolpaths / G-code / sim.
+        app = self.app
 
-        def save_cam():
-            if hasattr(self.app, 'plotter'):
-                pos = self.app.plotter.camera.position
-                foc = self.app.plotter.camera.focal_point
-                up = self.app.plotter.camera.up
-                self.app.params["camera"] = {"pos": pos, "foc": foc, "up": up}
-                if hasattr(self.app, 'save_settings_json'):
-                     self.app.save_settings_json()
-                     tk.messagebox.showinfo(t("msg_camera_saved_title"), t("msg_camera_saved"))
+        def cam_get(key, default):
+            return float(app.params.get(key, default))
 
-        def reset_cam():
-            if hasattr(self.app, 'plotter'):
-                saved = self.app.params.get("camera", {})
-                if saved and "pos" in saved:
-                    self.app.plotter.camera.position = saved["pos"]
-                    self.app.plotter.camera.focal_point = saved["foc"]
-                    self.app.plotter.camera.up = saved["up"]
-                else:
-                    self.app.plotter.camera_position = [(500, 500, 500), (0, 0, 0), (0, 0, 1)]
-                self.app.plotter.reset_camera()
+        def cam_apply(**vals):
+            """Write one or more camera params, then trigger a single camera-only
+            scene update (the last key carries the render)."""
+            keys = list(vals.keys())
+            for k in keys[:-1]:
+                app.params[k] = vals[k]
+            app.on_param_change(keys[-1], vals[keys[-1]], "camera")
 
-        self.helper.add_button(self.content, t("btn_save_cam_angle"), save_cam, "lightgray",
-                               "Mevcut kamera açısını settings.json'a kaydet. "
-                               "Bir sonraki açılışta bu açıdan başlar.")
-        self.helper.add_button(self.content, t("btn_reset_cam"), reset_cam, "lightgray",
-                               "Kamerayı kaydedilmiş varsayılan açıya sıfırla. "
-                               "Kayıtlı açı yoksa standart izometrik görünüme döner.")
+        def _wrap180(v):
+            return ((v + 180.0) % 360.0) - 180.0
 
-        # Camera Presets
-        ttk.Label(self.content, text=t("lbl_cam_presets"), font=("Arial", 9, "bold")).pack(anchor="w", padx=10, pady=(5,2))
-        f_presets = ttk.Frame(self.content)
-        f_presets.pack(fill="x", padx=10, pady=2)
+        def nudge_az(delta):
+            cam_apply(cam_azimuth=_wrap180(cam_get("cam_azimuth", 0.0) + delta))
 
+        def nudge_el(delta):
+            # Wrap like azimuth/roll so vertical tilt rotates CONTINUOUSLY in both
+            # directions (over the top and back), instead of stopping at ±90°.
+            # The reconstruction (main.py) stays orthonormal for any elevation, so
+            # tumbling past the pole just flips the view upside-down like a trackball.
+            cam_apply(cam_elevation=_wrap180(cam_get("cam_elevation", 0.0) + delta))
+
+        def nudge_roll(delta):
+            cam_apply(cam_roll=_wrap180(cam_get("cam_roll", 90.0) + delta))
+
+        def zoom_cam(factor):
+            v = max(50.0, min(20000.0, cam_get("cam_distance", 800.0) * factor))
+            cam_apply(cam_distance=v)
+
+        # --- Preset views (azimuth, elevation, roll) ---
         def set_view(direction):
-            if not hasattr(self.app, 'plotter'): return
-            d = 400
             views = {
-                "front": [(0, d, 50), (0, 0, 50), (1, 0, 0)],
-                "back": [(0, -d, 50), (0, 0, 50), (1, 0, 0)],
-                "left": [(-d, 0, 50), (0, 0, 50), (1, 0, 0)],
-                "right": [(d, 0, 50), (0, 0, 50), (1, 0, 0)],
-                "top": [(0, 0, d+50), (0, 0, 50), (0, 1, 0)],
-                "iso": [(d, d, d), (0, 0, 50), (1, 0, 0)],
+                "front": (0.0, 0.0, 90.0),
+                "back":  (180.0, 0.0, 90.0),
+                "left":  (-90.0, 0.0, 90.0),
+                "right": (90.0, 0.0, 90.0),
+                "top":   (0.0, 90.0, 90.0),
+                "iso":   (45.0, 30.0, 90.0),
             }
             v = views.get(direction)
             if v:
-                self.app.plotter.camera.position = v[0]
-                self.app.plotter.camera.focal_point = v[1]
-                self.app.plotter.camera.up = v[2]
-                self.app.plotter.reset_camera()
+                cam_apply(cam_elevation=v[1], cam_roll=v[2], cam_azimuth=v[0])
+
+        ttk.Label(self.content, text=t("lbl_cam_presets"), font=("Arial", 9, "bold")).pack(anchor="w", padx=10, pady=(6,2))
+        f_presets = ttk.Frame(self.content)
+        f_presets.pack(fill="x", padx=10, pady=2)
 
         btn_front = tk.Button(f_presets, text=t("btn_front"), command=lambda: set_view("front"), width=6)
         btn_front.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_front, "Önden görünüm: +Y ekseninden XZ düzlemine bakış.")
+        self.helper.bind_tooltip(btn_front, "Önden görünüm (Yatay=0°, Dikey=0°).")
 
         btn_back = tk.Button(f_presets, text=t("btn_back_view"), command=lambda: set_view("back"), width=6)
         btn_back.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_back, "Arkadan görünüm: -Y ekseninden XZ düzlemine bakış.")
+        self.helper.bind_tooltip(btn_back, "Arkadan görünüm (Yatay=180°).")
 
         btn_left = tk.Button(f_presets, text=t("btn_left"), command=lambda: set_view("left"), width=6)
         btn_left.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_left, "Sol görünüm: -X ekseninden bakış (aşağıdan).")
+        self.helper.bind_tooltip(btn_left, "Sol görünüm (Yatay=-90°).")
 
         btn_right = tk.Button(f_presets, text=t("btn_right"), command=lambda: set_view("right"), width=6)
         btn_right.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_right, "Sağ görünüm: +X ekseninden bakış (yukarıdan).")
+        self.helper.bind_tooltip(btn_right, "Sağ görünüm (Yatay=+90°).")
 
         btn_top = tk.Button(f_presets, text=t("btn_top"), command=lambda: set_view("top"), width=6)
         btn_top.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_top, "Üstten görünüm: Z ekseni boyunca aşağı bakış.")
+        self.helper.bind_tooltip(btn_top, "Üstten görünüm (Dikey=89°).")
 
         btn_iso = tk.Button(f_presets, text=t("btn_iso"), command=lambda: set_view("iso"), width=6, bg="lightblue")
         btn_iso.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_iso, "İzometrik görünüm: mandrel ve pasların en iyi görüldüğü standart açı.")
+        self.helper.bind_tooltip(btn_iso, "İzometrik görünüm (Yatay=45°, Dikey=30°).")
 
-        # Camera Rotation Buttons
-        ttk.Label(self.content, text=t("lbl_rotate_view"), font=("Arial", 9, "bold")).pack(anchor="w", padx=10, pady=(5,2))
-        f_rotate = ttk.Frame(self.content)
-        f_rotate.pack(fill="x", padx=10, pady=2)
+        # --- Rotation / zoom (full orbit control) ---
+        ttk.Label(self.content, text=t("lbl_rotate_view"), font=("Arial", 9, "bold")).pack(anchor="w", padx=10, pady=(6,2))
 
-        def rotate_view(angle):
-            if not hasattr(self.app, 'plotter'): return
-            try:
-                self.app.plotter.camera.azimuth += angle
-                self.app.plotter.render()
-            except Exception as e:
-                print(f"Rotation error: {e}")
+        # HORIZONTAL screen rotation (◀ ▶). The default roll (90°) lays the part
+        # sideways, so it is ELEVATION — not azimuth — that moves the view left/
+        # right on screen (measured: az moves the scene vertically, el moves it
+        # horizontally). So this row drives cam_elevation, with signs chosen so the
+        # scene follows the arrow (like a mouse drag): ▶ = scene right = -el.
+        f_h = ttk.Frame(self.content); f_h.pack(fill="x", padx=10, pady=1)
+        ttk.Label(f_h, text=t("lbl_cam_azimuth"), width=8, anchor="w").pack(side="left")
+        for txt, dv, tip in (("◀◀ 15", 15, "Görünümü sola döndür (15°)"),
+                             ("◀ 5", 5, "Görünümü sola döndür (5°, ince)"),
+                             ("5 ▶", -5, "Görünümü sağa döndür (5°, ince)"),
+                             ("15 ▶▶", -15, "Görünümü sağa döndür (15°)")):
+            b = tk.Button(f_h, text=txt, width=6, command=lambda d=dv: nudge_el(d))
+            b.pack(side="left", padx=1); self.helper.bind_tooltip(b, tip)
 
-        btn_r45l = tk.Button(f_rotate, text="◀ -45°", command=lambda: rotate_view(-45), width=7)
-        btn_r45l.pack(side="left", padx=2)
-        self.helper.bind_tooltip(btn_r45l, "Görünümü saat yönünün tersine 45° döndür.")
+        # VERTICAL screen rotation (▲ ▼) → drives cam_azimuth (see note above).
+        # Scene follows the arrow: ▲ = scene up = -az.
+        f_v = ttk.Frame(self.content); f_v.pack(fill="x", padx=10, pady=1)
+        ttk.Label(f_v, text=t("lbl_cam_elevation"), width=8, anchor="w").pack(side="left")
+        for txt, dv, tip in (("▲▲ 15", -15, "Görünümü yukarı döndür (15°)"),
+                             ("▲ 5", -5, "Görünümü yukarı döndür (5°, ince)"),
+                             ("▼ 5", 5, "Görünümü aşağı döndür (5°, ince)"),
+                             ("▼▼ 15", 15, "Görünümü aşağı döndür (15°)")):
+            b = tk.Button(f_v, text=txt, width=6, command=lambda d=dv: nudge_az(d))
+            b.pack(side="left", padx=1); self.helper.bind_tooltip(b, tip)
 
-        btn_r45r = tk.Button(f_rotate, text="+45° ▶", command=lambda: rotate_view(45), width=7)
-        btn_r45r.pack(side="left", padx=2)
-        self.helper.bind_tooltip(btn_r45r, "Görünümü saat yönünde 45° döndür.")
-
-        btn_r15l = tk.Button(f_rotate, text="◀ -15°", command=lambda: rotate_view(-15), width=7)
-        btn_r15l.pack(side="left", padx=2)
-        self.helper.bind_tooltip(btn_r15l, "Görünümü saat yönünün tersine 15° döndür (ince ayar).")
-
-        btn_r15r = tk.Button(f_rotate, text="+15° ▶", command=lambda: rotate_view(15), width=7)
-        btn_r15r.pack(side="left", padx=2)
-        self.helper.bind_tooltip(btn_r15r, "Görünümü saat yönünde 15° döndür (ince ayar).")
+        # Roll + Zoom + Fix
+        f_rz = ttk.Frame(self.content); f_rz.pack(fill="x", padx=10, pady=1)
+        ttk.Label(f_rz, text=t("lbl_cam_roll_zoom"), width=8, anchor="w").pack(side="left")
+        b = tk.Button(f_rz, text="⟲", width=3, command=lambda: nudge_roll(-15))
+        b.pack(side="left", padx=1); self.helper.bind_tooltip(b, "Ekseni saat yönü tersine 15° döndür (ufuk çizgisini eğ).")
+        b = tk.Button(f_rz, text="⟳", width=3, command=lambda: nudge_roll(15))
+        b.pack(side="left", padx=1); self.helper.bind_tooltip(b, "Ekseni saat yönünde 15° döndür (ufuk çizgisini eğ).")
+        b = tk.Button(f_rz, text="🔍＋", width=4, command=lambda: zoom_cam(0.85))
+        b.pack(side="left", padx=(8,1)); self.helper.bind_tooltip(b, "Yakınlaştır (kamera mesafesini azalt).")
+        b = tk.Button(f_rz, text="🔍－", width=4, command=lambda: zoom_cam(1.0/0.85))
+        b.pack(side="left", padx=1); self.helper.bind_tooltip(b, "Uzaklaştır (kamera mesafesini artır).")
 
         def fix_clipping():
             if hasattr(self.app, 'plotter'):
                 self.app.plotter.reset_camera()
-                self.app.plotter.camera.clipping_range = (0.1, 10000)
+                self.app.plotter.camera.clipping_range = (0.1, 500000)
                 self.app.plotter.render()
 
-        btn_fix = tk.Button(f_rotate, text=t("btn_fix_view"), command=fix_clipping, width=8, bg="yellow")
+        btn_fix = tk.Button(f_rz, text=t("btn_fix_view"), command=fix_clipping, width=10, bg="yellow")
         btn_fix.pack(side="right", padx=2)
         self.helper.bind_tooltip(btn_fix, "Geometri görünmez hale gelirse veya kırpılıyorsa buna bas. "
                                           "Kamera clipping aralığını sıfırlayarak tüm objeleri tekrar görünür yapar.")
+
+        # --- Saved (named) custom views ---
+        def reset_cam():
+            cam_apply(cam_elevation=0.0, cam_roll=90.0, cam_distance=800.0, cam_azimuth=0.0)
+
+        self.helper.add_button(self.content, t("btn_reset_cam"), reset_cam, "lightgray",
+                               "Kamerayı varsayılan görünüme (Yatay=0, Dikey=0, mesafe=800) döndür.")
+
+        ttk.Label(self.content, text=t("lbl_saved_views"), font=("Arial", 9, "bold")).pack(anchor="w", padx=10, pady=(6,2))
+        ttk.Label(self.content, text=t("lbl_preset_keys_hint"), foreground="gray").pack(anchor="w", padx=10)
+
+        presets_container = ttk.Frame(self.content)
+
+        def delete_preset(idx):
+            lst = app.params.get("camera_presets", [])
+            if 0 <= idx < len(lst):
+                del lst[idx]
+                if hasattr(app, "save_settings_json"):
+                    app.save_settings_json()
+                refresh_presets()
+
+        def refresh_presets():
+            for w in presets_container.winfo_children():
+                w.destroy()
+            lst = app.params.get("camera_presets", []) or []
+            if not lst:
+                ttk.Label(presets_container, text=t("lbl_no_presets"),
+                          foreground="gray").pack(anchor="w", padx=6, pady=2)
+                return
+            for i, p in enumerate(lst):
+                row = ttk.Frame(presets_container); row.pack(fill="x", pady=1)
+                # Prefix with the number key (1-9) that jumps to this view.
+                prefix = f"{i+1}. " if i < 9 else "   "
+                ttk.Label(row, text=prefix + p.get("name", f"View {i+1}"),
+                          width=18, anchor="w").pack(side="left")
+                bg = tk.Button(row, text=t("btn_preset_go"), width=4,
+                               command=lambda ii=i: app.apply_camera_preset(ii))
+                bg.pack(side="left", padx=1)
+                self.helper.bind_tooltip(
+                    bg, f"Bu kayıtlı görünüme geç" + (f" (klavye: {i+1})" if i < 9 else "") + ".")
+                bd = tk.Button(row, text="✕", width=2, fg="red",
+                               command=lambda ii=i: delete_preset(ii))
+                bd.pack(side="left", padx=1)
+                self.helper.bind_tooltip(bd, "Bu görünümü sil.")
+
+        def save_view():
+            from tkinter import simpledialog
+            name = simpledialog.askstring(t("dlg_save_view_title"), t("dlg_save_view_prompt"),
+                                          parent=self.content)
+            if not name:
+                return
+            lst = app.params.setdefault("camera_presets", [])
+            lst.append({
+                "name": name.strip(),
+                "az": cam_get("cam_azimuth", 0.0),
+                "el": cam_get("cam_elevation", 0.0),
+                "roll": cam_get("cam_roll", 90.0),
+                "dist": cam_get("cam_distance", 800.0),
+            })
+            if hasattr(app, "save_settings_json"):
+                app.save_settings_json()
+            refresh_presets()
+
+        self.helper.add_button(self.content, t("btn_save_view"), save_view, "lightgreen",
+                               "Mevcut kamera açısını adlandırarak kaydet. "
+                               "Aşağıdaki listeden istediğin zaman geri çağırabilirsin. "
+                               "Kaydedilen görünümler settings.json'da saklanır.")
+        presets_container.pack(fill="x", padx=10, pady=2)
+        refresh_presets()
 
         # --- Safety & Correction Settings ---
         self.helper.add_section_header(self.content, t("section_safety"), color="purple")

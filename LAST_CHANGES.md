@@ -5,6 +5,133 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-09 — Parametre etiketi renkli çerçeve vurgusu (#84, GÖRSEL, opt-in)
+
+Kullanıcı: programı devralan başka bir kullanıcıya "şu parametrelere dikkat et"
+diyebilmek için bazı parametrelerin ETİKETİNİ (input kutusunu değil) renkli bir
+dikdörtgen çerçeveyle işaretlemek istedi. Görünümü Özelleştir (Program sekmesi)
+üzerinden yapılandırılabilir.
+
+**Yapılan (hepsi GÖRSEL — değer/yol/G-code'a dokunmaz):**
+- **`ui/tabs/program_tab.py`:** modül düzeyinde `BORDER_COLORS` (red/green/blue/
+  orange/purple/yellow → hex). `op_view_config[tip]["highlight"] = {key: renk_adı}`
+  yeni alan; `_default_cfg` (boş {}) ve `_view_cfg` (stored'dan okur) genişletildi.
+  Yeni `_apply_label_highlights(op_type)`: editör kurulduktan sonra `_pkey`'li her
+  satırın İLK çocuğunu (metin etiketi; kontrol daima sağda) 1px `highlightthickness`
+  renkli çerçeveli bir `tk.Frame` içine `pack(in_=...)` ile sarar → etiketin
+  çevresinde İÇİ BOŞ ince renkli dikdörtgen (iç zemin sistem varsayılanı kalır,
+  metin okunur; DOLGU DEĞİL). Widget yeniden oluşturulmaz, master değişmez →
+  görünürlük/sıralama mantığı etkilenmez. Her iki `_apply_field_visibility`
+  çağrısından sonra çağrılır (satır ~1841 cutting/bending erken dönüş + ~2487 ana
+  dal). GERÇEK KÖK NEDEN (2 kez kaçırıldı): `pack(in_=border)` etiketin master'ını
+  DEĞİŞTİRMEZ (hâlâ row'un çocuğu, border ile KARDEŞ). border sonradan
+  oluşturulduğu için istifte etiketin ÜSTÜNDE kalıp metni örtüyordu (önce dolu
+  renk = tamamen kapalı, sonra hollow = gri kutu + renkli kenar, metin yine yok)
+  → çözüm `lbl.lift(border)` (etiketi border'ın üstüne kaldır; `winfo children`
+  istif sırasıyla doğrulandı). Çerçeve 1px `highlightthickness` hollow ring
+  (iç zemin sistem varsayılanı, metin okunur).
+- **`ui/dialogs/view_customizer.py`:** her parametre satırına "Çerçeve" (Border)
+  açılır menüsü (4. sütun, genişlik 96px; diyalog 620→720). Renk adları i18n ile
+  çevrili; seçim `highlight` haritasına yazılır. `_vars` tuple 3→4 elemana çıktı
+  (`+bdr_var`); `_reset_defaults` çerçeveleri "—"e sıfırlar; `_apply` boş-olmayan
+  renkleri toplar. Ayrıca her parametre satırı arasına yatay ayraç (`ttk.Separator`,
+  gridde parametre içeriği `2*r`, ayraç `2*r+1`, columnspan=5) eklendi → hangi
+  etiketin hangi kutuya ait olduğu bir bakışta görünüyor (kullanıcı isteği).
+- **`i18n.py`:** `vc_col_border` + `vc_border_none/red/green/blue/orange/purple/
+  yellow` (EN/TR/ES); `vc_info` çerçeve özelliğini anlatacak şekilde güncellendi.
+- **`ui/dialogs/help_window.py`:** Customize View bölümüne Border açıklaması eklendi.
+
+**Kalıcılık:** `op_view_config` zaten program başına (.ssp) kaydediliyor →
+`highlight` de otomatik rider. `after_view_config_changed` seçili op için
+`on_op_select`'i zaten yeniden çağırdığından çerçeve Apply'dan hemen sonra görünür.
+
+**Geri alma:** BORDER_COLORS + `_apply_label_highlights` + iki çağrı satırı
+kaldırılır, view_customizer 4. sütun geri alınırsa özellik kalkar; `highlight`
+alanı eski configlerde yoksayılır (geriye dönük uyumlu).
+
+**Doğrulama:** py_compile OK; headless Tk testi (etiket renkli çerçeveye taşınıyor,
+input kutusu/kontrol dokunulmuyor, ilk çocuk = etiket varsayımı entry+checkbox
+satırlarında doğrulandı) GEÇTİ. **GUI smoke test + commit BEKLİYOR.**
+
+---
+
+## 2026-07-09 — Kamera: tam açı kontrolü + adlandırılmış görünümler (GÖRSEL)
+
+Kullanıcı: bazı açılara sadece fareyle ulaşılıyordu (düğmelerle değil) ve tek bir
+kayıt yuvası vardı. **Kök neden:** iki ayrı kamera sistemi çakışıyordu —
+kanonik olan `cam_azimuth/cam_elevation/cam_roll` paramlarından her tam sahne
+çiziminde kamerayı YENİDEN kuruyor (`main.py:1320`); eski düğmeler ise CANLI
+kamerayı doğrudan itip paramları güncellemiyordu → bir sonraki `update_scene`'de
+geri sıçrıyordu. Ayrıca döndürme düğmeleri SADECE azimuth'u değiştiriyordu; dikey
+(elevation) ve roll yalnızca gizli/legacy UI'larda (`gui_manager.py`, `ui_sidebar.py`)
+vardı.
+
+**Yapılan (hepsi GÖRSEL — yol/G-code/sim'e dokunmaz):**
+- **`main.py`:** yeni param `cam_distance` (vars. 800) + `camera_presets` (liste);
+  orbit formülünde sabit `dist=800` → `params["cam_distance"]`.
+- **`ui/tabs/process_tab.py`:** kamera bölümü tamamen yeniden yazıldı. Tüm düğmeler
+  artık kanonik paramları `on_param_change(..., "camera")` ile sürüyor → görünüm
+  KALICI. Yatay (±5/±15), Dikey (±5/±15), Roll (⟲⟳ ±15), Zoom (🔍±, ×0.85),
+  6 önayar (paramlara yazacak şekilde düzeltildi → artık sıçramıyor), "Kamerayı
+  Sıfırla" (0/0/90, 800). Adlandırılmış görünümler: "＋ Mevcut görünümü kaydet…"
+  → ada göre `camera_presets`'e ekler; her satır Git/✕. settings.json'da saklanır.
+- **`i18n.py`:** `lbl_cam_azimuth/elevation/roll_zoom`, `lbl_saved_views`,
+  `btn_save_view`, `lbl_no_presets`, `btn_preset_go`, `dlg_save_view_title/prompt`
+  (EN/TR/ES). **help_window:** "NAVIGATING THE 3D VIEW" / "3D GÖRÜNÜMDE GEZİNME"
+  bölümüne kamera düğmeleri bloğu.
+
+Eski tek-yuvalı `params["camera"]` (save_cam/reset_cam) kaldırıldı — zaten
+başlangıçta OKUNMUYORDU (startup `cam_azimuth` vb. kullanıyor) yani işlevsizdi.
+Elevation ±89°'ye kırpıldı (kutup gimbal'ı önlemek için; "Üst" önayarı 89° kullanır).
+
+**GIMBAL FIX (aynı gün, kullanıcı geri bildirimi):** dikey (elevation) artırımları
+belli bir noktadan sonra tepe taklak oluyor / takılıyordu. Kök neden: eski kamera
+kurulumu `up=(0,0,1)` sonra `camera.roll=90` uyguluyordu; VTK kötü `up`'ı yeniden
+diklemiyor → yüksek elevation'da `up·fwd ≈ -1` (up bakış yönüne neredeyse PARALEL)
+→ görünüm çöküp ters dönüyordu. **Fix (`main.py` kamera bloğu):** kamera artık
+azimuth/elevation/roll'dan SÜREKLİ ortonormal çerçeve olarak kuruluyor — konum +
+analitik dik `up` (kutuplarda bile bozulmayan taban-up, sonra bakış yönü etrafında
+Rodrigues roll). `camera.roll` artık HİÇ çağrılmıyor. Headless: tüm taramada
+(az −180…180, el −90…90, roll 0…180) `up·fwd`=0 ve |up|=1. el=0'da eski ile birebir
+aynı `up=(1,0,0)` → Ön/Arka/Sol/Sağ değişmedi; Üst/İzo artık geometrik doğru.
+Üst önayarı tam 90°.
+
+**SÜREKLİ DİKEY DÖNÜŞ (2. geri bildirim):** dikey artırımlar ±90'da DURUYORDU
+(kelepçe), yatay/roll ise sürekli dönüyordu → tutarsız. Artık dikey de azimuth/roll
+gibi −180…180 sarmalıyor (`nudge_el` → `_wrap180`), yani tepe noktasının üzerinden
+geçip sürekli dönüyor (kutbun ötesinde kamera trackball gibi ters dönüyor).
+Yeniden-kurulum her elevation için ortonormal kaldığından sıçrama/kilitlenme yok
+(headless: el −180…180 taramasında up·fwd=0, 15°'lik adımlar birebir düzgün).
+
+**YATAY/DİKEY TAKAS (3. geri bildirim):** düğmeler "tam tersi" çalışıyordu —
+varsayılan `roll=90` parçayı yan yatırdığı için ekranın sağ yönü dünya-Z, yukarı
+yönü dünya-X; dolayısıyla AZIMUTH ekranda DİKEY, ELEVATION ekranda YATAY hareket
+üretiyor (view matrisinden ölçüldü: az+15 → dy=-2.04 dikey; el+15 → dx=-2.39 yatay).
+Fix (`process_tab.py`): ◀/▶ satırı artık `nudge_el`, ▲/▼ satırı `nudge_az` sürüyor;
+işaretler "içerik oku takip eder" (fare sürüklemesi gibi): ▶=sahne sağa=-el,
+▲=sahne yukarı=-az. Etiketler işaretsiz büyüklük (◀◀ 15 vb.).
+
+**KLAVYE 1-9 KISAYOLU (4. istek):** rakam tuşları kayıtlı görünümlere atlar.
+Yeni `main.py` `apply_camera_preset(index)` (0-tabanlı; boş yuvada no-op; cam param'ları
+yazıp `update_scene("camera")`). Bağlama `main_window.py` `_bind_camera_preset_keys()`
+(plotter.show sonrası bir kez): HEM Tk toplevel (`<Key-1..9>`,`<KP_1..9>`; bir alana
+yazarken yoksayılır — Entry/Combobox/Spinbox sınıf filtresi) HEM 3B görünüm (VTK).
+
+**GOTCHA (ilk deneme ÇALIŞMADI):** pyvista `add_key_event` argümanı olan callback'i
+REDDEDİYOR (`lambda *a:` → TypeError, try/except yuttu → hiç kaydolmadı) ve yalnız TEK
+tam keysym eşliyor (numpad kaçar). Fix: `add_key_event` yerine tek `iren.add_observer
+("KeyPressEvent", _on_vtk_key)`; `_on_vtk_key` basılan rakamı doğrudan `GetKeyCode()`'dan
+okuyor ('1'..'9' hem üst sıra hem numpad/NumLock), `GetKeySym()` (KP_/rakam) yedeği ile.
+Tk tarafı 3B pencere odaktayken olayı ALMIYOR (Win32 VTK penceresi Tk değil) — bu yüzden
+VTK observer şart. Numpad NumLock AÇIK ister. Kayıtlı görünüm listesi artık "1. Ad" diye
+numaralı; "Git" düğmeleri de `apply_camera_preset(i)` çağırıyor (eski `apply_preset`
+kaldırıldı). i18n `lbl_preset_keys_hint` (EN/TR/ES) + help_window notu. Headless:
+`add_observer` var, `GetKeyCode()` basınca char döndürüyor (SetKeyCode('3')→'3') doğrulandı.
+
+**Geri alma:** düğme etkisi param'a yazıldığı için `cam_azimuth/elevation/roll/
+distance`'ı 0/0/90/800 yap veya "Kamerayı Sıfırla"ya bas. Kayıtlı görünümleri
+sil → ✕. **DURUM:** headless (syntax+import+i18n+gimbal sweep) OK; **GUI smoke test BEKLİYOR.**
+
 ## 2026-07-09 — Çıkış Kavisi tepe konumu (`exit_bow_bias`, 0–1) (opt-in)
 exit_bow kavisinin en dolgun noktasının P2→P3 bacağı üzerinde NEREDE olacağını
 ayarlar. Kuadratik Bézier kontrol noktası kiriş boyunca kaydırılır
