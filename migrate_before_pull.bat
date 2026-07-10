@@ -107,7 +107,12 @@ exit /b 0
 :restore
 REM %~1 = backup source, %~2 = live destination
 if exist "%~1" (
+    if not exist "%~dp2" mkdir "%~dp2" >nul 2>&1
     copy /y "%~1" "%~2" >nul
-    echo   restored   %~2
+    if errorlevel 1 (
+        echo   WARNING: could not restore %~2 - your copy is safe in the backup folder
+    ) else (
+        echo   restored   %~2
+    )
 )
 exit /b 0

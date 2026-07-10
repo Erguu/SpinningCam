@@ -36,3 +36,7 @@ settings.json
 tools.json
 machines/*.json
 !machines/*.default.json
+
+# Leftovers from migrate_before_pull.bat / the manual migration (local only)
+migration_backup_*/
+*.mine.json
