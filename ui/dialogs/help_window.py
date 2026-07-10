@@ -528,7 +528,7 @@ The "+ Add ▾" dropdown adds a new operation of the chosen type
 The toolbar itself is intentionally small — it holds only Undo/Redo
 (↶ ↷, at the far left), + Add ▾, Suggest, Tools…, Customize… and the
 Advanced switch, plus the time readout. Every PER-ROW action
-(Continue ⤵, Split, Reach⟲, Angle⟲, Pass Table, On/Off, Copy,
+(Continue ⤵, Split, Unite, Reach⟲, Angle⟲, Pass Table, On/Off, Copy,
 Delete, Batch, Library, Move ▲▼) lives on the RIGHT-CLICK menu of a
 row. The bar automatically wraps onto a second line when the sidebar
 is narrow or the screen is small, so Undo/Redo are never pushed out
@@ -554,10 +554,35 @@ Names are labels only — they never affect the toolpath.
 
 RIGHT-CLICK on any row opens a context menu with the row actions:
 Rename, Copy, On/Off, Reset to factory defaults, Continue ⤵,
-Split, Reach⟲, Angle⟲, Pass Table, Batch, Move up/down, Delete and
-the operation Library. This menu is now the primary place for these
-actions — they were removed from the toolbar to keep it compact and
-always fit on screen.
+Split, Unite, Reach⟲, Angle⟲, Pass Table, Batch, Move up/down,
+Delete and the operation Library. This menu is now the primary place
+for these actions — they were removed from the toolbar to keep it
+compact and always fit on screen.
+
+UNITE is the opposite of Split: select two or more operations and it
+combines them into one, taking the first pick's slot. They do NOT
+have to be next to each other — if you pick operations with others
+between them, those in-between operations are kept and slide to AFTER
+the united operation. It only unites operations of the SAME type and
+SAME tool. When the selection is the adjacent chunks of an earlier
+Split, the union reproduces the original operation EXACTLY and applies
+silently.
+
+When the operations DIFFER, a resolver dialog opens so YOU decide how
+each conflicting field is combined — one row per conflict with a
+drop-down:
+  • Start / End Z — the united operation spans the whole range; a Z
+    choice only appears if your picks are out of Z order (then Min /
+    Max recover the true extent).
+  • Pass Angle / Reach / Tilt (values that change across passes) — keep
+    a Ramp (first → last) or collapse to First / Last / Average.
+  • Clearance and every other differing setting — First / Last /
+    Average.
+The default for every row reproduces the automatic merge, so just
+press OK to accept it. Remember a single operation holds ONE clearance,
+shape and tool and ramps the rest linearly, so uniting genuinely
+different operations is a summary, not a lossless join — review the
+result. One Ctrl+Z undoes a unite.
 
 ESCAPE HATCH — factory defaults: "+ Add ▾" normally copies your
 last "Save as Default" preset, so a preset polluted by experiments
@@ -588,8 +613,8 @@ scrollbar under it to reach the ones on the right.
 
 UNDO / REDO (↶ / ↷ BUTTONS, Ctrl+Z / Ctrl+Y)
 ════════════════════════════════════════════════════════════════
-Every operation-LIST action can be undone: Split, Delete, Move
-▲▼, + Add, Continue ⤵, Reach⟲, Angle⟲, On/Off and inserting
+Every operation-LIST action can be undone: Split, Unite, Delete,
+Move ▲▼, + Add, Continue ⤵, Reach⟲, Angle⟲, On/Off and inserting
 suggested operations. Undo (↶, Ctrl+Z) restores the operation
 list exactly as it was before the last such action; Redo (↷,
 Ctrl+Y) re-applies an undone action. Up to 50 steps are kept —
@@ -904,7 +929,7 @@ OPERASYON EKLEME VE DÜZENLEME
 Araç çubuğu bilinçli olarak küçük tutuldu — yalnızca Geri Al/Yinele
 (↶ ↷, en solda), + Ekle ▾, Öner, Takımlar…, Özelleştir… ve Gelişmiş
 anahtarı ile süre göstergesini taşır. HER SATIR-BAŞINA işlem
-(Devam ⤵, Böl, Reach⟲, Açı⟲, Pas Tablosu, Aç/Kapat, Kopyala, Sil,
+(Devam ⤵, Böl, Birleştir, Reach⟲, Açı⟲, Pas Tablosu, Aç/Kapat, Kopyala, Sil,
 Toplu, Kütüphane, Yukarı/Aşağı ▲▼) artık satırın SAĞ-TIK menüsünde.
 Kenar çubuğu dar ya da ekran küçük olduğunda araç çubuğu otomatik
 olarak ikinci satıra kayar; böylece Geri Al/Yinele hiçbir zaman
@@ -930,10 +955,33 @@ bir etikettir — takım yolunu asla etkilemez.
 
 Herhangi bir satıra SAĞ TIKLAMAK satır işlemlerini içeren menüyü
 açar: Yeniden adlandır, Kopyala, Aç/Kapat, Fabrika varsayılanına
-sıfırla, Devam ⤵, Böl, Reach⟲, Açı⟲, Pas Tablosu, Toplu,
+sıfırla, Devam ⤵, Böl, Birleştir, Reach⟲, Açı⟲, Pas Tablosu, Toplu,
 Yukarı/Aşağı taşı, Sil ve operasyon Kütüphanesi. Bu menü artık bu
 işlemlerin ASIL yeri — araç çubuğunu derli toplu tutmak ve her
-ekrana sığdırmak için oradan kaldırıldılar.
+ekranda sığdırmak için araç çubuğundan kaldırıldılar.
+
+BİRLEŞTİR, Böl'ün tersidir: iki veya daha fazla operasyon seçin, tek
+operasyonda birleştirir (ilk seçimin yerine yerleşir). YAN YANA olmak
+ZORUNDA DEĞİLLER — aralarında başka operasyonlar olanları seçerseniz,
+o aradaki operasyonlar korunur ve birleşik operasyonun ARKASINA kayar.
+Yalnızca AYNI tip ve AYNI takıma sahip operasyonları birleştirir.
+Seçim daha önce Böl ile üretilmiş BİTİŞİK parçalarsa, birleşim orijinal
+operasyonu BİREBİR ve sessizce uygular.
+
+Operasyonlar FARKLIYSA, çakışan her alanı NASIL birleştireceğinize
+KARAR vermeniz için bir çözüm penceresi açılır — her çakışma için bir
+satır ve açılır liste:
+  • Başlangıç / Bitiş Z — birleşik operasyon tüm aralığı kapsar; Z
+    seçeneği yalnızca seçimleriniz Z sırasında değilse çıkar (o zaman
+    En düşük / En yüksek gerçek kapsamı geri getirir).
+  • Pas Açısı / Reach / Eğim (paslar arasında değişen değerler) —
+    Yelpaze (ilk → son) tut ya da İlk / Son / Ortalama tek değere indir.
+  • Clearance ve farklı olan diğer her ayar — İlk / Son / Ortalama.
+Her satırın varsayılanı otomatik birleşimi yeniden üretir, yani kabul
+etmek için TAMAM'a basın. Unutmayın: tek bir operasyon TEK clearance,
+şekil ve takım tutar, gerisini doğrusal yelpazeler — bu yüzden
+gerçekten farklı operasyonları birleştirmek kayıpsız bir birleşim değil,
+bir ÖZETtir; sonucu gözden geçirin. Bir Ctrl+Z birleştirmeyi geri alır.
 
 KAÇIŞ KAPISI — fabrika varsayılanları: "+ Ekle ▾" normalde son
 "Varsayılan Kaydet" ön ayarınızı kopyalar; deneylerle kirlenmiş bir
@@ -965,7 +1013,7 @@ için altındaki yatay kaydırma çubuğunu kullanın.
 GERİ AL / YİNELE (↶ / ↷ DÜĞMELERİ, Ctrl+Z / Ctrl+Y)
 ════════════════════════════════════════════════════════════════
 Operasyon LİSTESİNİ değiştiren her işlem geri alınabilir: Böl,
-Sil, Taşı ▲▼, + Ekle, Devam ⤵, Reach⟲, Açı⟲, Aç/Kapat ve öneri
+Birleştir, Sil, Taşı ▲▼, + Ekle, Devam ⤵, Reach⟲, Açı⟲, Aç/Kapat ve öneri
 operasyonlarının eklenmesi. Geri Al (↶, Ctrl+Z) listeyi son
 işlemden önceki haline birebir döndürür; Yinele (↷, Ctrl+Y) geri
 alınan işlemi tekrar uygular. En fazla 50 adım tutulur — dolunca

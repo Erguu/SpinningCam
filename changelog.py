@@ -6,6 +6,10 @@ here with short, operator-facing bullet lines (what changed, not how it was code
 """
 
 CHANGELOG = {
+    "1.007": [
+        "Unite: the opposite of Split — select two or more operations (right-click → Unite) to combine them into one. They need not be next to each other; any operations between the picks are kept and slide to after the united operation. Re-joining the adjacent chunks of an earlier Split reproduces the original operation exactly and applies silently.",
+        "When the operations you unite differ, a resolver dialog lets YOU choose how each conflicting field is combined — Start/End Z, Pass Angle, Reach, Tilt, Clearance and any other differing setting each get a drop-down (Ramp first→last, or First / Last / Average; Min / Max for Z when picks are out of order). Every default reproduces the automatic merge, so OK just accepts it. Only same-type, same-tool operations can be united, and one Ctrl+Z undoes it.",
+    ],
     "1.006": [
         "Camera: every viewing angle is now reachable with the on-screen buttons — no more angles you could only get with the mouse. Separate Horizontal, Vertical, Roll and Zoom buttons (fine ±5° and coarse ±15°).",
         "Camera views now STICK — buttons and presets no longer snap back when the scene redraws.",

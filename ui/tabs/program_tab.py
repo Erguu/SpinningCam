@@ -1524,6 +1524,7 @@ class ProgramTab:
             self.tree_ops.selection_set(row)
         has = "normal" if self.tree_ops.selection() else "disabled"
         batch_ok = "normal" if len(self._batch_targets()) >= 2 else "disabled"
+        unite_ok = "normal" if self._unite_targets() else "disabled"
 
         m = tk.Menu(self.tree_ops, tearoff=0)
         m.add_command(label=t("ctx_rename"), command=self.rename_op, state=has)
@@ -1533,6 +1534,7 @@ class ProgramTab:
         m.add_separator()
         m.add_command(label=t("btn_continue_prev"), command=self.continue_from_previous, state=has)
         m.add_command(label=t("btn_split"), command=self.open_split_op, state=has)
+        m.add_command(label=t("btn_unite"), command=self.unite_ops, state=unite_ok)
         m.add_command(label=t("btn_compute_reach"), command=self.compute_reach_from_blank, state=has)
         m.add_command(label=t("btn_compute_angle"), command=self.compute_angle_from_surface, state=has)
         m.add_command(label=t("btn_pass_table"), command=self.open_pass_table, state=has)
@@ -3384,8 +3386,12 @@ class ProgramTab:
         return chunks
 
     @staticmethod
-    def _pass_previews(op, end_z_fallback):
-        """Per-pass {z, angle} for the split dialog (same linear formulas as _split_op)."""
+    def _pass_series(op, end_z_fallback):
+        """Per-pass {z, angle, reach, tilt} for an op, using the SAME linear formulas
+        as ``_split_op``. This is the single source of truth for the per-pass geometry
+        that split slices and merge concatenates. ``angle``/``reach``/``tilt`` are None
+        when the op does not use that field (so equality means "both unused")."""
+        import math
         C = int(op.get("count", 1))
 
         def lerp(v0, v1, i):
@@ -3393,12 +3399,368 @@ class ProgramTab:
 
         Zs = float(op.get("start_z", 10.0))
         Ze = float(op["end_z"]) if op.get("end_z") is not None else float(end_z_fallback)
+
         has_pa = op.get("pass_angle") is not None
         As = float(op.get("pass_angle")) if has_pa else None
         prog_a = has_pa and bool(op.get("progressive_angle_enabled", False)) and C > 1
         Ae = float(op.get("progressive_angle_end", 180.0)) if prog_a else As
-        return [{"z": lerp(Zs, Ze, i), "angle": (lerp(As, Ae, i) if prog_a else As)}
-                for i in range(C)]
+
+        rv = op.get("reach", None)
+        try:
+            rv = float(rv) if rv not in (None, "") else None
+        except (TypeError, ValueError):
+            rv = None
+        if rv is not None and rv <= 0:
+            rv = None
+        prog_r = has_pa and bool(op.get("progressive_reach_enabled", False)) and C > 1
+        if prog_r:
+            Rbase = rv if rv is not None else math.hypot(
+                float(op.get("p3_x", 0.0) or 0.0), abs(float(op.get("p3_z", -20.0) or 0.0)))
+            Rend = float(op.get("progressive_reach_end", Rbase))
+
+        interp_tilt = op.get("tilt_mode") == "interp"
+        Ts = float(op.get("tilt_start", 0.0)) if interp_tilt else None
+        Te = float(op.get("tilt_end", 0.0)) if interp_tilt else None
+
+        out = []
+        for i in range(C):
+            row = {
+                "z": lerp(Zs, Ze, i),
+                "angle": (lerp(As, Ae, i) if prog_a else As),
+                "reach": (lerp(Rbase, Rend, i) if prog_r else rv),
+                "tilt": (lerp(Ts, Te, i) if interp_tilt else None),
+            }
+            out.append(row)
+        return out
+
+    @staticmethod
+    def _pass_previews(op, end_z_fallback):
+        """Per-pass {z, angle} for the split dialog (delegates to _pass_series)."""
+        return [{"z": r["z"], "angle": r["angle"]}
+                for r in ProgramTab._pass_series(op, end_z_fallback)]
+
+    # Keys that legitimately VARY across a split's chunks — everything else is a
+    # "structural" field that must match for a merge to be exact.
+    _MERGE_VARYING_KEYS = frozenset({
+        "count", "start_z", "end_z", "name",
+        "pass_angle", "progressive_angle_enabled", "progressive_angle_end",
+        "reach", "progressive_reach_enabled", "progressive_reach_end",
+        "tilt_start", "tilt_end", "pass_edits",
+    })
+
+    # --- per-op endpoint helpers (shared by _merge_ops and _unite_conflicts) -----
+    @staticmethod
+    def _op_start_angle(o):
+        return float(o["pass_angle"]) if o.get("pass_angle") is not None else None
+
+    @staticmethod
+    def _op_end_angle(o):
+        if o.get("pass_angle") is None:
+            return None
+        if o.get("progressive_angle_enabled") and int(o.get("count", 1)) > 1:
+            return float(o.get("progressive_angle_end", 180.0))
+        return float(o["pass_angle"])
+
+    @staticmethod
+    def _op_reach_base(o):
+        rv = o.get("reach", None)
+        try:
+            rv = float(rv) if rv not in (None, "") else None
+        except (TypeError, ValueError):
+            rv = None
+        if rv is not None and rv <= 0:
+            rv = None
+        return rv
+
+    @staticmethod
+    def _op_reach_start(o):
+        import math
+        rv = ProgramTab._op_reach_base(o)
+        if rv is not None:
+            return rv
+        if o.get("progressive_reach_enabled") and int(o.get("count", 1)) > 1 \
+                and o.get("pass_angle") is not None:
+            return math.hypot(float(o.get("p3_x", 0.0) or 0.0),
+                              abs(float(o.get("p3_z", -20.0) or 0.0)))
+        return None
+
+    @staticmethod
+    def _op_reach_end(o):
+        if o.get("progressive_reach_enabled") and int(o.get("count", 1)) > 1 \
+                and o.get("pass_angle") is not None:
+            return float(o.get("progressive_reach_end", ProgramTab._op_reach_start(o) or 0.0))
+        return ProgramTab._op_reach_base(o)
+
+    @staticmethod
+    def _merge_ops(ops, end_z_fallback):
+        """Unite ops into ONE op — the inverse of ``_split_op`` (#64/#85).
+
+        ``ops`` = the source op dicts in list order. Returns a single op whose Z /
+        pass_angle / reach / interp-tilt span the whole range, reproducing a prior
+        split EXACTLY (``_merge_is_exact`` verifies) and giving a reasonable linear
+        interpolation for genuinely different ops. Endpoints come from the first op's
+        start and the last op's end; ``pass_edits`` are remapped chunk-local→global.
+        The operator can override any conflicting field afterwards via the resolver
+        dialog (see ``_unite_conflicts`` / ``_apply_unite_choices``)."""
+        first, last = ops[0], ops[-1]
+        merged = copy.deepcopy(first)
+        counts = [int(o.get("count", 1)) for o in ops]
+        total = sum(counts)
+        merged["count"] = total
+
+        merged["start_z"] = float(first.get("start_z", 10.0))
+        merged["end_z"] = (float(last["end_z"]) if last.get("end_z") is not None
+                           else float(end_z_fallback))
+
+        a0, a1 = ProgramTab._op_start_angle(first), ProgramTab._op_end_angle(last)
+        if a0 is not None:
+            # Progressive if the endpoints differ, any child fans, or the children
+            # carry different angles (i.e. a merge that must interpolate).
+            child_angles = [ProgramTab._op_start_angle(o) for o in ops] + \
+                           [ProgramTab._op_end_angle(o) for o in ops]
+            fan = (total > 1) and (
+                (a1 is not None and abs((a1 - a0)) > 1e-9)
+                or any(o.get("progressive_angle_enabled") and int(o.get("count", 1)) > 1
+                       for o in ops)
+                or len({round(v, 6) for v in child_angles if v is not None}) > 1)
+            merged["pass_angle"] = a0
+            if fan:
+                merged["progressive_angle_enabled"] = True
+                merged["progressive_angle_end"] = a1 if a1 is not None else a0
+            else:
+                merged["progressive_angle_enabled"] = False
+                merged.pop("progressive_angle_end", None)
+
+        r0, r1 = ProgramTab._op_reach_start(first), ProgramTab._op_reach_end(last)
+        if r0 is not None:
+            child_r = [v for o in ops
+                       for v in (ProgramTab._op_reach_start(o), ProgramTab._op_reach_end(o))
+                       if v is not None]
+            r_fan = (total > 1) and merged.get("pass_angle") is not None and (
+                (r1 is not None and abs(r1 - r0) > 1e-9)
+                or any(o.get("progressive_reach_enabled") and int(o.get("count", 1)) > 1
+                       for o in ops)
+                or len({round(v, 6) for v in child_r}) > 1)
+            merged["reach"] = r0
+            if r_fan:
+                merged["progressive_reach_enabled"] = True
+                merged["progressive_reach_end"] = r1 if r1 is not None else r0
+            else:
+                merged["progressive_reach_enabled"] = False
+                merged.pop("progressive_reach_end", None)
+
+        if first.get("tilt_mode") == "interp":
+            merged["tilt_start"] = float(first.get("tilt_start", 0.0))
+            merged["tilt_end"] = (float(last.get("tilt_end", 0.0))
+                                  if last.get("tilt_mode") == "interp"
+                                  else float(first.get("tilt_end", 0.0)))
+
+        # Remap chunk-local pass_edits back to global indices (inverse of _split_op).
+        merged_pe, off = {}, 0
+        for o, c in zip(ops, counts):
+            pe = o.get("pass_edits") or {}
+            for k, v in pe.items():
+                try:
+                    ki = int(k)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= ki < c and isinstance(v, dict) and v:
+                    merged_pe[str(ki + off)] = copy.deepcopy(v)
+            off += c
+        if merged_pe:
+            merged["pass_edits"] = merged_pe
+        else:
+            merged.pop("pass_edits", None)
+        return merged
+
+    @staticmethod
+    def _merge_is_exact(ops, merged, end_z_fallback):
+        """True iff uniting ``ops`` into ``merged`` reproduces every source pass exactly.
+
+        Requires (a) all children share the same non-varying ("structural") fields, and
+        (b) the concatenation of the children's per-pass series matches the merged op's
+        per-pass series element-wise. False → the UI warns the merge is approximate."""
+        def _structural(o):
+            return {k: v for k, v in o.items()
+                    if k not in ProgramTab._MERGE_VARYING_KEYS}
+
+        ref = _structural(ops[0])
+        for o in ops[1:]:
+            if _structural(o) != ref:
+                return False
+
+        concat = []
+        for o in ops:
+            concat.extend(ProgramTab._pass_series(o, end_z_fallback))
+        mser = ProgramTab._pass_series(merged, end_z_fallback)
+        if len(concat) != len(mser):
+            return False
+
+        def _close(x, y):
+            if x is None or y is None:
+                return x is None and y is None
+            return abs(float(x) - float(y)) <= 1e-4
+
+        for a, b in zip(concat, mser):
+            for key in ("z", "angle", "reach", "tilt"):
+                if not _close(a.get(key), b.get(key)):
+                    return False
+        return True
+
+    @staticmethod
+    def _fmt_num(v):
+        """Compact human number for the resolver labels (trims trailing zeros)."""
+        if isinstance(v, bool):
+            return str(v)
+        if isinstance(v, (int, float)):
+            s = f"{float(v):.3f}".rstrip("0").rstrip(".")
+            return "0" if s in ("", "-0") else s
+        return "—" if v is None else str(v)
+
+    # Op keys handled explicitly below (or bookkeeping) — excluded from the generic
+    # scalar conflict sweep so they don't produce duplicate/confusing rows.
+    _UNITE_HANDLED_KEYS = frozenset({
+        "count", "name", "pass_edits", "enabled", "type", "tool_id",
+        "start_z", "end_z",
+        "pass_angle", "progressive_angle_enabled", "progressive_angle_end",
+        "reach", "progressive_reach_enabled", "progressive_reach_end",
+        "tilt_start", "tilt_end", "tilt_mode",
+    })
+
+    def _unite_conflicts(self, children, merged, end_z_fallback):
+        """Fields that differ across the ops being united, each with the resolution
+        options offered in the resolver dialog. A conflict is
+        ``{"key", "label", "options":[{"label","patch"}...]}`` where ``options[0]`` is
+        the default (what ``_merge_ops`` already chose, so applying it is a no-op) and
+        each ``patch`` is the op-fields to write when that option is picked."""
+        F = ProgramTab._fmt_num
+        confs = []
+        concat = [r for o in children for r in self._pass_series(o, end_z_fallback)]
+        mser = self._pass_series(merged, end_z_fallback)
+
+        def _ambiguous(field):
+            for a, b in zip(concat, mser):
+                x, y = a.get(field), b.get(field)
+                if x is None or y is None:
+                    if (x is None) != (y is None):
+                        return True
+                elif abs(float(x) - float(y)) > 1e-4:
+                    return True
+            return False
+
+        def _avg(field):
+            vals = [r[field] for r in concat if r.get(field) is not None]
+            return sum(vals) / len(vals) if vals else 0.0
+
+        def _ramp_conf(key, start_field, end_field, a, b, av, ramp_patch, const_patch):
+            return {"key": key, "label": self._param_label(key), "options": [
+                {"label": t("unite_opt_ramp").format(a=F(a), b=F(b)), "patch": ramp_patch(a, b)},
+                {"label": t("unite_opt_first").format(v=F(a)), "patch": const_patch(a)},
+                {"label": t("unite_opt_last").format(v=F(b)), "patch": const_patch(b)},
+                {"label": t("unite_opt_avg").format(v=F(av)), "patch": const_patch(av)},
+            ]}
+
+        # --- pass angle (ramp) ---
+        a0 = ProgramTab._op_start_angle(children[0])
+        a1 = ProgramTab._op_end_angle(children[-1])
+        if a0 is not None and a1 is not None and _ambiguous("angle"):
+            confs.append(_ramp_conf(
+                "pass_angle", "angle", "angle", a0, a1, _avg("angle"),
+                lambda a, b: {"pass_angle": a, "progressive_angle_enabled": True,
+                              "progressive_angle_end": b},
+                lambda v: {"pass_angle": v, "progressive_angle_enabled": False}))
+
+        # --- reach (ramp) ---
+        r0 = ProgramTab._op_reach_start(children[0])
+        r1 = ProgramTab._op_reach_end(children[-1])
+        if r0 is not None and r1 is not None and _ambiguous("reach"):
+            confs.append(_ramp_conf(
+                "reach", "reach", "reach", r0, r1, _avg("reach"),
+                lambda a, b: {"reach": a, "progressive_reach_enabled": True,
+                              "progressive_reach_end": b},
+                lambda v: {"reach": v, "progressive_reach_enabled": False}))
+
+        # --- interp tilt (ramp) ---
+        if children[0].get("tilt_mode") == "interp" and _ambiguous("tilt"):
+            t0 = float(children[0].get("tilt_start", 0.0))
+            t1 = (float(children[-1].get("tilt_end", 0.0))
+                  if children[-1].get("tilt_mode") == "interp" else t0)
+            confs.append(_ramp_conf(
+                "tilt_start", "tilt", "tilt", t0, t1, _avg("tilt"),
+                lambda a, b: {"tilt_start": a, "tilt_end": b},
+                lambda v: {"tilt_start": v, "tilt_end": v}))
+
+        # --- Z span: the merged op runs from the first pick's start to the last pick's
+        #     end. That is right for forward selections (even when passes redistribute),
+        #     so only offer a Z choice when the picks are OUT OF Z ORDER — i.e. the
+        #     list-order span isn't the natural min→max envelope. Then Min/Max let the
+        #     operator recover the true extent. ---
+        starts = [float(o.get("start_z", 10.0)) for o in children]
+        ends = [float(o["end_z"]) if o.get("end_z") is not None else float(end_z_fallback)
+                for o in children]
+        if abs(starts[0] - min(starts)) > 1e-6 or abs(ends[-1] - max(ends)) > 1e-6:
+
+            def _span_conf(key, ordered):
+                seen, opts = set(), []
+                for lbl, v in ordered:
+                    rk = round(v, 6)
+                    if rk in seen:
+                        continue
+                    seen.add(rk)
+                    opts.append({"label": lbl, "patch": {key: v}})
+                return {"key": key, "label": self._param_label(key), "options": opts}
+
+            confs.append(_span_conf("start_z", [
+                (t("unite_opt_first").format(v=F(starts[0])), starts[0]),
+                (t("unite_opt_last").format(v=F(starts[-1])), starts[-1]),
+                (t("unite_opt_min").format(v=F(min(starts))), min(starts)),
+                (t("unite_opt_max").format(v=F(max(starts))), max(starts))]))
+            confs.append(_span_conf("end_z", [
+                (t("unite_opt_last").format(v=F(ends[-1])), ends[-1]),
+                (t("unite_opt_first").format(v=F(ends[0])), ends[0]),
+                (t("unite_opt_min").format(v=F(min(ends))), min(ends)),
+                (t("unite_opt_max").format(v=F(max(ends))), max(ends))]))
+
+        # --- every other differing op parameter (clearance, rotation, …) ---
+        def _same(x, y):
+            if isinstance(x, (int, float)) and isinstance(y, (int, float)) \
+                    and not isinstance(x, bool) and not isinstance(y, bool):
+                return abs(float(x) - float(y)) <= 1e-9
+            return x == y
+
+        seen_keys = []
+        for o in children:
+            for k in o.keys():
+                if k not in ProgramTab._UNITE_HANDLED_KEYS and k not in seen_keys:
+                    seen_keys.append(k)
+        for k in seen_keys:
+            vals = [o.get(k) for o in children]
+            if all(_same(v, vals[0]) for v in vals):
+                continue
+            v0, vl = vals[0], vals[-1]
+            opts = [{"label": t("unite_opt_first").format(v=F(v0)), "patch": {k: v0}},
+                    {"label": t("unite_opt_last").format(v=F(vl)), "patch": {k: vl}}]
+            nums = [float(v) for v in vals
+                    if isinstance(v, (int, float)) and not isinstance(v, bool)]
+            if len(nums) == len(vals):
+                av = sum(nums) / len(nums)
+                opts.append({"label": t("unite_opt_avg").format(v=F(av)), "patch": {k: av}})
+            confs.append({"key": k, "label": self._param_label(k), "options": opts})
+
+        return confs
+
+    @staticmethod
+    def _apply_unite_choices(merged, conflicts, choices):
+        """Return a copy of the default merged op with the operator's resolver choices
+        applied. ``choices`` = {conflict_key: chosen option index}; missing/out-of-range
+        keys fall back to the default option (index 0)."""
+        final = copy.deepcopy(merged)
+        for c in conflicts:
+            idx = choices.get(c["key"], 0)
+            if not (0 <= idx < len(c["options"])):
+                idx = 0
+            final.update(c["options"][idx]["patch"])
+        return final
 
     def _blank_reach_values(self, op):
         """Flange-model reach for an op → (r_start, r_end, fanned), or None if not
@@ -3632,6 +3994,82 @@ class ProgramTab:
         self._start_async_calc()
         try:
             self.ui_root.lbl_info.config(text=t("msg_split_done").format(n=len(chunks)), fg="#ddd")
+        except Exception:
+            pass
+
+    def _unite_targets(self):
+        """Selected op indices for Unite: the tree selection, sorted & de-duped.
+        Returns [] unless at least two are in range. They need NOT be adjacent — any
+        operations sitting between the picks are kept and slide after the united op."""
+        raw = []
+        for item in self.tree_ops.selection():
+            try:
+                raw.append(int(item))
+            except ValueError:
+                pass
+        n = len(self.app.params.get("operations", []))
+        raw = sorted({i for i in raw if 0 <= i < n})
+        return raw if len(raw) >= 2 else []
+
+    def unite_ops(self):
+        """Unite the selected ops into one (#85) — the inverse of Split. Re-joins chunks
+        from a prior split EXACTLY; genuinely different ops are still merged (linear
+        interpolation) after a warning. Picks need not be adjacent: any operations between
+        them are preserved and moved to AFTER the united op (also warned). Only same-type,
+        same-tool, non-cutting/bending ops may be united. The merged op takes the first
+        pick's slot (in list order)."""
+        targets = self._unite_targets()
+        if not targets:
+            messagebox.showinfo(t("msg_unite_title"), t("msg_unite_badsel"))
+            return
+        ops = self.app.params.get("operations", [])
+        children = [ops[i] for i in targets]
+        types = {o.get("type", "roughing") for o in children}
+        tools = {o.get("tool_id") for o in children}
+        if (types & {"cutting", "bending"}) or len(types) > 1 or len(tools) > 1:
+            messagebox.showinfo(t("msg_unite_title"), t("msg_unite_incompat"))
+            return
+
+        top_z = float(self.app.mandrel_mgr.props.get("top_z", children[-1].get("end_z") or 0.0))
+        merged = self._merge_ops(children, top_z)
+
+        between = (targets[-1] - targets[0] + 1) - len(targets)  # unselected ops in the span
+        exact = self._merge_is_exact(children, merged, top_z)
+        if exact and between == 0:
+            final = merged  # clean re-join of split chunks — apply silently
+        else:
+            # Conflicts and/or a relocation: let the operator resolve each field.
+            conflicts = self._unite_conflicts(children, merged, top_z)
+            from ui.dialogs.unite_resolve_dialog import UniteResolveDialog
+            top = self.frame.winfo_toplevel()
+            dlg = UniteResolveDialog(top, conflicts, between,
+                                     (merged.get("start_z"), merged.get("end_z")),
+                                     approx=not exact)
+            top.wait_window(dlg)
+            if dlg.result is None:
+                return  # cancelled
+            final = self._apply_unite_choices(merged, conflicts, dlg.result)
+
+        self._push_undo(t("btn_unite"))
+        self._clear_batch_checks()  # indices shift after the merge
+        # Discard stale property-editor state before mutating operations (see split / #56).
+        self._active_entry_savers = []
+        self._active_op_idx = None
+        for w in self.f_prop_editor.winfo_children():
+            w.destroy()
+        # Drop the picked ops and drop the merged op into the first pick's slot; every op
+        # before that slot is unselected, so the slot index is simply targets[0].
+        target_set = set(targets)
+        remaining = [op for i, op in enumerate(ops) if i not in target_set]
+        remaining.insert(targets[0], final)
+        ops[:] = remaining
+        self.refresh_ops_tree()
+        self.tree_ops.selection_set(str(targets[0]))
+        self.on_op_select(None, _flush=False)
+        self._start_async_calc()
+        try:
+            self.ui_root.lbl_info.config(
+                text=t("msg_unite_done").format(n=len(targets)), fg="#ddd")
         except Exception:
             pass
 

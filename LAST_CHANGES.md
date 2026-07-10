@@ -5,6 +5,70 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-10 — Operasyon "Birleştir" (Unite) — Böl'ün tersi (#85)
+
+Program sekmesinde `Böl` (Split) bir çok-paslı operasyonu bitişik parça-operasyonlara
+ayırıyordu; kullanıcı bunun tersini istedi: seçili operasyonları TEK operasyonda
+birleştirmek. `_split_op`'un matematiksel tersi — hiçbir motor değişikliği yok, sadece
+op-dict manipülasyonu; `_start_async_calc()` yolları yeni listeden yeniden üretir.
+
+**Yapılan (uygulandı, GUI smoke + commit bekliyor):**
+- **`ui/tabs/program_tab.py`:**
+  - `_pass_series(op, end_z_fallback)` (YENİ) — pas başına `{z, angle, reach, tilt}`,
+    `_split_op` ile AYNI lerp formülleri. `_pass_previews` artık buna delege ediyor
+    (tek doğruluk kaynağı — sürüklenme yok).
+  - `_merge_ops(ops, end_z_fallback)` (YENİ) — `_split_op`'un tersi. count toplanır,
+    start_z=ilk, end_z=son; açı/reach uçları çocuklar farklıysa/yelpaze varsa
+    progressive'e set edilir; interp tilt uçları; `pass_edits` chunk-local→global
+    yeniden haritalanır.
+  - `_merge_is_exact(...)` (YENİ) — (a) tüm çocuklar aynı YAPISAL alanlara sahip
+    (`_MERGE_VARYING_KEYS` dışı) + (b) çocukların birleşik pas serisi ≈ merged pas
+    serisi (tol 1e-4). False → UI yaklaşık uyarısı gösterir.
+  - `_unite_targets()` — seçim ≥2 ise sıralı liste döner (BİTİŞİK ŞARTI YOK —
+    non-adjacent destekli).
+  - `_op_start_angle/_op_end_angle/_op_reach_base/_op_reach_start/_op_reach_end`
+    (YENİ statik) — endpoint yardımcıları, `_merge_ops` içinden ÇIKARILDI; `_merge_ops`
+    + `_unite_conflicts` paylaşır.
+  - `_unite_conflicts(children, merged, end_z_fallback)` (YENİ) — çakışan alanları ve
+    her biri için çözüm SEÇENEKLERİNİ üretir: `{key,label,options:[{label,patch}]}`,
+    `options[0]`=varsayılan (merge default; uygulaması no-op). Ramp alanları
+    (pass_angle/reach/tilt): Yelpaze(ilk→son) / İlk / Son / Ortalama. Z: SADECE
+    seçimler Z-sırasında değilse (liste-sıralı span ≠ min→max) → start_z/end_z
+    İlk/Son/Min/Maks. Diğer skalerler (clearance, rot…): İlk/Son/(Ortalama sayısalsa).
+  - `_apply_unite_choices(merged, conflicts, choices)` (YENİ) — seçilen option
+    patch'lerini merged kopyasına uygular.
+  - `unite_ops()` — tip/takım aynı + kesme/kıvırma değil kontrolü; `exact AND between==0`
+    ise SESSİZ (temiz split re-join); aksi halde `UniteResolveDialog` açar → iptal=return,
+    değilse `final=_apply_unite_choices(...)`. `ops[:]=remaining` +
+    `remaining.insert(targets[0], final)`; undo/refresh/select/async-calc.
+  - Sağ-tık menüsüne `Birleştir` (Böl'ün hemen ardından), `unite_ok` ile gated
+    (seçim ≥2).
+- **`ui/dialogs/unite_resolve_dialog.py` (YENİ):** `UniteResolveDialog` — reorder banner
+  (k adet op taşınacak) + Z-span satırı + çakışma başına readonly Combobox; OK →
+  `result={key: seçili index}`, Cancel → None. Split dialog stiliyle (canvas+scrollbar).
+  Çakışma yoksa ama yaklaşıksa uyarı notu.
+- **`i18n.py`:** `btn_unite`, `msg_unite_title/badsel/incompat/done`; resolver anahtarları
+  `unite_resolve_help/reorder/span/noconf_approx`, `unite_col_field/resolution`,
+  `unite_opt_ramp/first/last/avg/min/max` (hepsi EN/TR/ES). ESKİ `msg_unite_approx_warn` +
+  `msg_unite_reorder_warn` KALDIRILDI (resolver dialog yerini aldı).
+- **`ui/dialogs/help_window.py`:** EN+TR bloklarında Split yanına Unite/Birleştir; Unite
+  paragrafı resolver dialog'u açıklıyor (Z/açı/reach/tilt/clearance seçenekleri).
+- **`changelog.py` + `version.py`:** 1.007 (2 madde: unite + resolver) + APP_VERSION bump.
+- **`_test_unite.py` (YENİ):** split→merge round-trip `calculate_paths` ile BİREBİR;
+  yaklaşık tespiti; non-adjacent; pass_edits hayatta kalması; resolver çakışma tespiti
+  (clearance+açı, reach/Z değil), default=no-op, operatör override (clearance→Son,
+  açı→sabit), Z-sırasız→Min/Maks, temiz split→sıfır çakışma.
+
+**Geri alma:** yukarıdaki eklemeleri kaldır — hiçbiri mevcut davranışı değiştirmez;
+`_pass_previews` delegasyonu ve `_merge_ops` endpoint-helper çıkarımı geri alınırsa eski
+gövdeleri restore et. Op-dict şeması değişmedi.
+
+**Bekleyen:** GUI smoke (exact birleşim SESSİZ + yollar birebir; farklı op'lar resolver
+penceresi açar, seçimler uygulanır; Cancel listeye dokunmaz; non-adjacent'ta aradaki
+op'lar arkaya kayar; Undo geri alır); commit.
+
+---
+
 ## 2026-07-10 — tools.json + machines/*.json tohum/canlı ayrımı (pull fix) — FAZ 2
 
 FAZ 1'in devamı. `tools.json` (takım düzenleme) ve `machines/*.json` (kalibrasyon)
