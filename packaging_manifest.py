@@ -23,6 +23,7 @@ that is not covered here, so a forgotten file cannot stay silent.
 SHIP_NEXT_TO_EXE = [
     ("settings.json",  False),  # seed defaults; customer-editable afterwards
     ("tools.json",     False),  # seed tool library; customer-editable afterwards
+    ("tool_geometry",  True),   # tool STEP files, ID-named (T0103.STEP); portable geometry
     ("materials.json", False),  # process-planner heuristics (self-creates, ship a copy)
     ("machines",       False),  # machine profiles: ID111-1 self-creates, ID112-1 does NOT
     ("logo.png",       True),   # window/splash logo (optional)

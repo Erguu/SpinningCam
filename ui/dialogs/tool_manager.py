@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import os
 from i18n import t
+import tool_library_io
+from logger_config import logger
 
 class ToolManager(tk.Toplevel):
     def __init__(self, parent, ui_manager):
@@ -27,6 +29,14 @@ class ToolManager(tk.Toplevel):
         self.tree.bind("<<TreeviewSelect>>", self.on_select)
 
         self.refresh()
+
+        # Library-level share bundle (portable .zip = tools + their STEP geometry).
+        f_io = ttk.Frame(self)
+        f_io.pack(fill="x", padx=5)
+        tk.Button(f_io, text=t("tm_export_btn"), command=self.export_library,
+                  width=18).pack(side="right", padx=3)
+        tk.Button(f_io, text=t("tm_import_btn"), command=self.import_library,
+                  width=18).pack(side="right", padx=3)
 
         f_edit = ttk.LabelFrame(self, text=t("tm_frm_editor"))
         f_edit.pack(fill="x", padx=5, pady=5)
@@ -278,11 +288,15 @@ class ToolManager(tk.Toplevel):
                 messagebox.showwarning(t("tm_duplicate_id_title"), t("tm_duplicate_id_msg").format(new_id))
                 return
         tool = self._build_tool_dict()
+        note = self._sync_geometry(tool)
         self.ui.tool_library.append(tool)
         self.ui.save_tools()
         self.refresh()
         self.clear_fields()
-        self.lbl_status.config(text=t("tm_status_added").format(new_id), fg="green")
+        msg = t("tm_status_added").format(new_id)
+        if note:
+            msg += "  ·  " + t("tm_geom_synced").format(note)
+        self.lbl_status.config(text=msg, fg="green")
 
     def update_tool(self):
         if not self.editing_id:
@@ -293,14 +307,90 @@ class ToolManager(tk.Toplevel):
             messagebox.showwarning(t("tm_missing_id_title"), t("tm_missing_id_msg"))
             return
         updated = self._build_tool_dict()
+        note = self._sync_geometry(updated, old_id=self.editing_id)
         for i, tl in enumerate(self.ui.tool_library):
             if tl["id"] == self.editing_id:
                 self.ui.tool_library[i] = updated
                 break
         self.ui.save_tools()
         self.refresh()
-        self.lbl_status.config(text=t("tm_status_updated").format(new_id), fg="green")
+        msg = t("tm_status_updated").format(new_id)
+        if note:
+            msg += "  ·  " + t("tm_geom_synced").format(note)
+        self.lbl_status.config(text=msg, fg="green")
         self.editing_id = new_id
+
+    def _sync_geometry(self, tool: dict, old_id: str = None) -> str:
+        """Copy a browsed STEP into tool_geometry/<id> (and rename on ID change),
+        then normalise step_file to the portable convention path. Never fatal."""
+        try:
+            return tool_library_io.sync_tool_geometry(
+                self.ui.app.get_base_path(), tool, old_id=old_id)
+        except Exception as e:  # noqa: BLE001 — geometry sync must not block save
+            logger.warning(f"tool geometry sync failed: {e}")
+            return ""
+
+    def export_library(self):
+        if not self.ui.tool_library:
+            messagebox.showinfo(t("tm_export_empty_title"), t("tm_export_empty_msg"))
+            return
+        path = filedialog.asksaveasfilename(
+            title=t("tm_export_title"), defaultextension=".zip",
+            filetypes=[(t("tm_bundle_files"), "*.zip"), (t("fd_all_files"), "*.*")],
+            initialfile="tool_library.zip")
+        if not path:
+            return
+        try:
+            n, g = tool_library_io.export_library(
+                self.ui.app.get_base_path(), self.ui.tool_library, path)
+            messagebox.showinfo(t("tm_export_done_title"),
+                                t("tm_export_done_msg").format(n=n, g=g, path=path))
+        except Exception as e:  # noqa: BLE001
+            messagebox.showerror(t("tm_export_err_title"), str(e))
+
+    def import_library(self):
+        path = filedialog.askopenfilename(
+            title=t("tm_import_title"),
+            filetypes=[(t("tm_bundle_files"), "*.zip"), (t("fd_all_files"), "*.*")])
+        if not path:
+            return
+        try:
+            incoming = tool_library_io.import_library(self.ui.app.get_base_path(), path)
+        except Exception as e:  # noqa: BLE001
+            messagebox.showerror(t("tm_import_err_title"), str(e))
+            return
+        if not incoming:
+            messagebox.showinfo(t("tm_import_title"), t("tm_import_empty_msg"))
+            return
+        # Merge by ID. On any conflict, ask ONCE whether to overwrite the
+        # existing tools or keep them (skip the incoming duplicates).
+        existing = {str(tl.get("id")): i for i, tl in enumerate(self.ui.tool_library)}
+        conflicts = [tl for tl in incoming if str(tl.get("id")) in existing]
+        overwrite = True
+        if conflicts:
+            overwrite = messagebox.askyesno(
+                t("tm_import_conflict_title"),
+                t("tm_import_conflict_msg").format(
+                    n=len(conflicts),
+                    ids=", ".join(str(tl.get("id")) for tl in conflicts)))
+        added = updated = skipped = 0
+        for tl in incoming:
+            tid = str(tl.get("id"))
+            if tid in existing:
+                if overwrite:
+                    self.ui.tool_library[existing[tid]] = tl
+                    updated += 1
+                else:
+                    skipped += 1
+            else:
+                self.ui.tool_library.append(tl)
+                existing[tid] = len(self.ui.tool_library) - 1
+                added += 1
+        self.ui.save_tools()
+        self.refresh()
+        messagebox.showinfo(
+            t("tm_import_done_title"),
+            t("tm_import_done_msg").format(added=added, updated=updated, skipped=skipped))
 
     def del_tool(self):
         sel = self.tree.selection()

@@ -751,9 +751,38 @@ class ProgramTab:
         # #70: right-click context menu with the row actions (rename lives here).
         self.tree_ops.bind("<Button-3>", self._on_tree_right_click)
 
-        # Toolbar
+        # ── Toolbar ──────────────────────────────────────────────────────
+        # Compact, self-wrapping action bar. Only actions that are NOT already
+        # in the operation-row right-click menu live here (Add, Suggest, Tools,
+        # Customize, Show-Advanced) plus Undo/Redo (also Ctrl+Z / Ctrl+Y) and
+        # the time readout. _reflow_toolbar() lays these out left-to-right and
+        # wraps onto extra rows on a narrow sidebar, so Undo/Redo can never be
+        # pushed off-screen (the old single-row overflow bug). The removed
+        # buttons (Continue, Split, Reach, Angle, Pass Table, Toggle, Copy,
+        # Delete, Batch, Op Library, Move Up/Down) all remain on the row
+        # right-click menu (_on_tree_right_click).
         f_tools = ttk.Frame(self.frame)
         f_tools.pack(fill="x", padx=5, pady=2)
+        self._f_tools = f_tools
+        self._toolbar_items = []   # widgets, in display order (placed by _reflow_toolbar)
+        self._toolbar_w = None
+
+        # Undo/Redo lead the bar so they sit at the very start and are the last
+        # controls that could ever wrap out of view.
+        self.btn_undo = ttk.Button(f_tools, text="↶", width=3,
+                                   command=self.undo_op_action, state="disabled")
+        self.helper.bind_tooltip(self.btn_undo,
+            "Geri al (Ctrl+Z): son operasyon-listesi işlemini geri alır — Böl, Sil, Taşı, "
+            "Ekle, Devam ⤵, Reach⟲, Açı⟲, Aç/Kapat, Öneri ekleme. Alan içine yazılan "
+            "değerler geri alınmaz. En fazla 50 adım; proje yüklenince geçmiş sıfırlanır.")
+        self._toolbar_items.append(self.btn_undo)
+
+        self.btn_redo = ttk.Button(f_tools, text="↷", width=3,
+                                   command=self.redo_op_action, state="disabled")
+        self.helper.bind_tooltip(self.btn_redo,
+            "Yinele (Ctrl+Y): geri aldığın operasyon-listesi işlemini tekrar uygular. "
+            "Yeni bir işlem yapınca yinele geçmişi temizlenir.")
+        self._toolbar_items.append(self.btn_redo)
 
         # Actions — op types come from the active machine adapter so a machine
         # type can offer a different operation set (TODO.md #48/#51). One
@@ -786,9 +815,9 @@ class ProgramTab:
                     name=_op_menu_labels[op_type].lstrip("+ ")),
                 command=lambda ot=op_type: self.add_op(ot, factory=True))
         mb_add["menu"] = _add_menu
-        mb_add.pack(side="left", padx=1)
         self.helper.bind_tooltip(mb_add, "Listeye yeni operasyon ekle: kaba, bitirme, kesme, kıvırma. "
                                          "Tip seçmek için tıkla.")
+        self._toolbar_items.append(mb_add)
 
         # Advisory operation suggester — only for machines that support the
         # roughing/finishing op pair (both current adapters do).
@@ -797,125 +826,25 @@ class ProgramTab:
                                     bg="#fff3cd", activebackground="#ffe69c",
                                     relief="raised", bd=1, padx=6,
                                     command=self.open_op_suggester)
-            btn_suggest.pack(side="left", padx=4)
             self.helper.bind_tooltip(btn_suggest,
                 "Mandrel profiline ve malzemeye göre kaba + bitirme operasyonu ÖNERİR. "
                 "Öneri yalnızca başlangıç noktasıdır — uygulamadan önce gözden geçirilir, "
                 "hiçbir şey otomatik eklenmez.")
-
-        btn_continue = ttk.Button(f_tools, text=t("btn_continue_prev"), width=10,
-                                  command=self.continue_from_previous)
-        btn_continue.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_continue,
-            "Seçili operasyonu, ÜSTÜNDEKİ operasyonun SON pasının bitiş durumundan DOLDUR: "
-            "Başlangıç Z = önceki opun bitiş Z'si, açı = son pasın açısı (yelpaze bitişi dâhil), "
-            "reach = son pasın reach'i, ayrıca clearance. Tek seferlik: doldurur, sonra "
-            "operasyon bağımsızdır. Örn. önceki opun son pasıyla AYNI konum/açıda ters pas "
-            "eklemek için kullan — sonra Yön'ü 'Ters' yap. (Takım kopyalanmaz.)")
-
-        btn_split = ttk.Button(f_tools, text=t("btn_split"), width=6,
-                               command=self.open_split_op)
-        btn_split.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_split,
-            "Seçili çok-paslı operasyonu, aralarına bölücü koyarak BİTİŞİK parçalara böl "
-            "(örn. 20 pası 1·1·5·5·4·2·2). Her parça, orijinali BİREBİR üreten bağımsız bir "
-            "operasyon olur — sonra aralarına ters pas operasyonları yerleştirmek için "
-            "sırala. Kesme/kıvırma bölünemez.")
-
-        self.btn_reach = btn_reach = ttk.Button(f_tools, text=t("btn_compute_reach"), width=7,
-                                                command=self.compute_reach_from_blank)
-        btn_reach.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_reach,
-            "Seçili operasyonun REACH'ini kalan sac flanşından TAHMİN ET ve alanı DOLDUR "
-            "(opt-in, sessizce uygulanmaz). Alan-eşdeğerliği modeli: kıskaç tabanından "
-            "itibaren şekillenen malzeme çıkarılır, kalan flanşın radyal boyu reach olur. "
-            "Çok-paslı + Pass Angle'lı op'ta reach tabanda büyük→tepede küçük yelpazelenir. "
-            "TAHMİNDİR — çalıştırmadan önce değeri kontrol et. Sac Yarıçapı gerekir.")
-
-        btn_angle = ttk.Button(f_tools, text=t("btn_compute_angle"), width=7,
-                               command=self.compute_angle_from_surface)
-        btn_angle.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_angle,
-            "Seçili op'un PROGRESSIVE ANGLE BİTİŞİNİ mandrel yüzeyinden TAHMİN ET ve DOLDUR "
-            "(opt-in). Bitiş Z'deki duvar teğeti = çıkışın yüzey boyunca yattığı açı; "
-            "yaklaşım yönüne göre pass-açı çerçevesine çevrilir. Silindirde 180° verir, "
-            "konide duvar eğimini. TAHMİNDİR — şekillendirme yönünü (yukarı/aşağı) "
-            "çalıştırmadan önce doğrula. Pass Angle gerekir.")
-
-        # Per-pass table (#80/#79 — PROPOSAL_REACH_ANGLE_PRIORITY P1): every
-        # pass's effective angle/reach/endpoint + warnings, with staged pin edits.
-        btn_ptable = ttk.Button(f_tools, text=t("btn_pass_table"), width=9,
-                                command=self.open_pass_table)
-        btn_ptable.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_ptable,
-            "PAS TABLOSU: seçili operasyonun HER pası için motorun gerçekte "
-            "kullanacağı açı, reach ve uç noktayı gösterir — yelpaze, sac takibi, "
-            "pin ve eski override kaynaklarıyla, uyarılarla (klerens sıçraması, "
-            "yinelenen pas, reach≈0). Açı/Reach hücresine çift tıkla → değer "
-            "BEKLEMEDE kalır; [Uygula] tek Ctrl+Z adımı olarak yazar, [İptal] "
-            "hiçbir şeyi değiştirmez. Satır seçmek pası 3B görünümde vurgular.")
-
-        btn_toggle = ttk.Button(f_tools, text=t("btn_toggle_op"), width=8,
-                                command=self.toggle_op_enabled)
-        btn_toggle.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_toggle,
-            "Seçili operasyonu pasifleştir / aktifleştir (silmeden). Pasif operasyonlar "
-            "hesaplamaya ve G-code'a girmez — alternatifleri yan yana tutup karşılaştırmak "
-            "için kullan. Listede çift tıklama da aynı işi yapar.")
-
-        # Copy (#69): duplicate the targeted ops (☑ ticks win, else selection —
-        # same target rule as Batch), inserted right after the last target.
-        btn_copy = ttk.Button(f_tools, text=t("btn_copy_op"), width=7,
-                              command=self.copy_ops)
-        btn_copy.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_copy,
-            "Seçili operasyon(lar)ı KOPYALA: birebir kopyaları son seçilenin hemen "
-            "altına ekler, kopyalar seçili gelir. Hedef: ☑ işaretli op'lar; işaret "
-            "yoksa listedeki seçim (Shift/Ctrl+tık ile çoklu). Geri Al (Ctrl+Z) ile "
-            "geri alınır. 'Varsayılan Kaydet'i kopyalama amaçlı kullanmaya gerek kalmaz.")
-
-        btn_del = ttk.Button(f_tools, text=t("btn_del_op"), width=4, command=self.del_op)
-        btn_del.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_del, "Seçili operasyonu listeden sil.")
-
-        # Batch edit (#67): one adjustment applied to many ops at once. Enabled
-        # when ≥2 ops are targeted (☑ ticks if any, else the tree selection).
-        self.btn_batch = ttk.Button(f_tools, text=t("btn_batch"), width=9,
-                                    state="disabled", command=self.open_batch_edit)
-        self.btn_batch.pack(side="left", padx=1)
-        self.helper.bind_tooltip(self.btn_batch,
-            "TOPLU DÜZENLE: seçili operasyonların BİR parametresini tek seferde değiştir "
-            "(+= sabit ekle / = değer ata / ×= çarpanla ölçekle). Hedef: ☑ sütununda "
-            "işaretli op'lar; hiç işaret yoksa listedeki çoklu seçim (Shift/Ctrl+tık). "
-            "En az 2 operasyon gerekir. Uygulamadan önce eski→yeni önizleme gösterilir; "
-            "tamamı TEK Geri Al (Ctrl+Z) adımıdır. Sunulan parametreler Özelleştir… "
-            "penceresindeki 'Toplu' kutusuyla seçilir.")
+            self._toolbar_items.append(btn_suggest)
 
         btn_tools = ttk.Button(f_tools, text=t("btn_tools"), width=5, command=self.open_tool_manager)
-        btn_tools.pack(side="left", padx=5)
         self.helper.bind_tooltip(btn_tools, "Takım kütüphanesini aç. "
                                             "Rulo geometrilerini (ID, yarıçap) buradan tanımlayabilirsin.")
-
-        # Operation library (#71): named, reusable op presets across programs.
-        btn_lib = ttk.Button(f_tools, text=t("btn_op_library"), width=9,
-                             command=self.open_op_library)
-        btn_lib.pack(side="left", padx=1)
-        self.helper.bind_tooltip(btn_lib,
-            "OPERASYON KÜTÜPHANESİ: operasyonları AD vererek kaydet (tip başına "
-            "birden çok — örn. 3 farklı kaba strateji) ve herhangi bir programa "
-            "geri ekle. ops_library.json dosyasında, exe'nin yanında saklanır — "
-            "programlar arası kalıcıdır. Eklerken r_tool takım kütüphanesinden "
-            "TAZELENİR (bayat kalibre reach riski yok).")
+        self._toolbar_items.append(btn_tools)
 
         # Customize View: choose table columns + tag parameters basic/advanced.
         btn_customize = ttk.Button(f_tools, text=t("btn_customize_view"),
                                    command=self.open_view_customizer)
-        btn_customize.pack(side="left", padx=1)
         self.helper.bind_tooltip(btn_customize,
             "Görünümü özelleştir: operasyon tablosunda hangi parametrelerin sütun olarak "
             "gösterileceğini seç ve her operasyon tipi için parametreleri temel/gelişmiş "
             "olarak işaretle. Ayarlar programa (.ssp) kaydedilir; değerlere dokunmaz.")
-
+        self._toolbar_items.append(btn_customize)
 
         # Global Basic/Advanced view switch — hides advanced-tagged fields from
         # the property editor. View-only: hiding a field never changes its value
@@ -928,46 +857,27 @@ class ProgramTab:
                 self.on_op_select(None, _flush=False)
         chk_adv = ttk.Checkbutton(f_tools, text=t("chk_show_advanced"),
                                   variable=self.var_show_adv, command=_on_toggle_adv)
-        chk_adv.pack(side="left", padx=4)
         self.helper.bind_tooltip(chk_adv,
             "Açık: tüm parametreler görünür (bugünkü davranış).\n"
             "Kapalı: yalnızca 'temel' işaretli parametreler görünür — nadiren "
             "değiştirdiğin alanlar gizlenir.\n"
             "Sadece görünümü etkiler: gizli bir alanın değeri ve takım yolu DEĞİŞMEZ. "
             "Uygulama genelinde geçerlidir, programa özel değildir.")
+        self._toolbar_items.append(chk_adv)
 
-        # Navigation & Info (Right side)
-        btn_up = ttk.Button(f_tools, text="▲", width=3, command=lambda: self.move_op(-1))
-        btn_up.pack(side="right", padx=1)
-        self.helper.bind_tooltip(btn_up, "Seçili operasyonu listede yukarı taşı. "
-                                         "Operasyonlar listede göründükleri sırayla G-code'a yazılır.")
-
-        btn_dn = ttk.Button(f_tools, text="▼", width=3, command=lambda: self.move_op(1))
-        btn_dn.pack(side="right", padx=1)
-        self.helper.bind_tooltip(btn_dn, "Seçili operasyonu listede aşağı taşı. "
-                                         "Operasyonlar listede göründükleri sırayla G-code'a yazılır.")
-
-        # Time Label (Right of buttons, Left of Arrows)
+        # Estimated total program time (info readout; sits at the end of the bar).
         self.lbl_time = ttk.Label(f_tools, text="--:--", font=("Arial", 10, "bold"), foreground="#004488")
-        self.lbl_time.pack(side="right", padx=10)
         self.helper.bind_tooltip(self.lbl_time, "Tahmini toplam program süresi (dakika:saniye). "
                                                  "Tüm pasların toplam yol uzunluğuna ve besleme hızına göre hesaplanır.")
+        self._toolbar_items.append(self.lbl_time)
 
-        # Undo/Redo (#66) — snapshot history of op-list actions. Packed after
-        # lbl_time with side="right" so they land left of the time readout.
-        self.btn_redo = ttk.Button(f_tools, text="↷", width=3,
-                                   command=self.redo_op_action, state="disabled")
-        self.btn_redo.pack(side="right", padx=1)
-        self.helper.bind_tooltip(self.btn_redo,
-            "Yinele (Ctrl+Y): geri aldığın operasyon-listesi işlemini tekrar uygular. "
-            "Yeni bir işlem yapınca yinele geçmişi temizlenir.")
-        self.btn_undo = ttk.Button(f_tools, text="↶", width=3,
-                                   command=self.undo_op_action, state="disabled")
-        self.btn_undo.pack(side="right", padx=1)
-        self.helper.bind_tooltip(self.btn_undo,
-            "Geri al (Ctrl+Z): son operasyon-listesi işlemini geri alır — Böl, Sil, Taşı, "
-            "Ekle, Devam ⤵, Reach⟲, Açı⟲, Aç/Kapat, Öneri ekleme. Alan içine yazılan "
-            "değerler geri alınmaz. En fazla 50 adım; proje yüklenince geçmiş sıfırlanır.")
+        # Lay the bar out now and on every resize. The <Configure> handler is
+        # DEBOUNCED (see _schedule_reflow) so dragging the sidebar sash doesn't
+        # re-lay the toolbar on every pixel — it re-wraps once the drag settles,
+        # which keeps the resize smooth.
+        f_tools.bind("<Configure>", self._schedule_reflow)
+        self.frame.after_idle(self._reflow_toolbar)
+        self.frame.after(200, self._reflow_toolbar)
 
         # Keyboard shortcuts. Bound on the toplevel; the handlers ignore the
         # event when the Program tab is not the visible tab or when focus is in
@@ -1309,6 +1219,59 @@ class ProgramTab:
             return
         self.btn_undo.config(state="normal" if self._op_undo.can_undo else "disabled")
         self.btn_redo.config(state="normal" if self._op_undo.can_redo else "disabled")
+
+    def _schedule_reflow(self, event=None):
+        """Debounced entry point for the toolbar <Configure> event. Coalesces
+        the rapid stream of resize events fired during a sidebar sash-drag into
+        a single re-layout ~60 ms after the drag settles, so dragging stays
+        smooth instead of re-wrapping the bar on every pixel."""
+        try:
+            if getattr(self, "_reflow_after", None):
+                self.frame.after_cancel(self._reflow_after)
+        except Exception:
+            pass
+        try:
+            self._reflow_after = self.frame.after(60, self._reflow_toolbar)
+        except Exception:
+            self._reflow_toolbar()
+
+    def _reflow_toolbar(self, event=None):
+        """Lay the toolbar controls out left-to-right, wrapping onto a new row
+        whenever the next control would overflow the available width. Uses
+        place() so wrapping never couples widget widths (which with grid could
+        push a control past the frame edge and re-clip it). This guarantees
+        every control — notably Undo/Redo at the front — stays visible on any
+        sidebar width or screen resolution."""
+        self._reflow_after = None
+        frame = getattr(self, "_f_tools", None)
+        if frame is None or not frame.winfo_exists():
+            return
+        avail = frame.winfo_width()
+        if avail <= 1:
+            return  # not realized yet; the <Configure> bind will call us again
+        if getattr(self, "_toolbar_w", None) == avail:
+            return  # width unchanged — nothing to re-lay (avoids Configure churn)
+        self._toolbar_w = avail
+        pad = 3
+        left_inset = 12   # small gap before the leading Undo/Redo buttons
+        x = left_inset
+        y = pad
+        row_h = 0
+        for w in self._toolbar_items:
+            if not w.winfo_exists():
+                continue
+            ww = w.winfo_reqwidth()
+            wh = w.winfo_reqheight()
+            if x > left_inset and x + ww > avail:   # would overflow → wrap row
+                x = left_inset
+                y += row_h + pad
+                row_h = 0
+            w.place(x=x, y=y)
+            x += ww + pad
+            row_h = max(row_h, wh)
+        # place() doesn't grow the parent, so lock the frame to the used height.
+        frame.configure(height=y + row_h + pad)
+        frame.pack_propagate(False)
 
     def clear_undo_history(self):
         """Undo history is per-session and per-project: cleared on project load."""

@@ -5,6 +5,121 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-10 — Taşınabilir takım kütüphanesi: ID-adlı STEP geometrisi + zip dışa/içe aktarma
+
+Kullanıcı: programı push edip başka biri pull edince (veya exe elden verilince)
+her seferinde takımları elle yeniden eklemek gerekiyordu. KÖK NEDEN: her takım
+STEP dosyasını MUTLAK yol ile saklıyordu (`C:/Users/PC/Documents/CAD_Files/
+meksika/Spinning tool 1.STEP`) ve STEP dosyaları repoda YOKTU → başka makinede
+yol ölü, geometri gelmiyor. (r_tool/radius zaten tools.json ile taşınıyordu.)
+Kullanıcı fikri: STEP dosyalarını takım ID'siyle adlandır → otomatik bulunsun.
+
+**Yapılan (onaylı A+B: hem git hem exe; ID-adlandırma):**
+- **`tool_step_loader.py`:** modül sabiti `TOOL_GEOMETRY_DIR = "tool_geometry"` +
+  `_STEP_EXTS`. `_resolve_step_path` yeniden yazıldı — ÖNCE konvansiyon
+  (`tool_geometry/<id>.<ext>`, base_dir=get_base_path() yanında, ID'den bulunur,
+  makine-bağımsız), SONRA eski `step_file` (relatif→cwd→mutlak) GERİYE-UYUM
+  fallback'i. Konvansiyon dosyası varsa bayat mutlak yolu EZER.
+- **`tool_library_io.py` (YENİ):** `sync_tool_geometry(base, tool, old_id)` —
+  eklenen/düzenlenen takımın harici STEP'ini `tool_geometry/<id>.<ext>`e kopyalar,
+  ID değişince yeniden adlandırır, `step_file`i taşınabilir relatif yola normalize
+  eder. `export_library`/`import_library` — tools.json + her takımın STEP'ini tek
+  `.zip`e paketler / geri okur (git dışı paylaşım). `find_geometry_file`,
+  `geometry_dir`. Ağır bağımlılık yok (os/json/shutil/zipfile + tool_step_loader
+  sabitleri).
+- **`ui/dialogs/tool_manager.py`:** Add/Save artık `_sync_geometry` çağırıyor
+  (kopya/rename + normalize, hata SAVE'i bloklamaz). Yeni "Kütüphaneyi Dışa/İçe
+  Aktar…" düğmeleri (ağaç altında f_io) + `export_library`/`import_library`
+  metotları; içe aktarmada ID çakışması TEK sefer sorulur (Evet=ez / Hayır=atla).
+- **MİGRASYON (tek sefer, yapıldı):** `tool_geometry/` oluşturuldu; T0101←Spinning
+  tool 1, T0102/T0103←Spinning tool 2 kopyalandı (ID-adlı); tools.json 3 mutlak
+  yol → relatif konvansiyon yoluna güncellendi.
+- **Paketleme:** `packaging_manifest.SHIP_NEXT_TO_EXE`e `("tool_geometry", True)`
+  eklendi (build_exe zaten dizinleri copytree ile kopyalıyor; check_packaging
+  _DATA_RE STEP'i flag'lemez; statik kontrol GEÇTİ).
+- **`i18n.py`:** 18 yeni `tm_*` anahtarı (EN/TR/ES) — dışa/içe aktar düğme+mesajları,
+  geometri-sync notu, çakışma diyaloğu.
+- **`ui/dialogs/help_window.py` (EN+TR):** "ops" sekmesine "TOOL LIBRARY — SHARING
+  TOOLS BETWEEN PCs" bölümü (r_tool makine-özel uyarısı dâhil). AYRICA yeni
+  ADANMIŞ yardım sekmesi **"Tools & Calibration"** (`_C["tools"]` EN+TR;
+  sections listesine `("help_tab_tools","tools")` ops↔machine arası; i18n
+  `help_tab_tools` EN/TR/ES) — takım ekleme, Radius↔Rr farkı ve **Rr ≥ Radius
+  gouge kuralı**, kalibrasyon, STEP değiştirme, dışa/içe aktarma + hızlı kontrol
+  listesi tek yerde. (Kullanıcı T0102 STEP'ini değiştirince Radius 77.53 oldu ama
+  r_tool 74.31 kaldı → r_tool < radius uyarısı bu sekmeyi tetikledi.)
+
+**Doğrulama:** yeni `_test_tool_io.py` 4/4 GEÇTİ (konvansiyon çözümü, bayat
+mutlak yolu ezme, export→import round-trip, sync kopya+ID-rename); tüm modüller
+conda env'de import oldu; AST temiz; `check_packaging` statik GEÇTİ.
+**GUI SMOKE BEKLİYOR** (Takımlar penceresinde dışa/içe aktar düğmeleri, ekleyince
+otomatik kopya, 3B ruloların doğru yüklenmesi). Commit EDİLMEDİ.
+**Geri alma:** `tool_geometry/` sil + tools.json'u mutlak yollara döndür +
+bu tarihli değişiklikleri geri al; `_resolve_step_path` fallback zaten eski
+davranışı koruyor.
+
+---
+
+## 2026-07-10 — Her monitöre sığan çözünürlük + Program araç çubuğu sadeleştirme/kaydırma
+
+Kullanıcı: başka bir dizüstünde pencere ekrandan taşıyordu ve kenar çubuğu en
+geniş haline sürüklense bile Program sekmesindeki araç çubuğunun Geri Al/Yinele
+düğmeleri görünmüyordu (tek satırda ~19 widget, sağdaki öğeler ekrandan taşıyor).
+İstek: (1) çözünürlüğü her monitöre uydur, (2) sağ-tık menüsünde zaten olan
+düğmeleri kaldır, (3) araç çubuğu taşmasın (kaydırma emniyeti). Üçü de yapıldı.
+
+**Yapılan:**
+- **`ui/main_window.py`:** yeni modül düzeyi `_enable_windows_dpi_awareness()`
+  (`super().__init__()` ÖNCESİNDE çağrılır) → per-monitor DPI farkındalığı
+  (shcore, yoksa legacy `SetProcessDPIAware`), yüksek-DPI dizüstülerde bulanık
+  bitmap-germe yerine yerel çözünürlükte render. `__init__` içinde: (a) Tk
+  ölçeği gerçek DPI'ye ayarlanır (`tk scaling = dpi/72`; 96-DPI'de ~1.333 =
+  no-op → mevcut makinede değişiklik yok, yüksek-DPI'de yazı okunur kalır);
+  (b) sabit `1400x900` yerine ekrana KENETLENMİŞ geometri (restore boyu, küçük
+  ekranda taşmaz), sonra `state("zoomed")` çalışma alanını doldurur (görev
+  çubuğuna saygılı); (c) `minsize(1000, 640)`. Hepsi try/except ile korumalı.
+- **`ui/tabs/program_tab.py` — Program araç çubuğu:** AGRESİF sadeleştirme.
+  Sağ-tık menüsünde zaten var olan tüm düğmeler kaldırıldı (Devam ⤵, Böl,
+  Reach⟲, Açı⟲, Pas Tablosu, Aç/Kapat, Kopyala, Sil, Toplu, Kütüphane,
+  Yukarı/Aşağı ▲▼). Kalan: Geri Al/Yinele (artık EN BAŞTA), + Ekle ▾, Öner,
+  Takımlar…, Özelleştir…, Gelişmiş kutusu, süre etiketi. `self.btn_reach` ve
+  `self.btn_batch` artık yok → onları güncelleyen `_update_batch_button` (1430)
+  ve `on_op_select` reach-grileme (1690) zaten `hasattr` korumalı, sorunsuz
+  atlanıyor. `t("btn_...")` i18n anahtarları (sağ-tık menüsü, geri-al etiketleri)
+  DOKUNULMADI. Pas Tablosu sağ-tık menüsüne EKLENDİ (eksikti).
+- **`ui/tabs/program_tab.py` — yeni `_reflow_toolbar()` (kaydırma emniyeti):**
+  araç çubuğu widget'ları artık pack yerine `_toolbar_items` listesinde tutulup
+  `place()` ile soldan-sağa yerleştirilir; sonraki widget genişliği taşacaksa
+  yeni satıra kaydırılır. `place()` seçildi çünkü grid sütun genişliklerini
+  eşler ve dar durumda widget'ı çerçeve kenarından taşırıp yeniden kırpabilirdi.
+  `<Configure>`'a bağlı + `after_idle`/`after(200)` ile ilk çizim. Genişlik
+  değişmezse erken döner (Configure gürültüsü yok). Frame yüksekliği kullanılan
+  satır sayısına kilitlenir (`pack_propagate(False)`). Sonuç: Geri Al/Yinele
+  HER çözünürlük/kenar-çubuğu genişliğinde görünür (en solda; en son kaybolacak).
+- **`ui/dialogs/help_window.py` (EN+TR):** "BUTON" diyen bölüm başlıkları/gövde
+  düzeltildi (Pas Tablosu, Toplu, Kütüphane artık sağ-tık); "OPERASYON EKLEME"
+  bölümüne araç çubuğunun sadeleştiği + kaydırdığı notu eklendi; sağ-tık menü
+  listesine Pas Tablosu eklendi.
+
+**Kullanıcı geri bildirimi sonrası düzeltmeler (aynı gün):**
+- **Maximized açılmıyordu:** `state("zoomed")` erken (plotter.show + Win32
+  embed ÖNCESİ) ayarlanıyordu; reparent zoom'u düşürüyordu. `__init__` sonunda
+  `after(250)` + `after(900)` ile `_reassert_zoom()` (zaten zoomed değilse tekrar
+  zoomla) eklendi.
+- **Sash sürükleme yavaştı:** toolbar `<Configure>` artık `_schedule_reflow`
+  ile DEBOUNCE'lu (sürükleme dururken ~60ms sonra tek re-layout) — her piksel
+  yeniden sarma yok. (Not: sürüklemedeki kalan maliyet PyVista yeniden-render'ı,
+  bu değişikliğin dışında.)
+- **Undo/Redo öncesi boşluk:** `_reflow_toolbar` başlangıç `x = left_inset (12px)`.
+
+**Doğrulama:** `_test_undo.py` GEÇTİ; her iki modül `spinning_cam` conda env'de
+import oldu; AST temiz. **GUI SMOKE TEST BEKLİYOR** (pencere maximized açılıyor
+mu, araç çubuğu dar kenar çubuğunda 2. satıra kayıyor mu, Geri Al/Yinele hep
+görünür mü, yüksek-DPI dizüstüde ölçek doğru mu). Commit EDİLMEDİ.
+**Geri alma:** üç dosyadaki bu tarihli değişiklikleri geri al; davranış eski
+tek-satır araç çubuğuna ve sabit `1400x900` pencereye döner.
+
+---
+
 ## 2026-07-09 — Parametre etiketi renkli çerçeve vurgusu (#84, GÖRSEL, opt-in)
 
 Kullanıcı: programı devralan başka bir kullanıcıya "şu parametrelere dikkat et"

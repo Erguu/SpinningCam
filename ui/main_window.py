@@ -19,10 +19,59 @@ from version import APP_VERSION
 
 logger = logging.getLogger("SpinningCam")
 
+
+def _enable_windows_dpi_awareness():
+    """Render at the monitor's native resolution instead of being bitmap-
+    stretched (blurry) by Windows on high-DPI / scaled laptops. Must run before
+    the Tk root is realized. Tries per-monitor awareness, then the legacy
+    system-aware API; every failure is non-fatal (non-Windows, or already set by
+    an app manifest)."""
+    try:
+        from ctypes import windll
+    except Exception:
+        return
+    for _attempt in (
+        lambda: windll.shcore.SetProcessDpiAwareness(2),   # per-monitor aware
+        lambda: windll.user32.SetProcessDPIAware(),         # legacy system-aware
+    ):
+        try:
+            _attempt()
+            return
+        except Exception:
+            continue
+
+
 class SpinningCamWindow(tk.Tk):
     def __init__(self):
+        _enable_windows_dpi_awareness()
         super().__init__()
-        self.geometry("1400x900")
+
+        # Match Tk's point->pixel scaling to the real device DPI so text stays
+        # legible (doesn't shrink) now that we render at native resolution. On a
+        # standard 96-DPI display this resolves to ~1.333, i.e. a no-op.
+        try:
+            _dpi = self.winfo_fpixels("1i")
+            if _dpi and _dpi > 0:
+                self.tk.call("tk", "scaling", _dpi / 72.0)
+        except Exception:
+            pass
+
+        # Size to the actual monitor. The clamped geometry is the *restore* size
+        # (so un-maximizing never lands the window off a small screen); state
+        # 'zoomed' then fills the work area, respecting the taskbar. minsize keeps
+        # the sidebar / toolbar (Undo-Redo etc.) reachable on any resolution.
+        try:
+            _sw, _sh = self.winfo_screenwidth(), self.winfo_screenheight()
+            _w, _h = min(1400, _sw - 80), min(900, _sh - 120)
+            _x, _y = max(0, (_sw - _w) // 2), max(0, (_sh - _h) // 2 - 20)
+            self.geometry(f"{_w}x{_h}+{_x}+{_y}")
+        except Exception:
+            self.geometry("1400x900")
+        self.minsize(1000, 640)
+        try:
+            self.state("zoomed")
+        except Exception:
+            pass
 
         try:
             self.iconbitmap("logo.ico")
@@ -67,6 +116,22 @@ class SpinningCamWindow(tk.Tk):
         self._create_menu()
 
         self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        # Re-assert the maximized state AFTER the PyVista window is shown and
+        # Win32-embedded (embed_plotter, after 200 ms) — that reparenting
+        # silently drops the initial zoom on some setups, so the window would
+        # open at the restore size instead of maximized.
+        self.after(250, self._reassert_zoom)
+        self.after(900, self._reassert_zoom)
+
+    def _reassert_zoom(self):
+        """Force the window back to maximized if it isn't already (called a
+        couple of times shortly after startup; see __init__)."""
+        try:
+            if self.state() != "zoomed":
+                self.state("zoomed")
+        except Exception:
+            pass
 
     def _bind_camera_preset_keys(self):
         """Number keys 1-9 jump to saved camera views (Process tab → Saved Views,

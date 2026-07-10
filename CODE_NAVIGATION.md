@@ -160,6 +160,10 @@ i18n.py                                  ← Çok dilli metin (EN/TR/ES), t(key)
 | Takım veri dosyası | `tools.json` | iki ayrı alan — bkz. aşağıdaki tablo |
 | Tool manager dialog | `ui/dialogs/tool_manager.py` | `entry_r_tool` widget satır ~49 |
 | Program tab'de tool seçimi | `ui/tabs/program_tab.py` | `on_tool_change` satır ~559, ~618 |
+| Taşınabilir geometri: ID-adlı STEP çözümü (konvansiyon → fallback) | `tool_step_loader.py` | `_resolve_step_path()` + `TOOL_GEOMETRY_DIR="tool_geometry"` |
+| Geometri kopya/rename + zip dışa/içe aktarma | `tool_library_io.py` | `sync_tool_geometry`, `export_library`, `import_library` |
+| Takım penceresi Dışa/İçe Aktar düğmeleri + auto-copy | `ui/dialogs/tool_manager.py` | `export_library`/`import_library`/`_sync_geometry`; add/update_tool |
+| Takım STEP dosyaları (ID-adlı: T0103.STEP) | `tool_geometry/` | SHIP_NEXT_TO_EXE'de; git'te izlenir |
 | STEP'ten disk yarıçapı hesabı (VARSAYILAN, kiriş/2) | `tool_step_loader.py` | `get_contact_radius()` satır 171 |
 | Challenger erişim (eksen-fit, SADECE kalibrasyon ekranı — opt-in) | `tool_step_loader.py` | `get_contact_radius_axis()` satır ~189 |
 | STEP canonical mesh (3D sim) | `tool_step_loader.py` | `get_canonical_mesh()` |

@@ -459,7 +459,7 @@ Follow-blank or the Progressive-Angle fan:
 
 PASS TABLE (Paslar ▦ — see every pass before you run)
 ════════════════════════════════════════════════════════════════
-The Pass Table button (toolbar / right-click) opens one row per
+The Pass Table action (operation right-click menu) opens one row per
 pass of the selected operation: contact Z, the EFFECTIVE angle
 and reach the engine will really use, the exit endpoint, the
 value SOURCE (manual / fan / follow / ⭑pin / legacy override)
@@ -525,6 +525,15 @@ ADDING AND ORGANIZING OPERATIONS
 The "+ Add ▾" dropdown adds a new operation of the chosen type
 (roughing, finishing, cutting, bending).
 
+The toolbar itself is intentionally small — it holds only Undo/Redo
+(↶ ↷, at the far left), + Add ▾, Suggest, Tools…, Customize… and the
+Advanced switch, plus the time readout. Every PER-ROW action
+(Continue ⤵, Split, Reach⟲, Angle⟲, Pass Table, On/Off, Copy,
+Delete, Batch, Library, Move ▲▼) lives on the RIGHT-CLICK menu of a
+row. The bar automatically wraps onto a second line when the sidebar
+is narrow or the screen is small, so Undo/Redo are never pushed out
+of view.
+
 Each operation can be turned ON or OFF without deleting it: select
 it and press On/Off, or simply double-click the row. Disabled
 operations show "—" in the On column and appear gray; they are
@@ -545,8 +554,10 @@ Names are labels only — they never affect the toolpath.
 
 RIGHT-CLICK on any row opens a context menu with the row actions:
 Rename, Copy, On/Off, Reset to factory defaults, Continue ⤵,
-Split, Reach⟲, Angle⟲, Batch, Move up/down, Delete and the
-operation Library.
+Split, Reach⟲, Angle⟲, Pass Table, Batch, Move up/down, Delete and
+the operation Library. This menu is now the primary place for these
+actions — they were removed from the toolbar to keep it compact and
+always fit on screen.
 
 ESCAPE HATCH — factory defaults: "+ Add ▾" normally copies your
 last "Save as Default" preset, so a preset polluted by experiments
@@ -596,7 +607,7 @@ automatically only if Auto-Calculate is on — otherwise press
 Calculate as usual.
 
 
-BATCH EDIT (Batch… BUTTON + ☑ COLUMN)
+BATCH EDIT (right-click → Batch… + ☑ COLUMN)
 ════════════════════════════════════════════════════════════════
 Change ONE parameter on MANY operations in a single step — e.g.
 add 2 mm to the Start Z of five operations at once, instead of
@@ -608,7 +619,7 @@ Choosing the target operations, two ways:
     not change the row selection or fire On/Off).
   - Or simply select several rows with Shift/Ctrl+click.
 Ticks win when any are set; otherwise the selection is used. The
-Batch… button enables at 2+ targets and shows the count.
+right-click → Batch… item enables at 2+ targets and shows the count.
 
 In the dialog: pick the parameter, the mode — "+= add" (add a
 constant), "= set" (assign a value), "×= scale" (multiply) — and
@@ -624,7 +635,7 @@ only). Pass count is rounded to a whole number and never drops
 below 1.
 
 
-OPERATION LIBRARY (Library… BUTTON / right-click menu)
+OPERATION LIBRARY (right-click → operation Library)
 ════════════════════════════════════════════════════════════════
 Save operations under NAMES and reuse them in any program — e.g.
 three different roughing strategies, each with its own name.
@@ -704,6 +715,26 @@ heuristics: treat them as a starting point, then Calculate,
 check clearances and simulate as usual. The numbers (angle per
 pass, speeds, feeds, ratio limits) live in materials.json next
 to the program and can be tuned per machine and material.
+
+
+TOOL LIBRARY — SHARING TOOLS BETWEEN PCs
+════════════════════════════════════════════════════════════════
+Each operation picks a roller from the Tool library (Tools…
+button). A tool stores its calibrated reach (r_tool) AND its 3D
+STEP geometry. Geometry now travels automatically: when you add a
+tool and browse to its STEP file, the program copies it into a
+tool_geometry/ folder next to the app and names it after the tool
+ID (e.g. tool_geometry/T0103.STEP). It is then found by ID on any
+machine — so a git pull, or a copied exe, brings the tools ready
+to use, with no re-adding and no broken file paths.
+
+To move tools between PCs outside git, use Export Library… /
+Import Library… in the Tool window. Export writes one .zip holding
+tools.json + every tool's STEP file; Import copies the geometry in
+and merges the tools (asking before overwriting any that share an
+ID). NOTE: r_tool is a calibrated, machine-specific number — after
+importing tools from another machine, re-check calibration for
+your own setup.
 
 
 CALCULATE
@@ -804,7 +835,7 @@ gösterir.
 
 PAS TABLOSU (Paslar ▦ — çalıştırmadan önce her pası gör)
 ════════════════════════════════════════════════════════════════
-Pas Tablosu düğmesi (toolbar / sağ-tık) seçili operasyonun her
+Pas Tablosu işlemi (operasyon sağ-tık menüsü) seçili operasyonun her
 pası için bir satır açar: temas Z'si, motorun GERÇEKTE
 kullanacağı açı ve reach, çıkış uç noktası, değerin KAYNAĞI
 (elle / yelpaze / takip / ⭑pin / eski override) ve uyarılar:
@@ -870,6 +901,15 @@ OPERASYON EKLEME VE DÜZENLEME
 "+ Ekle ▾" açılır menüsü seçilen tipte yeni operasyon ekler
 (kaba, bitirme, kesme, kıvırma).
 
+Araç çubuğu bilinçli olarak küçük tutuldu — yalnızca Geri Al/Yinele
+(↶ ↷, en solda), + Ekle ▾, Öner, Takımlar…, Özelleştir… ve Gelişmiş
+anahtarı ile süre göstergesini taşır. HER SATIR-BAŞINA işlem
+(Devam ⤵, Böl, Reach⟲, Açı⟲, Pas Tablosu, Aç/Kapat, Kopyala, Sil,
+Toplu, Kütüphane, Yukarı/Aşağı ▲▼) artık satırın SAĞ-TIK menüsünde.
+Kenar çubuğu dar ya da ekran küçük olduğunda araç çubuğu otomatik
+olarak ikinci satıra kayar; böylece Geri Al/Yinele hiçbir zaman
+görünmez olmaz.
+
 Her operasyon silinmeden AÇIK/KAPALI yapılabilir: seçip Aç/Kapat
 düğmesine basın veya satıra çift tıklayın. Kapalı operasyonlar
 Aktif sütununda "—" gösterir ve gri görünür; Hesapla bunları
@@ -890,8 +930,10 @@ bir etikettir — takım yolunu asla etkilemez.
 
 Herhangi bir satıra SAĞ TIKLAMAK satır işlemlerini içeren menüyü
 açar: Yeniden adlandır, Kopyala, Aç/Kapat, Fabrika varsayılanına
-sıfırla, Devam ⤵, Böl, Reach⟲, Açı⟲, Toplu, Yukarı/Aşağı taşı,
-Sil ve operasyon Kütüphanesi.
+sıfırla, Devam ⤵, Böl, Reach⟲, Açı⟲, Pas Tablosu, Toplu,
+Yukarı/Aşağı taşı, Sil ve operasyon Kütüphanesi. Bu menü artık bu
+işlemlerin ASIL yeri — araç çubuğunu derli toplu tutmak ve her
+ekrana sığdırmak için oradan kaldırıldılar.
 
 KAÇIŞ KAPISI — fabrika varsayılanları: "+ Ekle ▾" normalde son
 "Varsayılan Kaydet" ön ayarınızı kopyalar; deneylerle kirlenmiş bir
@@ -941,7 +983,7 @@ Otomatik Hesapla açıksa kendiliğinden yeniden hesaplanır — değilse
 her zamanki gibi Hesapla'ya basın.
 
 
-TOPLU DÜZENLEME (Toplu… DÜĞMESİ + ☑ SÜTUNU)
+TOPLU DÜZENLEME (sağ-tık → Toplu… + ☑ SÜTUNU)
 ════════════════════════════════════════════════════════════════
 TEK adımda BİRÇOK operasyonun BİR parametresini değiştirin — örn.
 beş operasyonun Başlangıç Z'sine tek seferde 2 mm ekleyin, her
@@ -952,8 +994,8 @@ Hedef operasyonları seçmenin iki yolu:
     işaretleyin (hücreye tıklamak yalnız işareti değiştirir — satır
     seçimini bozmaz, Aç/Kapat'ı tetiklemez).
   - Veya satırları Shift/Ctrl+tık ile çoklu seçin.
-İşaret varsa işaretler geçerlidir; yoksa seçim kullanılır. Toplu…
-düğmesi 2+ hedefte aktifleşir ve sayıyı gösterir.
+İşaret varsa işaretler geçerlidir; yoksa seçim kullanılır. Sağ-tık →
+Toplu… ögesi 2+ hedefte aktifleşir ve sayıyı gösterir.
 
 Pencerede: parametreyi, modu — "+= ekle" (sabit ekle), "= ata"
 (değer ata), "×= ölçekle" (çarp) — ve değeri seçin. Önizleme
@@ -969,7 +1011,7 @@ yalnız sayısal parametreler). Pas sayısı tam sayıya yuvarlanır ve
 1'in altına düşmez.
 
 
-OPERASYON KÜTÜPHANESİ (Kütüphane… DÜĞMESİ / sağ-tık menüsü)
+OPERASYON KÜTÜPHANESİ (sağ-tık → operasyon Kütüphanesi)
 ════════════════════════════════════════════════════════════════
 Operasyonları AD vererek kaydedin ve herhangi bir programda tekrar
 kullanın — örn. her biri kendi adıyla üç farklı kaba strateji.
@@ -1049,12 +1091,206 @@ materials.json dosyasındadır; makineye ve malzemeye göre
 ayarlanabilir.
 
 
+TAKIM KÜTÜPHANESİ — TAKIMLARI PC'LER ARASI PAYLAŞMA
+════════════════════════════════════════════════════════════════
+Her operasyon, Takım kütüphanesinden (Takımlar… düğmesi) bir rulo
+seçer. Bir takım hem kalibre erişimini (r_tool) HEM de 3B STEP
+geometrisini saklar. Geometri artık otomatik taşınır: bir takım
+ekleyip STEP dosyasına göz attığınızda, program onu uygulamanın
+yanındaki tool_geometry/ klasörüne kopyalar ve takım ID'siyle
+adlandırır (örn. tool_geometry/T0103.STEP). Böylece her makinede
+ID ile bulunur — git pull veya kopyalanan bir exe, takımları
+kullanıma hazır getirir; yeniden ekleme yok, bozuk dosya yolu yok.
+
+Takımları git dışında PC'ler arasında taşımak için Takım
+penceresindeki Kütüphaneyi Dışa Aktar… / İçe Aktar… kullanın. Dışa
+aktarma tek bir .zip yazar (tools.json + her takımın STEP dosyası);
+İçe aktarma geometriyi kopyalar ve takımları birleştirir (aynı
+ID'lileri değiştirmeden önce sorar). NOT: r_tool kalibre, makineye
+özel bir değerdir — başka bir makineden takım içe aktardıktan sonra
+kendi kurulumunuz için kalibrasyonu yeniden kontrol edin.
+
+
 HESAPLA
 ════════════════════════════════════════════════════════════════
 Operasyonlarda veya parametrelerde herhangi bir değişiklikten sonra
 tüm takım yollarını yeniden oluşturmak için Hesapla'ya basın. 3D
 görünüm otomatik olarak güncellenmez (Otomatik Hesaplama açık
 değilse). Dışa aktarmadan önce her zaman hesaplayın.
+""",
+    },
+
+    "tools": {
+        "EN": """\
+TOOL SETUP & CALIBRATION
+════════════════════════════════════════════════════════════════
+Every operation forms metal with a ROLLER, chosen from the Tool
+library (Program tab -> Tools...). Getting a tool right has two
+independent parts: its GEOMETRY (the 3D shape) and its CALIBRATED
+REACH (where its contact point sits in machine coordinates).
+
+
+1. ADD A TOOL
+----------------------------------------------------------------
+Program tab -> Tools... -> fill in:
+  - ID    - a unique code, e.g. T0104. This ALSO names the tool's
+            geometry file.
+  - Name / Type / Color - labels only.
+Then click Browse and pick the roller's STEP file. On Add/Save the
+program COPIES that file into a tool_geometry/ folder next to the
+app and renames it after the ID (tool_geometry/T0104.STEP), so the
+tool is portable: it travels on a git pull or a copied exe and is
+found automatically on any machine. You never manage the path by
+hand.
+
+
+2. RADIUS vs Rr (r_tool) - READ THIS
+----------------------------------------------------------------
+These are two DIFFERENT numbers:
+
+  - Radius - pure geometry: the disc radius measured from the STEP
+    file (centre to rim). The "Calculate radius from STEP" button
+    fills this.
+
+  - Rr / r_tool - the CALIBRATED distance from the machine's X
+    reference (the disc centre) to the point that actually touches
+    the part. This is what the toolpath USES. If you leave Rr
+    empty, the path falls back to Radius.
+
+THE RULE: Rr must be GREATER THAN OR EQUAL TO Radius. Rr is the
+distance to the contact rim; set it SMALLER than the disc radius
+and the machine drives the roller centre too close, so the rim
+GOUGES the part. Whenever you change a tool's STEP/geometry,
+recalculate Radius AND update Rr - a stale Rr from the old shape
+is the classic gouge trap.
+
+Safe options when you have no calibrated number yet:
+  - set Rr = the calculated Radius (a correct starting point), or
+  - clear Rr so it falls back to Radius automatically.
+
+
+3. CALIBRATE (touch-point)
+----------------------------------------------------------------
+Radius from the STEP is only geometry. The TRUE Rr comes from
+touch-point calibration, because the machine's zero may not sit
+exactly at the disc centre. Open the touch-point calibration
+dialog, jog the roller until it just touches a known surface, read
+the DRO, enter the values and apply. See "Calibration - the most
+important step" in the Machine tab for the full procedure and the
+Challenger Rr helper. Re-calibrate whenever you change the roller
+or re-home the machine.
+
+
+4. CHANGE A TOOL'S STEP LATER
+----------------------------------------------------------------
+Tools... -> click the tool in the list -> Browse a new STEP ->
+Save changes (keep the ID the same). The new file replaces
+tool_geometry/<id>.STEP automatically. Recalculate Radius and
+re-check Rr afterwards (see the rule in step 2).
+
+
+5. SHARE TOOLS WITH ANOTHER PC
+----------------------------------------------------------------
+In the Tool window: Export Library... writes one .zip (all tools +
+their STEP files); Import Library... reads it back, copies the
+geometry in and merges (asking before overwriting same-ID tools).
+Geometry travels by ID, so nothing has to be re-added - but Rr is
+machine-specific, so re-check calibration after importing.
+
+
+QUICK CHECKLIST FOR A NEW TOOL
+----------------------------------------------------------------
+  [ ] ID set, STEP browsed, Add/Save (auto-copied by ID)
+  [ ] Calculate radius from STEP  -> Radius filled
+  [ ] Rr set (calibrated, or = Radius as a start; never < Radius)
+  [ ] Select the tool -> 3D roller looks right
+  [ ] Touch-point calibration done for this machine
+""",
+        "TR": """\
+TAKIM KURULUMU & KALİBRASYON
+════════════════════════════════════════════════════════════════
+Her operasyon metali bir RULO ile şekillendirir; rulo Takım
+kütüphanesinden seçilir (Program sekmesi -> Takımlar...). Bir
+takımı doğru ayarlamanın iki bağımsız parçası vardır: GEOMETRİSİ
+(3B şekil) ve KALİBRE ERİŞİMİ (temas noktasının makine
+koordinatlarındaki yeri).
+
+
+1. TAKIM EKLEME
+----------------------------------------------------------------
+Program sekmesi -> Takımlar... -> doldurun:
+  - ID    - benzersiz bir kod, örn. T0104. Bu AYNI ZAMANDA takımın
+            geometri dosyasını adlandırır.
+  - Ad / Tip / Renk - yalnızca etiket.
+Sonra Gözat'a tıklayıp rulonun STEP dosyasını seçin. Ekle/Kaydet'te
+program bu dosyayı uygulamanın yanındaki tool_geometry/ klasörüne
+KOPYALAR ve ID ile adlandırır (tool_geometry/T0104.STEP); böylece
+takım taşınabilir olur: git pull veya kopyalanan bir exe ile gelir
+ve her makinede otomatik bulunur. Yolu asla elle yönetmezsiniz.
+
+
+2. RADIUS ile Rr (r_tool) FARKI - MUTLAKA OKUYUN
+----------------------------------------------------------------
+Bunlar İKİ FARKLI sayıdır:
+
+  - Radius - salt geometri: STEP dosyasından ölçülen disk yarıçapı
+    (merkezden kenara). "STEP'ten yarıçap hesapla" düğmesi bunu
+    doldurur.
+
+  - Rr / r_tool - makinenin X referansından (disk merkezi) parçaya
+    gerçekten TEMAS eden noktaya kadar olan KALİBRE mesafe. Takım
+    yolu BUNU kullanır. Rr boş bırakılırsa yol Radius'a düşer.
+
+KURAL: Rr, Radius'tan BÜYÜK VEYA EŞİT olmalıdır. Rr temas kenarına
+olan mesafedir; disk yarıçapından KÜÇÜK ayarlarsanız makine rulo
+merkezini fazla yaklaştırır ve kenar parçayı DALAR (gouge). Bir
+takımın STEP/geometrisini her değiştirdiğinizde Radius'u yeniden
+hesaplayın VE Rr'yi güncelleyin - eski şekilden kalan bayat Rr,
+klasik dalma tuzağıdır.
+
+Henüz kalibre değeriniz yoksa güvenli seçenekler:
+  - Rr = hesaplanan Radius yapın (doğru bir başlangıç), veya
+  - Rr'yi boşaltın; otomatik olarak Radius'a düşer.
+
+
+3. KALİBRASYON (touch-point)
+----------------------------------------------------------------
+STEP'ten gelen Radius yalnızca geometridir. GERÇEK Rr, touch-point
+kalibrasyonundan gelir, çünkü makinenin sıfırı tam olarak disk
+merkezinde olmayabilir. Touch-point kalibrasyon diyaloğunu açın,
+ruloyu bilinen bir yüzeye tam değecek şekilde ilerletin, DRO'yu
+okuyun, değerleri girip uygulayın. Tam prosedür ve Challenger Rr
+yardımcısı için Makine sekmesindeki "Kalibrasyon - en önemli adım"
+bölümüne bakın. Ruloyu değiştirdiğinizde veya makineyi yeniden
+home'ladığınızda yeniden kalibre edin.
+
+
+4. BİR TAKIMIN STEP DOSYASINI SONRADAN DEĞİŞTİRME
+----------------------------------------------------------------
+Takımlar... -> listeden takıma tıklayın -> yeni STEP'e Gözat ->
+Değişiklikleri Kaydet (ID'yi aynı tutun). Yeni dosya
+tool_geometry/<id>.STEP'i otomatik değiştirir. Sonrasında Radius'u
+yeniden hesaplayın ve Rr'yi yeniden kontrol edin (2. adımdaki
+kural).
+
+
+5. TAKIMLARI BAŞKA BİR PC İLE PAYLAŞMA
+----------------------------------------------------------------
+Takım penceresinde: Kütüphaneyi Dışa Aktar... tek bir .zip yazar
+(tüm takımlar + STEP dosyaları); Kütüphaneyi İçe Aktar... geri
+okur, geometriyi kopyalar ve birleştirir (aynı ID'lileri
+değiştirmeden önce sorar). Geometri ID ile taşınır, yani hiçbir şey
+yeniden eklenmez - ama Rr makineye özeldir, içe aktardıktan sonra
+kalibrasyonu yeniden kontrol edin.
+
+
+YENİ BİR TAKIM İÇİN HIZLI KONTROL LİSTESİ
+----------------------------------------------------------------
+  [ ] ID girildi, STEP seçildi, Ekle/Kaydet (ID ile otomatik kopya)
+  [ ] STEP'ten yarıçap hesapla  -> Radius doldu
+  [ ] Rr ayarlandı (kalibre, ya da başlangıç için = Radius; asla < Radius)
+  [ ] Takımı seç -> 3B rulo doğru görünüyor
+  [ ] Bu makine için touch-point kalibrasyonu yapıldı
 """,
     },
 
@@ -1604,6 +1840,7 @@ class HelpWindow(tk.Toplevel):
             ("help_tab_start",   "start"),
             ("help_tab_view",    "view"),
             ("help_tab_ops",     "ops"),
+            ("help_tab_tools",   "tools"),
             ("help_tab_machine", "machine"),
             ("help_tab_trouble", "trouble"),
         ]

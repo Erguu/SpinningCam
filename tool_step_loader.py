@@ -12,6 +12,13 @@ from OCC.Core.TopLoc import TopLoc_Location
 
 from logger_config import logger
 
+# Folder (next to the app / exe) that holds tool STEP geometry, named by tool ID
+# — e.g. tool_geometry/T0103.STEP. This convention makes the tool library
+# portable: pulling the repo or shipping the exe carries the geometry, and it is
+# found by ID with no machine-specific absolute path. See tool_library_io.py.
+TOOL_GEOMETRY_DIR = "tool_geometry"
+_STEP_EXTS = (".STEP", ".step", ".stp", ".STP")
+
 
 def _occ_load_step(path: str):
     reader = STEPControl_Reader()
@@ -52,7 +59,24 @@ def _occ_to_pyvista(shape, deflection: float = 0.2):
 
 
 def _resolve_step_path(tool_entry: dict, base_dir: str = "") -> str:
-    """Return absolute path to the tool's STEP file, or empty string if not set/found."""
+    """Return the absolute path to a tool's STEP file, or "" if none is found.
+
+    Resolution order:
+      1. CONVENTION (preferred, portable): tool_geometry/<id>.<ext> next to the
+         app/exe — found purely from the tool ID, so it works on any machine
+         after a pull or exe copy.
+      2. FALLBACK (legacy / override): the explicit ``step_file`` field, tried
+         relative to base_dir, then cwd, then as an absolute path. This keeps
+         old libraries (absolute Windows paths) working until they are migrated.
+    """
+    tool_id = str(tool_entry.get("id", "")).strip()
+    if tool_id and base_dir:
+        geom_dir = os.path.join(base_dir, TOOL_GEOMETRY_DIR)
+        for ext in _STEP_EXTS:
+            cand = os.path.join(geom_dir, tool_id + ext)
+            if os.path.isfile(cand):
+                return cand
+
     step_file = tool_entry.get("step_file", "").strip()
     if not step_file:
         return ""
