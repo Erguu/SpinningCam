@@ -130,6 +130,8 @@ class SpinningApp:
             # PLC Output Mode
             "plc_mode": False,
             "plc_tolerance": 0.5,
+            "plc_auto_tune": False,     # auto-fit tolerance to a PLC line budget
+            "plc_target_lines": 1000,   # target max recipe lines when auto_tune is on
             "workspace_show": True,
             "workspace_x_min": 0.0,
             "workspace_x_max": 300.0,

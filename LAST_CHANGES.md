@@ -5,6 +5,55 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-11 — PLC Otomatik Ayar (satır bütçesine tolerans oturtma) + clearance guard (#86)
+
+PLC belleği çok kısıtlı (tek program/çalışma, sadece doğrusal, 1000 satır sert duvar —
+kullanıcı doğruladı: çoklu-DB ve yay YOK). RDP toleransını elle deneme-yanılma yerine,
+SCL dışa aktarımında toleransı **hedef satır sayısının altına** oturtan opt-in otomatik
+ayar eklendi. Kritik güvenlik: sadeleştirilmiş yol clearance'ı, tam çözünürlüklü (normal
+G-code) yolun altına DÜŞÜRÜLMEZ — düşerse uyarır.
+
+**Neden guard şart (kullanıcı sorusu):** RDP toleransı = yolun mandrel'e olan max sapması.
+Konveks köşelerde iki korunan nokta arası DÜZ kiriş, köşeyi keserek mandrel'e yaklaşır →
+tolerans ≥ clearance ise GOUGE. Kritik-temas noktası korunuyor ama komşu kirişler değil.
+Bu yüzden clearance kirişler boyunca örneklenip ölçülür (sadece köşe noktaları değil).
+
+**Yapılan (uygulandı + headless test GEÇTİ; GUI smoke + commit BEKLİYOR):**
+- **`main.py`** `load_settings`: `plc_auto_tune` (bool, False), `plc_target_lines` (int, 1000).
+- **`machine_loader.py`** `MACHINE_PROFILE_KEYS`: iki yeni anahtar eklendi (profile taşınır).
+- **`path_generator.py`:**
+  - `__init__`: `last_plc_paths` (son PLC-modu decimate edilmiş yollar).
+  - `generate_gcode` PLC dalı → yeni `decimate_all_paths()` helper'ına delege + `last_plc_paths` set.
+  - `measure_min_clearance(paths, params)` (YENİ) — DÜZ segmentler boyunca örnekler
+    (kiriş köşe-kesmesini yakalar); `clearance = |x−cx| − (R + blank + shell + r_tool)`.
+- **`export_manager.py`** `ExportManager.auto_fit_plc_tolerance(...)` (YENİ, saf/read-only) —
+  bütçe üzerinde bisection (satır sayısı toleransta monoton azalır; bütçeye sığan en KÜÇÜK
+  tolerans aynı zamanda en fazla clearance'ı korur). Durumlar: `no_reduction_needed` / `ok`
+  / `clearance_limited` / `infeasible_budget`.
+- **`ui/tabs/machine_tab.py`** PLC bölümü: "Auto-tune" onay kutusu + "Target Max Lines"
+  girişi; `_sync_plc_states()` merkezi etkin/pasif mantığı (auto açıkken tolerans alanları
+  read-only, target aktif; PLC kapalıyken hepsi pasif).
+- **`ui/main_window.py`** `export_scl_action`: auto açıkken dizi-boyu sorusunu ATLAR,
+  auto-fit çalıştırır. Dosya YAZILMADAN ÖNCE her durumda ÖNİZLEME diyaloğu gösterir
+  (`msg_autotune_preview`): tolerans elle→uygulanan, satır before→after (hedef), min
+  clearance vs normal — güvenli/uygun durumda `askokcancel`, riskli durumda uyarı+önizleme
+  `askyesno`. Başarı penceresine ayrıca "Auto-tune: tol … → … satır, min clearance …" notu.
+- **`i18n.py`**: `cb_plc_autotune`, `lbl_plc_target`, `msg_autotune_title/clearance/infeasible/preview/note` (EN/TR/ES).
+- **`changelog.py`** `"1.007"`: 3 kullanıcı-yönelik madde eklendi (auto-tune + güvenlik guard + önizleme).
+- **`_test_plc_autotune.py`** (YENİ): kiriş-örnekleme gouge yakalama (full=2.00 / chord=−6.00),
+  decimation, 4 auto-fit durumu + monotonluk — HEPSİ GEÇTİ.
+
+**Geri alma:** `plc_auto_tune` varsayılan False → checkbox kapalıyken davranış birebir eski
+(dizi-boyu sorusu + elle tolerans). Sadece opt-in. Auto açıkken tolerans/exit alanları
+otomatik hesaplanır (elle değer yok sayılmaz — read-only yapılır).
+
+**GOTCHA:** floor = tam çözünürlüklü yolun min kiriş-clearance'ı (`last_calculated_paths`).
+Auto-fit her denemede `generate_gcode`+`parse_gcode` çağırır (~18 iter, export anında ucuz).
+Exit toleransı auto'da ana toleransla EŞİTLENİR (tek dial). `min_safety_gap` DEĞİL, normal
+G-code'un kendi clearance'ı taban — yani "PLC modu normal moddan daha az güvenli olamaz".
+
+---
+
 ## 2026-07-10 — Operasyon "Birleştir" (Unite) — Böl'ün tersi (#85)
 
 Program sekmesinde `Böl` (Split) bir çok-paslı operasyonu bitişik parça-operasyonlara

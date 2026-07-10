@@ -31,6 +31,7 @@ def effective_clamp_length(params):
 class PathGenerator:
     def __init__(self):
         self.last_calculated_paths = []
+        self.last_plc_paths = None         # decimated paths from the last PLC-mode G-code (for clearance/line checks)
         self.last_mandrel_mgr = None
         self.last_tilt_angles = None       # per-path tilt arrays (tilt_arm machines) or None
         self.last_kinematic_warnings = []  # reachability issues from last G-code generation
@@ -1696,17 +1697,7 @@ class PathGenerator:
 
         if plc_mode:
             _exit_tol = float(params.get("plc_exit_tolerance", plc_tolerance))
-            paths_to_use = []
-            for _pi, _p in enumerate(self.last_calculated_paths):
-                _split    = self.last_render_split_idx.get(_pi)
-                _app_end  = _split[0] if _split is not None else None
-                _arc_end  = _split[1] if _split is not None else None
-                paths_to_use.append(
-                    self._decimate_path_for_plc(_p, plc_tolerance, center_x,
-                                                approach_end_idx=_app_end,
-                                                arc_end_idx=_arc_end,
-                                                exit_tolerance=_exit_tol)
-                )
+            paths_to_use = self.decimate_all_paths(plc_tolerance, _exit_tol, center_x)
             logger.info(
                 f"[PLC Mode] Decimated {len(self.last_calculated_paths)} paths. "
                 f"Points: {sum(len(p) for p in self.last_calculated_paths)} → "
@@ -1714,6 +1705,9 @@ class PathGenerator:
             )
         else:
             paths_to_use = self.last_calculated_paths
+        # Remember what PLC mode emitted so the auto-tune / clearance guard can
+        # measure the exact chords the machine will run.
+        self.last_plc_paths = paths_to_use
 
         # ── Tilt-arm machines (ID112): per-point B words + reachability check.
         # Tilt is recomputed from the emitted point list itself (decimated or
@@ -2280,6 +2274,73 @@ class PathGenerator:
             result_pts.append(half2[local_idx])
 
         return np.array(result_pts)
+
+    def decimate_all_paths(self, tolerance, exit_tolerance, center_x):
+        """Return decimated copies of last_calculated_paths using the same
+        per-path structural split (approach / fillet / exit) generate_gcode uses.
+        Read-only — does not mutate the stored paths."""
+        out = []
+        for _pi, _p in enumerate(self.last_calculated_paths):
+            _split   = self.last_render_split_idx.get(_pi)
+            _app_end = _split[0] if _split is not None else None
+            _arc_end = _split[1] if _split is not None else None
+            out.append(
+                self._decimate_path_for_plc(_p, tolerance, center_x,
+                                            approach_end_idx=_app_end,
+                                            arc_end_idx=_arc_end,
+                                            exit_tolerance=exit_tolerance)
+            )
+        return out
+
+    def measure_min_clearance(self, paths, params, sample_step=0.5):
+        """Minimum roller-to-part clearance (mm) along the STRAIGHT segments of the
+        given tool paths — the actual point-to-point motion, not just the retained
+        vertices. This is what catches a decimated chord 'cutting the corner'
+        toward the mandrel between two kept points.
+
+        Mirrors the metric used during path creation:
+            clearance = radial_dist_from_center - (mandrel_R + blank + shell + r_tool)
+
+        Returns +inf when it cannot be measured (no mandrel loaded / empty paths).
+        """
+        mgr = getattr(self, "last_mandrel_mgr", None)
+        if mgr is None or not paths:
+            return float('inf')
+        center_x = float(params.get("mandrel_pos_x_offset", 0.0))
+        blank = float(params.get("final_part_thickness_on_mandrel", 2.0))
+        shell = float(params.get("shell_thickness", 0.0))
+        step = max(0.1, float(sample_step))
+        min_cl = float('inf')
+        for pi, path in enumerate(paths):
+            pts = np.asarray(path, dtype=float)
+            if len(pts) == 0:
+                continue
+            op = self._path_op_map[pi] if pi < len(self._path_op_map) else None
+            r_tool = float(op.get("r_tool", 25.0)) if op else 25.0
+            base = blank + shell + r_tool
+
+            def _cl_at(x, z):
+                m_r = mgr.get_radius_fast(z)
+                if m_r is None:
+                    return None
+                return abs(x - center_x) - (m_r + base)
+
+            if len(pts) == 1:
+                c = _cl_at(pts[0][0], pts[0][2])
+                if c is not None and c < min_cl:
+                    min_cl = c
+                continue
+
+            for k in range(len(pts) - 1):
+                a = pts[k]; b = pts[k + 1]
+                seg = math.hypot(b[0] - a[0], b[2] - a[2])
+                n = max(1, int(seg / step))
+                for s in range(n + 1):
+                    t = s / n
+                    c = _cl_at(a[0] + t * (b[0] - a[0]), a[2] + t * (b[2] - a[2]))
+                    if c is not None and c < min_cl:
+                        min_cl = c
+        return min_cl
 
     def calculate_estimated_time(self, params):
         ops = self._ensure_ops_dict(params)

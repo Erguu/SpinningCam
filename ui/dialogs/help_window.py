@@ -1488,6 +1488,13 @@ G-code (.nc)     Standard CNC moves. Use for most controllers.
 SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  runs a Siemens S7 PLC. The paths are written as
                  structured data arrays for the PLC program.
+                 PLC memory is limited (max lines per program), so
+                 enable PLC Mode (Machine tab) to reduce points.
+                 Tick "Auto-tune tolerance to line limit" and set a
+                 Target Max Lines to have the tolerance fitted to
+                 your budget automatically on export — it never
+                 lowers clearance below the normal G-code path
+                 (it warns if the target can't be met safely).
 
 Recipe CSV       A simplified pass-by-pass parameter table.
                  Useful for documentation, setup sheets, and
@@ -1630,6 +1637,13 @@ G-code (.nc)      Standart CNC hareketleri. Çoğu denetleyici için
 SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   PLC ile çalışıyorsa kullanın. Yollar PLC programı
                   için yapılandırılmış veri dizileri olarak yazılır.
+                  PLC belleği kısıtlıdır (program başına azami satır),
+                  bu yüzden nokta azaltmak için PLC Modunu (Makine
+                  sekmesi) açın. "Toleransı satır limitine otomatik
+                  ayarla" kutusunu işaretleyip Hedef Azami Satır girin;
+                  tolerans dışa aktarımda bütçenize otomatik oturtulur —
+                  clearance normal G-code yolunun altına asla düşürülmez
+                  (hedef güvenle karşılanamazsa uyarır).
 
 Reçete CSV        Basitleştirilmiş paso-paso parametre tablosu.
                   Dokümantasyon, kurulum sayfaları ve diğer araçlara

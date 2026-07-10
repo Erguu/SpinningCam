@@ -335,6 +335,65 @@ class ExportManager:
             print(f"SCL Export Error: {e}")
             return False, {}
 
+    @staticmethod
+    def auto_fit_plc_tolerance(path_gen, params, target_lines, floor_clearance,
+                               tol_min=0.05, tol_max=8.0, iters=18):
+        """Find the SMALLEST plc_tolerance whose emitted SCL recipe line count is
+        <= target_lines, then verify the decimated path's clearance is no worse
+        than the full-resolution path (floor_clearance).
+
+        The recipe line count is monotonically non-increasing in tolerance, and the
+        smallest tolerance that fits the budget also retains the MOST clearance —
+        so we bisect on the budget alone and check clearance once at the result.
+
+        Returns a dict:
+          status : 'no_reduction_needed' | 'ok' | 'clearance_limited' | 'infeasible_budget'
+          tolerance, lines, min_clearance, floor
+        Pure/read-only w.r.t. persistent state (operates on a params copy).
+        """
+        from recipe_to_scl import GCodeToSCLConverter
+        base = dict(params)
+        base["plc_mode"] = True
+        eps = 1e-6
+
+        def _eval(tol):
+            p = dict(base)
+            p["plc_tolerance"] = tol
+            p["plc_exit_tolerance"] = tol
+            gcode = path_gen.generate_gcode(params=p)
+            conv = GCodeToSCLConverter()
+            conv.parse_gcode(gcode)
+            cl = path_gen.measure_min_clearance(
+                getattr(path_gen, "last_plc_paths", None) or [], p)
+            return len(conv.lines), cl
+
+        # Finest tolerance already within budget → no coarsening needed.
+        n_fine, cl_fine = _eval(tol_min)
+        if n_fine <= target_lines:
+            return {"status": "no_reduction_needed", "tolerance": tol_min,
+                    "lines": n_fine, "min_clearance": cl_fine, "floor": floor_clearance}
+
+        # Even the coarsest tolerance cannot reach the budget.
+        n_coarse, cl_coarse = _eval(tol_max)
+        if n_coarse > target_lines:
+            return {"status": "infeasible_budget", "tolerance": tol_max,
+                    "lines": n_coarse, "min_clearance": cl_coarse, "floor": floor_clearance}
+
+        # Bisect for the smallest tolerance that fits the budget.
+        lo, hi = tol_min, tol_max      # count(lo) > target, count(hi) <= target
+        for _ in range(iters):
+            mid = 0.5 * (lo + hi)
+            n, _cl = _eval(mid)
+            if n <= target_lines:
+                hi = mid               # fits → try finer (smaller tol = more fidelity)
+            else:
+                lo = mid               # too many lines → need coarser
+        tol_star = hi
+        n_star, cl_star = _eval(tol_star)
+        status = "ok" if cl_star >= floor_clearance - eps else "clearance_limited"
+        return {"status": status, "tolerance": tol_star, "lines": n_star,
+                "min_clearance": cl_star, "floor": floor_clearance}
+
 
 class SpinningCamPDF(FPDF):
     """Custom PDF class with helper methods for operation sheets."""

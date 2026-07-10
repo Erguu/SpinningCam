@@ -378,6 +378,23 @@ program yoksa `_default_cfg` ile makul varsayılana düşer.
 | RDP yardımcısı | `path_generator.py` | `_rdp_decimate()` ~1481 |
 | PLC modu etkinleştirme | `generate_gcode()` | satır ~1098 |
 | Yaklaşım kolu ayrımı (2026-06-17) | `path_generator.py` | `approach_end_idx` parametresi ~1518 |
+| Tüm yolları decimate (PLC dalı buna delege) | `path_generator.py` | `decimate_all_paths()` |
+| Son decimate edilmiş yollar (auto-tune/guard için) | `path_generator.py` | `self.last_plc_paths` |
+
+**PLC otomatik ayar (2026-07-11, opt-in #86):**
+| Ne | Dosya | Fonksiyon/Anahtar |
+|----|-------|-------------------|
+| Kiriş-boyu min clearance ölçümü (köşe-kesmesini yakalar) | `path_generator.py` | `measure_min_clearance(paths, params)` |
+| Tolerans→satır-bütçesi bisection (saf/read-only) | `export_manager.py` | `ExportManager.auto_fit_plc_tolerance()` |
+| Onay kutusu + hedef + `_sync_plc_states()` | `ui/tabs/machine_tab.py` | PLC bölümü (`cb_auto`/`e_target`) |
+| Export akışı (dizi sorusunu atlar, uyarı, not) | `ui/main_window.py` | `export_scl_action()` `auto` dalı |
+| Parametreler | `main.py` / `machine_loader.py` | `plc_auto_tune`, `plc_target_lines` (MACHINE_PROFILE_KEYS) |
+| Test | `_test_plc_autotune.py` | — |
+
+**Kurallar:** SADECE opt-in — `plc_auto_tune` False iken davranış birebir eski. Guard:
+decimate clearance ≥ tam çözünürlüklü yolun clearance'ı (floor = `measure_min_clearance(last_calculated_paths)`);
+düşerse `clearance_limited` uyarısı. Satır sayısı toleransta monoton azalır → bisection.
+Auto'da exit toleransı ana toleransla eşitlenir; tolerans alanları read-only olur.
 
 **Parametreler (`_decimate_path_for_plc`):**
 | Parametre | Kaynak | Açıklama |

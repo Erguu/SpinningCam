@@ -957,7 +957,62 @@ class SpinningCamWindow(tk.Tk):
         if not program_title:
             program_title = "SpinningCam Program"
 
-        if _parsed_line_count is not None:
+        auto = (bool(self.app.params.get("plc_auto_tune", False))
+                and bool(self.app.params.get("plc_mode", False)))
+        force_flag = False
+        autofit_note = None
+
+        def _fmt(v):
+            if v is None or v in (float('inf'), float('-inf')):
+                return "—"
+            return f"{v:.2f}"
+
+        if auto:
+            # Auto-tune: pick the finest tolerance that fits the line budget while
+            # staying at least as clear as the full-resolution path. Replaces the
+            # array-size question entirely (target drives a fixed [0..999] array).
+            pg = self.app.path_gen
+            target = int(self.app.params.get("plc_target_lines", 1000) or 1000)
+            floor_cl = pg.measure_min_clearance(pg.last_calculated_paths, self.app.params)
+            result = ExportManager.auto_fit_plc_tolerance(pg, self.app.params, target, floor_cl)
+            st = result.get("status")
+            fit_tol   = result.get("tolerance")
+            fit_lines = result.get("lines", 0)
+            fit_cl    = result.get("min_clearance")
+
+            # Show the fitted values so the operator can review before writing.
+            man_tol = float(self.app.params.get("plc_tolerance", 0.5))
+            before = _parsed_line_count if _parsed_line_count is not None else fit_lines
+            preview = t("msg_autotune_preview").format(
+                man=_fmt(man_tol), auto=_fmt(fit_tol),
+                before=before, after=fit_lines, target=target,
+                cl=_fmt(fit_cl), floor=_fmt(floor_cl))
+
+            if st in ("clearance_limited", "infeasible_budget"):
+                if st == "clearance_limited":
+                    warn = t("msg_autotune_clearance").format(
+                        lines=fit_lines, target=target, cl=_fmt(fit_cl), floor=_fmt(floor_cl))
+                else:
+                    warn = t("msg_autotune_infeasible").format(lines=fit_lines, target=target)
+                if not messagebox.askyesno(
+                        t("msg_autotune_title"), warn + "\n\n" + preview, icon='warning'):
+                    return
+                force_flag = fit_lines > 1000
+            else:
+                # Feasible & safe — still let the operator see and confirm the numbers.
+                if not messagebox.askokcancel(t("msg_autotune_title"), preview):
+                    return
+
+            # Rebuild the SCL source with the fitted tolerance.
+            p = dict(self.app.params)
+            p["plc_mode"] = True
+            p["plc_tolerance"] = fit_tol
+            p["plc_exit_tolerance"] = fit_tol
+            gcode_str = self.app.path_gen.generate_gcode(params=p)
+            custom_array_size = None
+            autofit_note = t("msg_autotune_note").format(
+                tol=_fmt(fit_tol), lines=fit_lines, cl=_fmt(fit_cl))
+        elif _parsed_line_count is not None:
             _default_array = max(_parsed_line_count, 1000)
             _array_size_str = simpledialog.askstring(
                 t("dlg_array_title"),
@@ -988,7 +1043,7 @@ class SpinningCamWindow(tk.Tk):
             scl_filepath=scl_path,
             db_name=db_name,
             program_title=program_title,
-            force=False,
+            force=force_flag,
             params=self.app.params,
             custom_array_size=custom_array_size,
             gcode_string=gcode_str
@@ -1029,6 +1084,8 @@ class SpinningCamWindow(tk.Tk):
                 scl_bytes=stats.get('scl_size_bytes', 0),
                 plc_bytes=stats.get('estimated_plc_bytes', 0)
             )
+            if autofit_note:
+                msg = f"{autofit_note}\n\n{msg}"
             messagebox.showinfo(t("msg_scl_complete_title"), msg)
             if messagebox.askyesno(t("msg_open_file_title"), t("msg_open_scl_file")):
                 try: os.startfile(scl_path)

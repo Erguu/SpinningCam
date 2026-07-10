@@ -9,6 +9,9 @@ CHANGELOG = {
     "1.007": [
         "Unite: the opposite of Split — select two or more operations (right-click → Unite) to combine them into one. They need not be next to each other; any operations between the picks are kept and slide to after the united operation. Re-joining the adjacent chunks of an earlier Split reproduces the original operation exactly and applies silently.",
         "When the operations you unite differ, a resolver dialog lets YOU choose how each conflicting field is combined — Start/End Z, Pass Angle, Reach, Tilt, Clearance and any other differing setting each get a drop-down (Ramp first→last, or First / Last / Average; Min / Max for Z when picks are out of order). Every default reproduces the automatic merge, so OK just accepts it. Only same-type, same-tool operations can be united, and one Ctrl+Z undoes it.",
+        "PLC Auto-tune (Machine tab → PLC Output Mode): tick 'Auto-tune tolerance to line limit' and set a Target Max Lines. On SCL export the point-reduction tolerance is fitted automatically to keep the program under your PLC's line budget — no more hand-tuning the tolerance or answering the array-size prompt.",
+        "Auto-tune is safety-guarded: it never lets the simplified path come closer to the mandrel than the normal full-resolution G-code (clearance is measured along the actual straight moves, so a decimated corner-cut is caught). If your target can't be reached without reducing clearance, it warns instead of doing it silently.",
+        "Before writing the file, Auto-tune now shows the chosen tolerance (manual → applied), the resulting line count vs. target, and the min clearance vs. the normal path, so you can review and cancel if you disagree.",
     ],
     "1.006": [
         "Camera: every viewing angle is now reachable with the on-screen buttons — no more angles you could only get with the mouse. Separate Horizontal, Vertical, Roll and Zoom buttons (fine ±5° and coarse ±15°).",

@@ -437,9 +437,7 @@ class MachineTab(ScrollableTabBase):
 
         def on_plc_toggle():
             self.app.on_param_change("plc_mode", var_plc.get(), "none")
-            state = "normal" if var_plc.get() else "disabled"
-            e_tol.config(state=state)
-            e_exit_tol.config(state=state)
+            _sync_plc_states()
 
         cb_plc = ttk.Checkbutton(f_plc_en, text=t("cb_plc_enable"), variable=var_plc, command=on_plc_toggle)
         cb_plc.pack(anchor="w")
@@ -479,6 +477,48 @@ class MachineTab(ScrollableTabBase):
         e_exit_tol.bind("<FocusOut>", lambda ev: on_exit_tol_change())
         e_exit_tol.bind("<Button-1>", lambda event: event.widget.focus_force())
         self.helper.bind_tooltip(e_exit_tol, "Çıkış eğrisi (T2→P3) için ayrı RDP toleransı.")
+
+        # Auto-tune: fit the tolerance to a PLC line budget (opt-in).
+        f_auto = ttk.Frame(f_plc)
+        f_auto.pack(fill="x", padx=5, pady=2)
+        var_auto = tk.BooleanVar(value=bool(self.app.params.get("plc_auto_tune", False)))
+        def on_auto_toggle():
+            self.app.on_param_change("plc_auto_tune", var_auto.get(), "none")
+            _sync_plc_states()
+        cb_auto = ttk.Checkbutton(f_auto, text=t("cb_plc_autotune"), variable=var_auto,
+                                  command=on_auto_toggle)
+        cb_auto.pack(anchor="w")
+        self.helper.bind_tooltip(cb_auto,
+            "Açıkken PLC toleransı, satır sayısı hedefin altına inecek şekilde SCL dışa\n"
+            "aktarımında otomatik seçilir (tolerans alanları elle girilmez).\n"
+            "Güvenlik: clearance normal G-code'un altına düşürülmez; düşerse uyarır.")
+
+        f_target = ttk.Frame(f_plc)
+        f_target.pack(fill="x", padx=5, pady=2)
+        tk.Label(f_target, text=t("lbl_plc_target"), width=18).pack(side="left")
+        var_target = tk.IntVar(value=int(self.app.params.get("plc_target_lines", 1000)))
+        def on_target_change():
+            try: self.app.on_param_change("plc_target_lines", int(var_target.get()), "none")
+            except: pass
+        e_target = ttk.Entry(f_target, textvariable=var_target, width=10)
+        e_target.pack(side="right")
+        e_target.bind("<Return>",   lambda ev: on_target_change())
+        e_target.bind("<FocusOut>", lambda ev: on_target_change())
+        e_target.bind("<Button-1>", lambda event: event.widget.focus_force())
+        self.helper.bind_tooltip(e_target, "Hedef azami PLC satır sayısı (PLC bellek limiti, örn. 1000).")
+
+        def _sync_plc_states():
+            plc_on  = var_plc.get()
+            auto_on = var_auto.get() and plc_on
+            # Auto-tune is only selectable when PLC mode is on.
+            cb_auto.config(state="normal" if plc_on else "disabled")
+            e_target.config(state="normal" if auto_on else "disabled")
+            # When auto-tune drives the tolerance, the manual fields are read-only.
+            man_state = "normal" if (plc_on and not auto_on) else "disabled"
+            e_tol.config(state=man_state)
+            e_exit_tol.config(state=man_state)
+
+        _sync_plc_states()
 
         tk.Label(f_plc, text=t("lbl_plc_hint"), font=("Arial", 8), fg="#555555").pack(anchor="w", padx=5, pady=(2, 6))
 
