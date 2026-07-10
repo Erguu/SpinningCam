@@ -5,6 +5,39 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-10 — settings.json git'ten çıkarıldı (pull çakışması fix) — FAZ 1
+
+Kullanıcı: biri pull edince değiştirilmiş dosyalar (özellikle settings) yüzünden
+git çakışma hatası veriyor. KÖK NEDEN: uygulamanın çalışırken SÜREKLİ yazdığı
+dosyalar git'te İZLENİYOR → her kullanıcının kopyası repodan ayrışıyor → `git
+pull` yerel değişikliklerin üzerine yazmayı reddediyor.
+
+**Analiz (kod doğrulandı):** SADECE `settings.json` gerçekten çakışıyor
+(`save_settings_json` her etkileşimde yazar). `layout.json` yalnızca OKUNUR
+(gui_manager, yazma yok) → drift yok. `materials.json` yalnızca YOKSA yazılır
+(`save_default_materials` `if exists: return`) → drift yok. Bu ikisi İZLENMEYE
+DEVAM (çakışmıyorlar). `tools.json` + `machines/*.json` düzenlenince/kalibre
+edilince çakışır → FAZ 2'ye ertelendi.
+
+**Yapılan (FAZ 1, commit b13e502, PUSH'lu):**
+- `.gitignore`: `settings.json` eklendi. Uygulama yoksa kod varsayılanlarından
+  yeniden kurar (main.py load_settings `if os.path.exists` → yoksa default_params).
+- `packaging_manifest.py`: SHIP_NEXT_TO_EXE'den ÇIKARILDI, NOT_SHIPPED'e eklendi.
+  YAN FAYDA: exe artık dev'in kamera/`_admin:true`/lisans yolu durumunu tohum
+  olarak SHIPLEMİYOR (müşteri temiz kod varsayılanıyla, admin DEĞİL başlıyor).
+- `git rm --cached settings.json` (yerel dosya korundu, artık ignore'lu).
+- `check_packaging` statik GEÇTİ (kaynak tarayıcı NOT_SHIPPED'de bulunca flag'lemez).
+- **Mevcut klonlar için TEK SEFERLİK geçiş adımı** `PULL_MIGRATION_settings.md`'ye
+  yazıldı (yedekle → `git checkout -- settings.json` → pull → geri yükle).
+
+**FAZ 2 (GELECEK OTURUM):** `tools.json` + `machines/*.json` → izlenen `.default`
+tohum + gitignore'lu canlı dosya + ilk-çalıştırmada tohumlama. Takımlar zaten
+Export/Import zip ile paylaşılıyor; makine kalibrasyonu yerel kalır. Not: bazı
+dosyalar zaten kendini-yaratıyor (materials, ID111-1); ID112-1 YARATMIYOR →
+tohum şart.
+
+---
+
 ## 2026-07-10 — Taşınabilir takım kütüphanesi: ID-adlı STEP geometrisi + zip dışa/içe aktarma
 
 Kullanıcı: programı push edip başka biri pull edince (veya exe elden verilince)
