@@ -68,8 +68,31 @@ def test_idempotent():
         shutil.rmtree(base, ignore_errors=True)
 
 
+def test_machine_loader_ignores_seeds():
+    """Regression: list_machine_profiles must skip <id>.default.json seeds, else every
+    machine_id is loaded twice (live + seed) and the machine-selector tree crashes with
+    'Item ID111-1 already exists'."""
+    import machine_loader
+    base = tempfile.mkdtemp()
+    try:
+        S.seed_all  # ensure module import order is fine
+        _write(os.path.join(base, "machines", "ID111-1.default.json"), {"machine_id": "ID111-1"})
+        _write(os.path.join(base, "machines", "ID111-1.json"), {"machine_id": "ID111-1"})
+        _write(os.path.join(base, "machines", "ID112-1.default.json"), {"machine_id": "ID112-1"})
+        _write(os.path.join(base, "machines", "ID112-1.json"), {"machine_id": "ID112-1"})
+
+        profs = machine_loader.list_machine_profiles(base)
+        ids = [p["machine_id"] for p in profs]
+        assert ids == ["ID111-1", "ID112-1"], f"expected 2 unique live profiles, got {ids}"
+        assert not any(p["_path"].endswith(".default.json") for p in profs), "a seed leaked into profiles"
+        print("PASS: list_machine_profiles ignores .default.json seeds (no duplicate machine_id)")
+    finally:
+        shutil.rmtree(base, ignore_errors=True)
+
+
 if __name__ == "__main__":
     test_seeds_create_missing_live()
     test_does_not_overwrite_existing_live()
     test_idempotent()
+    test_machine_loader_ignores_seeds()
     print("\nAll seed tests passed.")

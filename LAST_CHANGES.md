@@ -37,6 +37,14 @@ sonrası her `git pull` çakışıyordu. FAZ 1 gibi "koddan yeniden kur" burada 
   zaman damgalı yedek al → izlenen kopyaları sıfırla → `git pull` → yedekten geri yükle.
   Yedek her zaman ÖNCE alınır (güvenli). Müşteri bu .bat'ı pull'dan ÖNCE elden almalı.
 
+**HOTFIX (aynı gün, commit sonrası GUI'de çıktı):** `machines/` artık hem canlı
+`ID111-1.json` hem tohum `ID111-1.default.json` içerdiği için `list_machine_profiles`
+glob'u `*.json` İKİSİNİ de yüklüyordu → aynı `machine_id` iki kez → makine-seçici
+ağacı `TclError: Item ID111-1 already exists` ile ÇÖKÜYORDU. Fix: `machine_loader.py`
+`list_machine_profiles` `.default.json` biten dosyaları ATLAR. `_test_seed.py`'ye
+regresyon testi eklendi (4/4 GEÇTİ). Sandbox git-testi bunu YAKALAYAMAZDI (sadece git,
+uygulama değil) — GUI başlatma bu sınıf hataları için ŞART.
+
 **Bekleyen:** GUI smoke (temiz klon simülasyonu: canlı dosyaları sil → başlat →
 tohumlanıyor mu). `.ssp` müşteri programları bu değişiklikten ETKİLENMEZ.
 

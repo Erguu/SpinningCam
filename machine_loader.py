@@ -30,6 +30,11 @@ def list_machine_profiles(base_dir: str) -> list:
         return []
     profiles = []
     for fpath in sorted(glob.glob(os.path.join(machines_dir, "*.json"))):
+        # Skip the tracked "<id>.default.json" seeds — first_run_seed copies each to
+        # its live "<id>.json". Loading both would duplicate every machine_id (and
+        # crash the machine-selector tree with "Item ID111-1 already exists").
+        if fpath.endswith(".default.json"):
+            continue
         try:
             with open(fpath, "r", encoding="utf-8") as f:
                 p = json.load(f)
