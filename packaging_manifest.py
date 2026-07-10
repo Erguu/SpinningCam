@@ -21,7 +21,6 @@ that is not covered here, so a forgotten file cannot stay silent.
 # Relative to the project root (dev) / exe folder (frozen). Dirs are copied whole.
 # `optional=True` → shipped if present, but its absence is not a build failure.
 SHIP_NEXT_TO_EXE = [
-    ("settings.json",  False),  # seed defaults; customer-editable afterwards
     ("tools.json",     False),  # seed tool library; customer-editable afterwards
     ("tool_geometry",  True),   # tool STEP files, ID-named (T0103.STEP); portable geometry
     ("materials.json", False),  # process-planner heuristics (self-creates, ship a copy)
@@ -40,6 +39,9 @@ MUST_NOT_SHIP = [
 # ── Files intentionally NOT shipped (per-customer / generated at runtime) ────────
 # Listed so the source scanner does not flag them as "forgotten to ship".
 NOT_SHIPPED = [
+    "settings.json",     # per-user runtime state; NOT tracked/shipped — the app
+                         # rebuilds it from code defaults (main.py load_settings).
+                         # Shipping it would leak dev camera/admin/license state.
     "license.lic",       # per-customer, browsed at startup
     "layout.json",       # window layout, regenerated at runtime, optional
     "spinning_cam.log",  # runtime log

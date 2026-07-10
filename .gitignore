@@ -22,3 +22,9 @@ latestchanges.txt
 # Claude Code local settings
 .claude/settings.local.json
 ops_library.json
+
+# Per-user runtime state — the app REWRITES this constantly (params, camera,
+# sidebar width, language, license/admin flags), so tracking it makes every
+# `git pull` collide with each user's local changes. Untracked: the app rebuilds
+# it from code defaults (main.py load_settings) when it is absent.
+settings.json
