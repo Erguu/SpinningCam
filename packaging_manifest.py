@@ -21,10 +21,10 @@ that is not covered here, so a forgotten file cannot stay silent.
 # Relative to the project root (dev) / exe folder (frozen). Dirs are copied whole.
 # `optional=True` → shipped if present, but its absence is not a build failure.
 SHIP_NEXT_TO_EXE = [
-    ("tools.json",     False),  # seed tool library; customer-editable afterwards
+    ("tools.default.json", False),  # tool-library SEED; first_run_seed copies -> tools.json
     ("tool_geometry",  True),   # tool STEP files, ID-named (T0103.STEP); portable geometry
     ("materials.json", False),  # process-planner heuristics (self-creates, ship a copy)
-    ("machines",       False),  # machine profiles: ID111-1 self-creates, ID112-1 does NOT
+    ("machines",       False),  # machine profiles + <id>.default.json SEEDS; first-run seeded
     ("logo.png",       True),   # window/splash logo (optional)
     ("logo.ico",       True),   # window icon (optional)
 ]
@@ -42,6 +42,8 @@ NOT_SHIPPED = [
     "settings.json",     # per-user runtime state; NOT tracked/shipped — the app
                          # rebuilds it from code defaults (main.py load_settings).
                          # Shipping it would leak dev camera/admin/license state.
+    "tools.json",        # runtime-owned tool library; NOT tracked — first_run_seed
+                         # creates it from the shipped tools.default.json seed.
     "license.lic",       # per-customer, browsed at startup
     "layout.json",       # window layout, regenerated at runtime, optional
     "spinning_cam.log",  # runtime log
@@ -58,6 +60,7 @@ CRITICAL_MODULES = [
     "license_manager",
     "machine_adapter",
     "machine_loader",
+    "first_run_seed",                 # first-run data seeding (tools/machines), lazily imported
     "kinematics",
     "process_planner",
     "tool_step_loader",

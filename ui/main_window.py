@@ -80,6 +80,16 @@ class SpinningCamWindow(tk.Tk):
         self.app = SpinningApp(headless=True)
         self.title(f"EMS SoftSpinner V{APP_VERSION}")
 
+        # First-run seeding (Phase 2 pull-collision fix): create the runtime-owned data
+        # files (tools.json + machines/*.json) from their tracked .default seeds if they
+        # are missing. Must run BEFORE _load_machine_profile / load_tools so a fresh clone
+        # or exe finds its machines and tools; existing live files are never overwritten.
+        try:
+            import first_run_seed
+            first_run_seed.seed_all(self.app.get_base_path())
+        except Exception:
+            pass
+
         # Load saved language before building UI
         saved_lang = self.app.params.get("language", "EN")
         set_language(saved_lang)

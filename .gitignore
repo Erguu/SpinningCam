@@ -28,3 +28,11 @@ ops_library.json
 # `git pull` collide with each user's local changes. Untracked: the app rebuilds
 # it from code defaults (main.py load_settings) when it is absent.
 settings.json
+
+# Runtime-owned DATA (Phase 2 pull fix): the app rewrites these on tool edits /
+# calibration, so tracking them collides on `git pull`. The LIVE files are ignored;
+# the tracked `*.default.json` SEEDS ship instead and first_run_seed.py copies a
+# seed -> live file on first launch when the live one is missing.
+tools.json
+machines/*.json
+!machines/*.default.json

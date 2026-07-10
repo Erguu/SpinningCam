@@ -5,6 +5,43 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-10 — tools.json + machines/*.json tohum/canlı ayrımı (pull fix) — FAZ 2
+
+FAZ 1'in devamı. `tools.json` (takım düzenleme) ve `machines/*.json` (kalibrasyon)
+uygulama tarafından çalışırken YAZILIYOR → izlendikleri için düzenleme/kalibrasyon
+sonrası her `git pull` çakışıyordu. FAZ 1 gibi "koddan yeniden kur" burada YETMEZ
+(veri kodda yok) → izlenen TOHUM dosyası şart.
+
+**Yapılan (uygulandı, commit bekliyor):**
+- **`first_run_seed.py` (YENİ):** `seed_all(base_dir)` — `tools.default.json` →
+  `tools.json`, ve her `machines/<id>.default.json` → `machines/<id>.json` (SADECE
+  canlı dosya yoksa; MEVCUT dosyanın ÜZERİNE ASLA yazmaz; idempotent).
+- **`ui/main_window.py`:** `SpinningApp` oluşturulduktan HEMEN sonra, hem
+  `_load_machine_profile` (satır 88) hem `load_tools` (satır 108) ÖNCESİNDE
+  `first_run_seed.seed_all(get_base_path())` çağrısı (try/except sarmalı).
+- **Tohum dosyaları (izlenen):** `tools.default.json`, `machines/ID111-1.default.json`,
+  `machines/ID112-1.default.json` — mevcut canlı dosyaların anlık kopyası (tools tüm
+  takımlar r_tool==radius, gouge yok).
+- **`.gitignore`:** `tools.json` + `machines/*.json` ignore, `!machines/*.default.json`
+  negasyonu ile tohumlar izlenir. `git rm --cached` ile 3 canlı dosya izlemeden çıktı
+  (git bunları .default'a RENAME olarak kaydetti — içerik aynı).
+- **`packaging_manifest.py`:** SHIP'te `tools.json` → `tools.default.json`; `tools.json`
+  NOT_SHIPPED'e; `machines` dizini tohumlarla birlikte gönderiliyor; `first_run_seed`
+  CRITICAL_MODULES'e.
+- **`_test_seed.py` (YENİ):** 3 test GEÇTİ (tohumdan yaratma dâhil ID112-1, mevcut
+  dosyayı ezmeme, idempotentlik). `check_packaging` statik GEÇTİ.
+- **Neden ID112-1 kritik:** `migrate_from_settings` sadece ID111-1 yaratır; ID112-1
+  kendini YARATMAZ → tohum olmadan temiz klonda o makine KAYBOLURDU.
+- `PULL_MIGRATION_settings.md` tools/machines için de tek-seferlik adımla güncellendi.
+- **`migrate_before_pull.bat` (YENİ):** müşterinin çift-tıkla çalıştıracağı script —
+  zaman damgalı yedek al → izlenen kopyaları sıfırla → `git pull` → yedekten geri yükle.
+  Yedek her zaman ÖNCE alınır (güvenli). Müşteri bu .bat'ı pull'dan ÖNCE elden almalı.
+
+**Bekleyen:** GUI smoke (temiz klon simülasyonu: canlı dosyaları sil → başlat →
+tohumlanıyor mu). `.ssp` müşteri programları bu değişiklikten ETKİLENMEZ.
+
+---
+
 ## 2026-07-10 — settings.json git'ten çıkarıldı (pull çakışması fix) — FAZ 1
 
 Kullanıcı: biri pull edince değiştirilmiş dosyalar (özellikle settings) yüzünden

@@ -16,7 +16,21 @@ Because your existing clone still has a *tracked, locally-modified*
 last time (git wants to remove the file from tracking, but you have edits). Do
 the steps below once to get past it cleanly.
 
-## Steps (Windows PowerShell / CMD)
+## Easiest: run the script (Windows)
+
+Put **`migrate_before_pull.bat`** in your SpinningCam folder and double-click it.
+It backs up your `settings.json`, `tools.json`, and machine profiles to a
+timestamped folder, resets the tracked copies, runs `git pull`, then restores your
+files (now git-ignored, so pulls stay clean). Your originals are always backed up
+first, so it is safe.
+
+> You need the `.bat` **before** you can pull it, so grab it from whoever sent you
+> the update (email / USB / download) and drop it in the folder — it runs the pull
+> for you.
+
+Prefer to do it by hand? Use the manual steps below instead.
+
+## Manual steps (Windows PowerShell / CMD)
 
 Run these in your SpinningCam folder, **before** pulling:
 
@@ -50,7 +64,24 @@ app recreates `settings.json` from defaults the next time you launch it.
   the app made a fresh `settings.json`. Copy your `settings.mine.json` back over
   it, or just re-set your preferences once.
 
-## Note (not fixed yet)
-`tools.json` and the machine profiles under `machines/` can still collide **if**
-you edit tools or re-calibrate on your clone. That cleanup is planned for a later
-session (see the Phase 2 note in `LAST_CHANGES.md`).
+## Also applies to tools.json and machine profiles (Phase 2)
+
+The same untrack happened to `tools.json` and the per-machine files under
+`machines/` (they collide once you edit a tool or re-calibrate). If your existing
+clone has local edits to any of these, do the same one-time dance for them before
+pulling:
+
+```powershell
+copy tools.json tools.mine.json
+git checkout -- tools.json
+copy machines\ID111-1.json machines\ID111-1.mine.json   # repeat for each machine you edited
+git checkout -- machines\ID111-1.json
+git pull
+copy tools.mine.json tools.json
+copy machines\ID111-1.mine.json machines\ID111-1.json
+```
+
+After the pull, the app ships tracked **seeds** (`tools.default.json`,
+`machines/<id>.default.json`) and recreates the live file from its seed on first
+launch if it is missing — so a fresh clone just works, and your later edits stay
+local and never collide again.

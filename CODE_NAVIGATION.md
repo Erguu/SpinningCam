@@ -356,6 +356,21 @@ program yoksa `_default_cfg` ile makul varsayılana düşer.
 - DAİMA `spinning_cam` conda env'de çalıştır (OCC/fpdf/cryptography orada).
 - Yeni runtime veri dosyası → `SHIP_NEXT_TO_EXE`'ye ekle; unutulursa kaynak tarayıcı uyarır.
 
+### 22b. İlk-çalıştırma tohumlama (tohum/canlı ayrımı) — 2026-07-10 FAZ 2
+| Ne | Dosya | Fonksiyon/Anahtar |
+|----|-------|-------------------|
+| Tohum → canlı kopyalama | `first_run_seed.py` | `seed_all()`, `seed_tools()`, `seed_machines()`, `_seed_one()` |
+| Çağrı yeri (machine/tools YÜKLEMEDEN önce) | `ui/main_window.py` | `__init__`, `SpinningApp` sonrası (~satır 83) |
+| İzlenen tohumlar | `tools.default.json`, `machines/<id>.default.json` | — |
+| İgnore'lu canlı dosyalar | `.gitignore` | `tools.json`, `machines/*.json`, `!machines/*.default.json` |
+
+**Kritik gerçekler:**
+- Canlı dosya VARSA tohum ASLA üzerine yazmaz (idempotent, non-destructive).
+- `settings.json` (FAZ 1) koddan yeniden kurulur; `tools`/`machines` KODDA YOK →
+  izlenen `.default` tohumu ŞART. `machines/ID112-1` kendini yaratmaz → tohum kritik.
+- Tohum ekini `_DEFAULT_SUFFIX = ".default"+".json"` parçalı yazılır ki kaynak
+  tarayıcı (`_DATA_RE`) onu shiplenecek dosya sanmasın.
+
 ### 15. PLC mod decimation
 | Ne | Dosya | Satır/Fonksiyon |
 |----|-------|-----------------|
