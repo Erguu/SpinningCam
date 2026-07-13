@@ -1144,6 +1144,15 @@ the exe. Verifies completeness/launchability, NOT GUI render or license-logic co
 
 ### 52. Phase 3 — CODESYS post-processor (Delta / Inovance IPC)
 
+> **📋 PLAN 2026-07-13 → `PROPOSAL_ID112_CODESYS_KINEMATICS.md`** (DRAFT).
+> Architecture decided: CAM emits Cartesian `{X, Z, B(=θ), F}` **arc** G-code
+> (G1/G2/G3); CODESYS owns the inverse kinematics (θ+tip → axes) + interpolation;
+> calibration = controller master. CAM keeps `kinematics.py` only as an offline
+> reachability guard. Phase-0 interface contract filled (§5); **§8 = questions for
+> the PLC programmer** (the 7 "A" questions block the CAM export). New CAM work
+> from the arc decision = an **arc-fitter + θ-along-arc rule**. Memory:
+> `project_tilt_kinematics.md` "MİMARİ KARAR 2026-07-13".
+
 - Obtain recipe/interface spec from controller side (array/struct layout, transfer
   mechanism — file? OPC-UA?).
 - New converter module (parallel to `recipe_to_scl.py`) + `export_manager` entry;
