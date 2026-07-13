@@ -970,7 +970,7 @@ class SpinningCamWindow(tk.Tk):
         if auto:
             # Auto-tune: pick the finest tolerance that fits the line budget while
             # staying at least as clear as the full-resolution path. Replaces the
-            # array-size question entirely (target drives a fixed [0..999] array).
+            # array-size question entirely (target sizes the array: 350 -> [0..349]).
             pg = self.app.path_gen
             target = int(self.app.params.get("plc_target_lines", 1000) or 1000)
             floor_cl = pg.measure_min_clearance(pg.last_calculated_paths, self.app.params)
@@ -1009,7 +1009,10 @@ class SpinningCamWindow(tk.Tk):
             p["plc_tolerance"] = fit_tol
             p["plc_exit_tolerance"] = fit_tol
             gcode_str = self.app.path_gen.generate_gcode(params=p)
-            custom_array_size = None
+            # Size the DB array to the entered target (e.g. 350 -> Array[0..349]),
+            # not a fixed [0..999]. generate_scl's max(size-1, line_count-1) guard
+            # still grows the array if the fitted line count exceeds the target.
+            custom_array_size = target
             autofit_note = t("msg_autotune_note").format(
                 tol=_fmt(fit_tol), lines=fit_lines, cl=_fmt(fit_cl))
         elif _parsed_line_count is not None:
