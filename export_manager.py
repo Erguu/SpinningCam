@@ -337,14 +337,20 @@ class ExportManager:
 
     @staticmethod
     def auto_fit_plc_tolerance(path_gen, params, target_lines, floor_clearance,
-                               tol_min=0.05, tol_max=8.0, iters=18):
+                               tol_min=0.001, tol_max=8.0, iters=18):
         """Find the SMALLEST plc_tolerance whose emitted SCL recipe line count is
         <= target_lines, then verify the decimated path's clearance is no worse
         than the full-resolution path (floor_clearance).
 
-        The recipe line count is monotonically non-increasing in tolerance, and the
-        smallest tolerance that fits the budget also retains the MOST clearance —
-        so we bisect on the budget alone and check clearance once at the result.
+        This FILLS the line budget: because line count is monotonically
+        non-increasing in tolerance, the smallest tolerance that still fits the
+        budget yields the count CLOSEST TO target_lines from below (and retains the
+        MOST clearance). tol_min is a near-zero floor (0.001 mm ≈ no decimation), so
+        the search starts from the full-resolution "very large program" and coarsens
+        only as far as the budget forces — regardless of the manually entered
+        plc_tolerance. So we bisect on the budget alone and check clearance once at
+        the result. Note: line count is quantized, so the result lands at or just
+        below target_lines, not necessarily exactly on it.
 
         Returns a dict:
           status : 'no_reduction_needed' | 'ok' | 'clearance_limited' | 'infeasible_budget'
@@ -367,7 +373,8 @@ class ExportManager:
                 getattr(path_gen, "last_plc_paths", None) or [], p)
             return len(conv.lines), cl
 
-        # Finest tolerance already within budget → no coarsening needed.
+        # Full-resolution (near-zero tolerance) path already within budget →
+        # nothing to coarsen; the geometry simply can't produce more lines.
         n_fine, cl_fine = _eval(tol_min)
         if n_fine <= target_lines:
             return {"status": "no_reduction_needed", "tolerance": tol_min,

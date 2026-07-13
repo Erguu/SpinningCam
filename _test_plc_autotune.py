@@ -87,8 +87,8 @@ def test_autofit():
     from export_manager import ExportManager
     af = ExportManager.auto_fit_plc_tolerance
 
-    # lines(tol_min=0.05) = round(200/2) = 100 → SCL lines ≈ 103 (M3+G0+100+M5)
-    # no_reduction_needed: generous budget
+    # lines(tol_min=0.001) = round(200/1.02) ≈ 196 → SCL lines ≈ 199 (M3+G0+196+M5)
+    # no_reduction_needed: generous budget the full-resolution path already fits
     r = af(_fake_pg(), {}, target_lines=500, floor_clearance=0.0)
     assert r["status"] == "no_reduction_needed", r
     print(f"[OK] no_reduction_needed: {r['lines']} lines ≤ 500")

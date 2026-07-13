@@ -5,6 +5,29 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-13 — PLC Auto-tune artık satır BÜTÇESİNİ DOLDURUYOR (tol_min 0.05 → 0.001)
+
+**Operatör gözlemi (haklıydı):** Tolerance 0.01 (elle) → 0.05 (uygulandı), Satır 309 → 213,
+hedef 350. Yani zaten bütçe altındaki 309 satır, gereksiz yere 213'e düşürüldü.
+
+**Kök neden:** `auto_fit_plc_tolerance` en ince tolerans tabanı `tol_min=0.05` idi. Bu, elle
+girilebilen 0.01'den DAHA KABA. Algoritma 0.05'te 213 satır görüp `no_reduction_needed` ile
+erkenden duruyordu (bütçeyi DOLDURMUYOR, sadece "aşma"). Sonuç: elle ayardan bile daha az
+satır + daha az clearance.
+
+**Fix:** `export_manager.py` `auto_fit_plc_tolerance` → `tol_min=0.05` **→ `0.001` mm** (≈ tam
+çözünürlük, "çok büyük program"). Bisection ZATEN doğruydu: satır sayısı toleransta monoton
+azaldığından, bütçeye sığan en KÜÇÜK tolerans = hedefe ALTTAN en yakın satır sayısı (+ en fazla
+clearance). Artık elle girilen `plc_tolerance` tamamen yok sayılıp tam çözünürlükten başlar,
+bütçe zorladığı kadar kabalaşır → ~349/350. Çekirdek algoritma değişmedi, sadece taban.
+
+**Not:** Satır sayısı kuantize → sonuç hedefin ALTINA/üstüne değil, tam altına oturur (tam 350
+garanti değil; aşmak PLC limitini patlatır). Daha ince tolerans = daha fazla satır = DAHA GÜVENLİ
+(clearance guard yine de doğrular). `_test_plc_autotune.py` yorum+beklenti güncellendi, 7/7 GEÇTİ.
+**GUI smoke BEKLİYOR** (preview "309 → ~349 (hedef 350)" göstermeli).
+
+---
+
 ## 2026-07-11 — PLC Otomatik Ayar (satır bütçesine tolerans oturtma) + clearance guard (#86)
 
 PLC belleği çok kısıtlı (tek program/çalışma, sadece doğrusal, 1000 satır sert duvar —
