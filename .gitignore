@@ -40,3 +40,14 @@ machines/*.json
 # Leftovers from migrate_before_pull.bat / the manual migration (local only)
 migration_backup_*/
 *.mine.json
+
+# Personal CAD inputs & saved programs (user work products, not source). These
+# used to show up as untracked noise on every push. NOTE the leading slash: only
+# ROOT-level part/mandrel models are ignored — tool_geometry/*.STEP stays TRACKED
+# (portable tool-library geometry that ships with the app).
+/*.STEP
+/*.step
+/*.stp
+/*.STP
+*.ssp
+!deneme_mandrel.ssp   # keep the tracked example program
