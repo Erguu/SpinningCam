@@ -329,6 +329,13 @@ class ExportManager:
                     'actual_lines': int(parts[1]),
                     'max_lines': int(parts[2])
                 }
+            if error_msg.startswith("TOOL_TABLE:"):
+                # Turret/tool-table misconfiguration — the recipe would be rejected
+                # by the PLC (16#0311 / pre-scan). Surface the message, don't write.
+                return False, {
+                    'tool_table_error': True,
+                    'message': error_msg[len("TOOL_TABLE:"):]
+                }
             print(f"SCL Export Error: {e}")
             return False, {}
         except Exception as e:

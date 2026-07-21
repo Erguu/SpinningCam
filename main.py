@@ -132,6 +132,18 @@ class SpinningApp:
             "plc_tolerance": 0.5,
             "plc_auto_tune": False,     # auto-fit tolerance to a PLC line budget
             "plc_target_lines": 1000,   # target max recipe lines when auto_tune is on
+
+            # Recipe-carried turret / tool table (CAM_TOOL_TABLE_HANDOVER.md).
+            # 4 physical slots; code 0 = empty. Emitted into every SCL recipe header
+            # so the PLC takes its tool mapping from the recipe. Empty by default →
+            # export blocks until the turret is configured (or seeded per machine).
+            "turret_slots": [
+                {"code": 0, "angle": 0.0},
+                {"code": 0, "angle": 0.0},
+                {"code": 0, "angle": 0.0},
+                {"code": 0, "angle": 0.0},
+            ],
+            "turret_auto_angles": True,  # PLC auto-spaces angles from ToolCount
             "workspace_show": True,
             "workspace_x_min": 0.0,
             "workspace_x_max": 300.0,
@@ -167,6 +179,13 @@ class SpinningApp:
             # .effective_clamp_length). Phase 1 = warning + 3D band only (no clipping).
             "clamp_zone_length": 0.0,
             "clamp_zone_baseline": 0.0,
+
+            # Straight-line finishing flatness advisory: the 2-point line is only
+            # clearance-correct on a constant-angle (conical) span. Warn (no path
+            # change) when the surface between start_z/end_z bows off that chord by
+            # more than the tolerance. See PROPOSAL_straight_line_flatness_warning.md.
+            "straight_line_flatness_warn": True,
+            "straight_line_flatness_tol": 0.15,
 
             # #63: show the faded-blue deformed-blank overlay (follows the selected pass).
             "show_deformed_blank": True,
@@ -1680,11 +1699,15 @@ class SpinningApp:
 
             # Build mesh with tip anchored at local (0,0,0)
             roller_mesh = None
+            roller_color = "orange"   # default when the tool has no color set
             try:
                 if tid:
                     tool_entry = next((t for t in self.tool_library if t.get("id") == tid), None)
                     if tool_entry:
                         roller_mesh = self.tool_step_loader.get_canonical_mesh(tool_entry, _side)
+                        _c = str(tool_entry.get("color", "") or "").strip()
+                        if _c:
+                            roller_color = _c
             except Exception as _e:
                 logger.debug(f"Sim STEP roller build: {_e}")
 
@@ -1695,7 +1718,12 @@ class SpinningApp:
                                         theta_resolution=24, phi_resolution=24)
 
             try:
-                self.actors["roller"] = self.plotter.add_mesh(roller_mesh, color='orange', smooth_shading=True)
+                try:
+                    self.actors["roller"] = self.plotter.add_mesh(roller_mesh, color=roller_color, smooth_shading=True)
+                except (ValueError, TypeError):
+                    # User-entered color string wasn't a valid color → fall back.
+                    logger.debug(f"Invalid tool color {roller_color!r}, using orange")
+                    self.actors["roller"] = self.plotter.add_mesh(roller_mesh, color='orange', smooth_shading=True)
                 tip_mesh = pv.Sphere(radius=2.0, center=(0.0, 0.0, 0.0))
                 self.actors["roller_tip"] = self.plotter.add_mesh(tip_mesh, color='lime', smooth_shading=True)
             except Exception as e:

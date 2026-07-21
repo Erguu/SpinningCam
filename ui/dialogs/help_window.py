@@ -352,6 +352,20 @@ standoff. Multiple finishing passes step down that standoff to
 zero (the actual part thickness). Use 1–3 finishing passes
 depending on the surface quality required.
 
+Straight-line finishing (2-point line): for a constant-angle
+(conical or cylindrical) wall you can reduce a finishing pass to a
+single straight line between its Start Z and End Z — far fewer
+G-code points. This is only correct while that span really is
+straight: the line is offset parallel to the surface, so on a
+constant angle the clearance stays even the whole way. If the
+surface between Start Z and End Z is curved or changes slope, the
+line drifts off it and the clearance is no longer held mid-pass.
+The software checks this and shows a warning (amber status bar, and
+a pop-up if the surface bulges toward the tool, which risks a
+gouge). If you see it, split the operation at the slope change or
+switch it to sweeping/adaptive finishing. Tune the trigger with
+the flatness tolerance parameter (default 0.15 mm).
+
 
 PROGRESSIVE ANGLE & REACH (per-pass P3 exit shaping)
 ════════════════════════════════════════════════════════════════
@@ -641,10 +655,18 @@ selecting and editing each one.
 Choosing the target operations, two ways:
   - Click the ☑ cells in the table's first column to tick
     operations (clicking the cell only toggles the tick — it does
-    not change the row selection or fire On/Off).
-  - Or simply select several rows with Shift/Ctrl+click.
+    not change the row selection or fire On/Off). Click the ☑
+    COLUMN HEADER to tick every row at once (click again to clear).
+  - Or simply select several rows with Shift/Ctrl+click, or press
+    Ctrl+A to highlight all of them.
 Ticks win when any are set; otherwise the selection is used. The
 right-click → Batch… item enables at 2+ targets and shows the count.
+
+This same target rule now drives Delete and Move ▲▼ too: the
+right-click → Delete (or the Delete key while the list is focused)
+removes EVERY targeted operation (it asks for confirmation when 2 or
+more are targeted), and Move up/down shifts the whole target set
+together as one block. Both are one undo step.
 
 In the dialog: pick the parameter, the mode — "+= add" (add a
 constant), "= set" (assign a value), "×= scale" (multiply) — and
@@ -1040,10 +1062,17 @@ birini tek tek seçip düzenlemek yerine.
 Hedef operasyonları seçmenin iki yolu:
   - Tablonun ilk sütunundaki ☑ hücrelerine tıklayarak operasyonları
     işaretleyin (hücreye tıklamak yalnız işareti değiştirir — satır
-    seçimini bozmaz, Aç/Kapat'ı tetiklemez).
-  - Veya satırları Shift/Ctrl+tık ile çoklu seçin.
+    seçimini bozmaz, Aç/Kapat'ı tetiklemez). ☑ SÜTUN BAŞLIĞINA
+    tıklamak hepsini birden işaretler (tekrar tıklamak temizler).
+  - Veya satırları Shift/Ctrl+tık ile çoklu seçin, ya da Ctrl+A ile
+    hepsini birden vurgulayın.
 İşaret varsa işaretler geçerlidir; yoksa seçim kullanılır. Sağ-tık →
 Toplu… ögesi 2+ hedefte aktifleşir ve sayıyı gösterir.
+
+Aynı hedef kuralı artık Sil ve Taşı ▲▼ için de geçerli: sağ-tık →
+Sil (veya liste odaktayken Delete tuşu), hedeflenen TÜM operasyonları
+kaldırır (2+ hedefte onay sorar) ve Yukarı/Aşağı taşı, hedef kümesini
+tek blok olarak birlikte kaydırır. İkisi de tek geri-al adımıdır.
 
 Pencerede: parametreyi, modu — "+= ekle" (sabit ekle), "= ata"
 (değer ata), "×= ölçekle" (çarp) — ve değeri seçin. Önizleme
@@ -1644,6 +1673,19 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   tolerans dışa aktarımda bütçenize otomatik oturtulur —
                   clearance normal G-code yolunun altına asla düşürülmez
                   (hedef güvenle karşılanamazsa uyarır).
+
+                  TARET / TAKIM TABLOSU: Her SCL reçetesinin başlığına
+                  taret düzeni (yuva→takım-kodu, yuva sayısı, açılar)
+                  yazılır — PLC takım eşlemesini artık HMI'dan değil
+                  REÇETEDEN alır. Makine sekmesindeki "Taret / Takım
+                  Tablosu" bölümünde 4 yuvayı ayarlayın (kod 0 = boş);
+                  "Takım kütüphanesinden doldur" ID'lerden kodları çeker
+                  (T0103 → 103). "Açıları otomatik" işaretliyse açıları
+                  PLC eşit aralıkla hesaplar, değilse ölçülen açıları
+                  elle girin. Programda kullanılan bir takım hiçbir yuvaya
+                  eşlenmemişse dışa aktarma ENGELLENİR (yanlış takıma
+                  dönmeyi önler). Bu değişiklikten ÖNCE üretilmiş eski
+                  reçeteler geçersizdir → yeniden üretin.
 
 Reçete CSV        Basitleştirilmiş paso-paso parametre tablosu.
                   Dokümantasyon, kurulum sayfaları ve diğer araçlara

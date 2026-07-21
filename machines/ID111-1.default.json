@@ -29,6 +29,13 @@
     "plc_mode": true,
     "plc_tolerance": 0.01,
     "plc_exit_tolerance": 0.5,
+    "turret_auto_angles": true,
+    "turret_slots": [
+        {"code": 101, "angle": 0.0},
+        {"code": 102, "angle": 120.0},
+        {"code": 103, "angle": 240.0},
+        {"code": 0, "angle": 0.0}
+    ],
     "gcode_resolution": 0.001,
     "gcode_header": "G21 G90 G18\nG54",
     "gcode_footer": "M5\nM30",

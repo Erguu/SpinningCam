@@ -688,7 +688,7 @@ class ProgramTab:
         base = ("Sel", "Idx", "On", "Type", "Count", "Tool", "RealEndZ", "EndReach", "EndAngle")
         cols = base + tuple(f"x_{k}" for k in extra)
         self.tree_ops.configure(columns=cols)
-        self.tree_ops.heading("Sel", text="☑"); self.tree_ops.column("Sel", width=28, anchor="center")
+        self.tree_ops.heading("Sel", text="☑", command=self._toggle_all_checks); self.tree_ops.column("Sel", width=28, anchor="center")
         self.tree_ops.heading("Idx", text="#"); self.tree_ops.column("Idx", width=30, anchor="w")
         self.tree_ops.heading("On", text=t("col_on")); self.tree_ops.column("On", width=35, anchor="center")
         self.tree_ops.heading("Type", text=t("col_type")); self.tree_ops.column("Type", width=70)
@@ -722,7 +722,7 @@ class ProgramTab:
 
         cols = ("Sel", "Idx", "On", "Type", "Count", "Tool", "RealEndZ", "EndReach", "EndAngle")
         self.tree_ops = ttk.Treeview(f_tree, columns=cols, show="headings", height=6)
-        self.tree_ops.heading("Sel", text="☑"); self.tree_ops.column("Sel", width=28, anchor="center")
+        self.tree_ops.heading("Sel", text="☑", command=self._toggle_all_checks); self.tree_ops.column("Sel", width=28, anchor="center")
         self.tree_ops.heading("Idx", text="#"); self.tree_ops.column("Idx", width=30)
         self.tree_ops.heading("On", text=t("col_on")); self.tree_ops.column("On", width=35, anchor="center")
         self.tree_ops.heading("Type", text=t("col_type")); self.tree_ops.column("Type", width=70)
@@ -750,6 +750,12 @@ class ProgramTab:
         self.tree_ops.bind("<Button-1>", self._on_tree_click)
         # #70: right-click context menu with the row actions (rename lives here).
         self.tree_ops.bind("<Button-3>", self._on_tree_right_click)
+        # Ctrl+A highlights every row (native list meaning). Delete/Move then
+        # act on the whole selection via the unified _batch_targets() rule.
+        self.tree_ops.bind("<Control-a>", self._select_all_ops)
+        self.tree_ops.bind("<Control-A>", self._select_all_ops)
+        # Delete key removes the targeted ops (same unified rule + confirm).
+        self.tree_ops.bind("<Delete>", self._on_delete_key)
 
         # ── Toolbar ──────────────────────────────────────────────────────
         # Compact, self-wrapping action bar. Only actions that are NOT already
@@ -1182,6 +1188,7 @@ class ProgramTab:
         # actually sees it (path_gen only logs it). Persists until the next calc.
         if status == "ok":
             self.ui_root.refresh_clamp_status()
+            self.ui_root.refresh_flatness_status()
         else:
             self.ui_root.lbl_info.config(text=t("status_ready"), fg="#ddd")
 
@@ -1373,6 +1380,41 @@ class ProgramTab:
         if self._batch_checked:
             self._batch_checked.clear()
         self._update_batch_button()
+
+    def _redraw_sel_cells(self):
+        """Repaint the ☑ column from the current _batch_checked set."""
+        for row in self.tree_ops.get_children():
+            try:
+                i = int(row)
+            except ValueError:
+                continue
+            self.tree_ops.set(row, "Sel", "☑" if i in self._batch_checked else "☐")
+
+    def _toggle_all_checks(self):
+        """Click on the ☑ column header: tick every row, or clear all if they
+        are already all ticked. Purely the batch-tick set — never the ops."""
+        n = len(self.app.params.get("operations", []))
+        if n == 0:
+            return
+        if len(self._batch_checked) >= n:
+            self._batch_checked = set()
+        else:
+            self._batch_checked = set(range(n))
+        self._redraw_sel_cells()
+        self._update_batch_button()
+
+    def _select_all_ops(self, event=None):
+        """Ctrl+A: highlight every operation row."""
+        kids = self.tree_ops.get_children()
+        if kids:
+            self.tree_ops.selection_set(kids)
+        return "break"
+
+    def _on_delete_key(self, event=None):
+        """Delete key: remove the targeted ops (unified rule + confirm)."""
+        if self._batch_targets():
+            self.del_op()
+        return "break"
 
     def _batch_targets(self):
         """Op indices the batch edit applies to: the ☑ ticks when any are set,
@@ -4262,13 +4304,22 @@ class ProgramTab:
         self._schedule_auto_calc()
 
     def del_op(self):
-        sel = self.tree_ops.selection()
-        if not sel:
+        # Unified target rule (#67): ☑ ticks if any, otherwise the highlighted
+        # selection — so multi-select delete removes every targeted op.
+        targets = self._batch_targets()
+        if not targets:
             return
-        idx = int(sel[0])
+        if len(targets) >= 2:
+            from tkinter import messagebox
+            if not messagebox.askyesno(
+                    t("btn_del_op"),
+                    t("msg_confirm_del_multi").format(n=len(targets)),
+                    parent=self.frame.winfo_toplevel()):
+                return
+        first = targets[0]
         self._push_undo(t("btn_del_op"))
         self._clear_batch_checks()  # #67: indices shift after the removal
-        # Discard the current property-editor state BEFORE removing the op.
+        # Discard the current property-editor state BEFORE removing the ops.
         # The entry-savers are bound to positional indices and still hold the
         # deleted op's widget values; if left in place, the next
         # _flush_entries() would write them into whichever op now occupies
@@ -4280,37 +4331,60 @@ class ProgramTab:
         for w in self.f_prop_editor.winfo_children():
             w.destroy()
 
-        self.app.params["operations"].pop(idx)
+        ops = self.app.params["operations"]
+        for idx in sorted(targets, reverse=True):  # high→low keeps indices valid
+            if 0 <= idx < len(ops):
+                ops.pop(idx)
         self.refresh_ops_tree()
 
-        # Rebuild the editor for whatever op now sits at (or before) idx.
+        # Rebuild the editor for whatever op now sits at (or before) the first
+        # removed index.
         ops = self.app.params.get("operations", [])
         if ops:
-            new_sel = min(idx, len(ops) - 1)
+            new_sel = min(first, len(ops) - 1)
             self.tree_ops.selection_set(str(new_sel))
             self.on_op_select(None, _flush=False)
 
     def move_op(self, d):
-        sel = self.tree_ops.selection()
-        if not sel:
+        # Unified target rule (#67): ☑ ticks if any, otherwise the highlighted
+        # selection. The whole target set moves together as one block (even if
+        # it started non-contiguous — it collapses into a contiguous block).
+        targets = self._batch_targets()
+        if not targets:
             return
-        idx = int(sel[0])
-        new_idx = idx + d
-        if not (0 <= new_idx < len(self.app.params["operations"])):
-            return
-        # Commit pending edits for the selected op first (savers are still
-        # bound to its current index), then discard them so the reselect
-        # below can't write the moved op's old widget values into the op
-        # that swaps into this index.
+        # Commit pending edits for the anchor op first (savers are still bound
+        # to its current index), then discard them so the reselect below can't
+        # write stale widget values into whichever op swaps into that index.
         self._flush_entries()
+        ops = self.app.params.get("operations", [])
+        n, k = len(ops), len(targets)
+        tset = set(targets)
+        if d < 0:
+            new_start = max(0, targets[0] - 1)
+        else:
+            new_start = min(n - k, targets[0] + 1)
+        remaining = [op for i, op in enumerate(ops) if i not in tset]
+        sel_ops = [ops[i] for i in targets]
+        new_ops = remaining[:new_start] + sel_ops + remaining[new_start:]
+        # No-op guard: block already sits against the edge in that direction.
+        if [id(o) for o in new_ops] == [id(o) for o in ops]:
+            return
+
         self._push_undo(t("act_move_op"))
-        self._clear_batch_checks()  # #67: the swap invalidates ticked indices
+        from_checks = bool(self._batch_checked)
+        self._clear_batch_checks()  # indices shift with the reorder
         self._active_entry_savers = []
         self._active_op_idx = None
-        ops = self.app.params["operations"]
-        ops[idx], ops[new_idx] = ops[new_idx], ops[idx]
+        self.app.params["operations"] = new_ops
         self.refresh_ops_tree()
-        self.tree_ops.selection_set(str(new_idx))
+
+        new_positions = list(range(new_start, new_start + k))
+        # If the move was driven by ☑ ticks, keep them on the moved rows.
+        if from_checks:
+            self._batch_checked = set(new_positions)
+            self._redraw_sel_cells()
+            self._update_batch_button()
+        self.tree_ops.selection_set(*[str(p) for p in new_positions])
         self.on_op_select(None, _flush=False)
 
     def rebuild(self):

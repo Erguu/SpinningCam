@@ -5,6 +5,50 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-21 — Reçete-taşımalı TARET / TAKIM TABLOSU (SCL post-processor) + takım rengi simülasyonda
+
+**PLC handover (`CAM_TOOL_TABLE_HANDOVER.md`):** PLC artık taret eşlemesini HMI'dan değil
+REÇETEDEN alıyor ("recipe always wins"). Tool table taşımayan reçete Start'ta `16#0311` ile
+reddediliyor. CAM tarafı = SCL başlığına 5 yeni alan yaz.
+
+**Yapılanlar (4 parça):**
+1. **Post-processor** (`recipe_to_scl.py`): `tool_code_from_id` (T0103→103, parser `T(\d+)` ile
+   aynı), `normalize_turret` (4 yuva, kod 0=boş, ToolCount=en yüksek dolu yuva, auto açı = eşit
+   aralık), `_tool_table_scl` (5 alanı `Header.MaxZ`'den SONRA emit eder + DOĞRULAR). Emisyon
+   `generate_scl` içinde MaxZ satırından sonra.
+2. **Doğrulama (GÜVENLİK — sert-hata):** Programda kullanılan her `CMD=10 Param` bir yuvaya
+   eşlenmiş OLMALI; değilse `ValueError('TOOL_TABLE:...')` → dışa aktarma ENGELLENİR (yanlış
+   takıma dönme = çarpışma). Kod 0-255 (byte) aralığı da zorlanır. `export_manager.export_scl`
+   hatayı `{'tool_table_error', 'message'}` olarak döndürür; `main_window.export_scl_action`
+   dialoglardan ÖNCE `_pre_converter` ile ön-kontrol yapıp mesajı gösterir (+ son blokta backstop).
+3. **UI** (`ui/tabs/machine_tab.py`): "Taret / Takım Tablosu" bölümü — 4 yuva (kod+açı), "Açıları
+   otomatik" kutusu (işaretliyse açı alanları kilitli + canlı önizleme), "Takım kütüphanesinden
+   doldur" düğmesi. `section_frames["turret"]` + adapter 111 `get_ui_sections`'a "turret" (112 SCL
+   aktarmaz → yok). Değişiklikler `on_param_change("turret_slots"/"turret_auto_angles")` ile
+   `autosave_machine_profile`'a yazılır.
+4. **Veri modeli:** `turret_slots` + `turret_auto_angles` → `MACHINE_PROFILE_KEYS`
+   (`machine_loader.py`), `main.py load_settings` varsayılan (boş, hepsi 0), `machines/ID111-1.default.json`
+   tohumu (101/102/103 — handover örneği; taze kurulum hazır gelir). i18n EN/TR/ES (`frm_turret`,
+   `lbl_turret_info`, `turret_*`, `cb_turret_auto`, `btn_turret_populate`).
+
+**Takım kodu doğrulaması (aynı gün, ek):** Takım penceresinde Ekle/Güncelle artık ID'nin PLC
+koduna (rakamlar → int; T0201→201, sıfırlar önemsiz) 1-255 dışında veya 0 ise HATA verip kaydı
+engeller (`tool_manager._validate_tool_code`, i18n `tm_bad_code_*`). Kök: reçete parser'ı >255'i
+SESSİZCE 255'e kırpıyordu. Not: hane sayısı KOZMETİK — T0201 ve T201 ikisi de 201; 3-haneye
+geçmek kodu değiştirmez, gereksiz yeniden-adlandırma (STEP dosyaları + kayıtlı programlar).
+
+**Ayrıca:** Takım rengi artık simülasyon ruloUNU boyuyor (`main.py update_roller_visual` — eskiden
+sabit 'orange'; geçersiz renkte orange'a düşer). Takım penceresinde renk = dropdown + "…" seçici
+(`tool_manager.py`, i18n `tm_color_pick`). STATİK sahne rulosu (update_scene) DEĞİŞMEDİ — orada renk
+çarpışma göstergesi (kırmızı=gouge).
+
+**Test:** `_test_tool_table.py` 7/7 GEÇTİ (worked example handover §3 ile birebir eşleşiyor). Tüm
+dosyalar byte-compile OK. **GUI smoke BEKLİYOR** (taret bölümü, doldur düğmesi, auto-kilit, eksik-takım
+export bloğu) + PLC ekibinin çıktı reçetesini gerçek makinede doğrulaması (handover §7 checklist).
+Eski reçeteler geçersiz → yeniden üret.
+
+---
+
 ## 2026-07-13 — PLC Auto-tune artık satır BÜTÇESİNİ DOLDURUYOR (tol_min 0.05 → 0.001)
 
 **Operatör gözlemi (haklıydı):** Tolerance 0.01 (elle) → 0.05 (uygulandı), Satır 309 → 213,

@@ -6,6 +6,11 @@ import tool_library_io
 from logger_config import logger
 
 class ToolManager(tk.Toplevel):
+    # Curated palette for the tool "Color" dropdown (any PyVista/Tk color name or
+    # hex string also works via the "…" picker). Represents the tool in simulation.
+    _COLOR_CHOICES = ["orange", "red", "crimson", "gold", "limegreen",
+                      "steelblue", "dodgerblue", "cyan", "purple", "dimgray"]
+
     def __init__(self, parent, ui_manager):
         super().__init__(parent)
         self.ui = ui_manager
@@ -49,8 +54,20 @@ class ToolManager(tk.Toplevel):
             f = ttk.Frame(f_entries)
             f.pack(side="left", padx=2)
             tk.Label(f, text=c, font=("Arial", 8)).pack(anchor="w")
-            e = ttk.Entry(f, width=10)
-            e.pack()
+            if c == "Color":
+                # Curated named colors + a custom picker so the valid options are
+                # discoverable. Combobox subclasses Entry, so get/insert/delete used
+                # elsewhere still work. Any name PyVista accepts (or a hex like
+                # #ff8800) is valid; the sim roller falls back to orange if invalid.
+                row = ttk.Frame(f)
+                row.pack()
+                e = ttk.Combobox(row, width=9, values=self._COLOR_CHOICES)
+                e.pack(side="left")
+                tk.Button(row, text="…", width=2,
+                          command=self._pick_color).pack(side="left")
+            else:
+                e = ttk.Entry(f, width=10)
+                e.pack()
             self.entries[c] = e
 
         # r_tool row
@@ -258,6 +275,35 @@ class ToolManager(tk.Toplevel):
         self.editing_id = None
         self.lbl_status.config(text=t("tm_status_cleared"), fg="gray")
 
+    def _pick_color(self):
+        """Open the OS color chooser and write the chosen hex into the Color box."""
+        from tkinter import colorchooser
+        cur = self.entries["Color"].get().strip() or "orange"
+        try:
+            _rgb, hexval = colorchooser.askcolor(color=cur, parent=self,
+                                                 title=t("tm_color_pick"))
+        except tk.TclError:
+            # Current value not a color Tk recognises → open without a seed.
+            _rgb, hexval = colorchooser.askcolor(parent=self, title=t("tm_color_pick"))
+        if hexval:
+            self.entries["Color"].delete(0, tk.END)
+            self.entries["Color"].insert(0, hexval)
+
+    def _validate_tool_code(self, tool_id: str) -> bool:
+        """The PLC tool code = the digits of the ID (T0201 -> 201). It must fit one
+        byte (1-255); 0 is the reserved 'empty slot' sentinel. Block add/update with
+        a clear message otherwise, so a too-big ID can't be silently clamped in the
+        recipe. See CAM_TOOL_TABLE_HANDOVER.md."""
+        from recipe_to_scl import tool_code_from_id
+        code = tool_code_from_id(tool_id)
+        if code <= 0 or code > 255:
+            messagebox.showerror(
+                t("tm_bad_code_title"),
+                t("tm_bad_code_msg").format(id=tool_id, code=code),
+                parent=self)
+            return False
+        return True
+
     def _build_tool_dict(self) -> dict:
         try:
             rad = float(self.entries["Radius"].get())
@@ -287,6 +333,8 @@ class ToolManager(tk.Toplevel):
             if tl["id"] == new_id:
                 messagebox.showwarning(t("tm_duplicate_id_title"), t("tm_duplicate_id_msg").format(new_id))
                 return
+        if not self._validate_tool_code(new_id):
+            return
         tool = self._build_tool_dict()
         note = self._sync_geometry(tool)
         self.ui.tool_library.append(tool)
@@ -305,6 +353,8 @@ class ToolManager(tk.Toplevel):
         new_id = self.entries["ID"].get()
         if not new_id:
             messagebox.showwarning(t("tm_missing_id_title"), t("tm_missing_id_msg"))
+            return
+        if not self._validate_tool_code(new_id):
             return
         updated = self._build_tool_dict()
         note = self._sync_geometry(updated, old_id=self.editing_id)

@@ -20,7 +20,8 @@ class StandardTwoAxisSpinningAdapter(MachineAdapter):
     def get_ui_sections(self):
         return [
             "coords", "output_mode", "offsets", "home", "touch",
-            "gcode_out", "workspace", "cylinder", "plc", "custom_cmds", "mcode_desc",
+            "gcode_out", "workspace", "cylinder", "plc", "turret",
+            "custom_cmds", "mcode_desc",
         ]
 
     def get_export_formats(self):

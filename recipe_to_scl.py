@@ -39,6 +39,56 @@ MAX_LINES = 1000
 MAX_SPINDLE_RPM = 2550
 MAX_FEEDRATE = 3000
 
+# Recipe-carried tool table (CAM_TOOL_TABLE_HANDOVER.md). The PLC turret has a
+# fixed 4 physical slots; the recipe header now carries the slot->tool-code map so
+# the PLC no longer relies on an HMI-entered mapping ("recipe always wins").
+MAX_TURRET_SLOTS = 4
+
+
+def tool_code_from_id(tool_id) -> int:
+    """External PLC tool code (a byte) from a CAM tool_id, e.g. 'T0103' -> 103.
+
+    Mirrors the recipe parser's ``T(\\d+)`` rule (int of the digit run) so the
+    header ``ToolCode_List`` values match the ``CMD=10 Param`` values exactly.
+    """
+    digits = "".join(ch for ch in str(tool_id) if ch.isdigit())
+    return int(digits) if digits else 0
+
+
+def normalize_turret(params: dict):
+    """Resolve the turret setup from ``params`` into fixed 4-slot arrays.
+
+    Returns ``(codes, angles, auto_angles, tool_count)`` where ``codes`` and
+    ``angles`` are length-4 lists for slots 1..4 (``code == 0`` = empty slot),
+    ``auto_angles`` is the AutoCalcAngles flag, and ``tool_count`` is the highest
+    populated slot index (min 1) so every used code sits within ``[1..ToolCount]``.
+
+    When ``auto_angles`` is true the angles are evenly spaced across ``tool_count``
+    (1->0, 2->0/180, 3->0/120/240, 4->0/90/180/270), matching the PLC's own
+    auto-spacing; empty trailing slots get 0.0.
+    """
+    slots = params.get("turret_slots") or []
+    auto = bool(params.get("turret_auto_angles", True))
+    codes = [0, 0, 0, 0]
+    angles = [0.0, 0.0, 0.0, 0.0]
+    for i in range(MAX_TURRET_SLOTS):
+        if i < len(slots) and isinstance(slots[i], dict):
+            try:
+                codes[i] = int(float(slots[i].get("code", 0) or 0))
+            except (TypeError, ValueError):
+                codes[i] = 0
+            try:
+                angles[i] = float(slots[i].get("angle", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                angles[i] = 0.0
+    populated = [i + 1 for i, c in enumerate(codes) if c != 0]
+    tool_count = max(populated) if populated else 1
+    if auto:
+        n = tool_count
+        for i in range(MAX_TURRET_SLOTS):
+            angles[i] = round(i * 360.0 / n, 3) if i < n else 0.0
+    return codes, angles, auto, tool_count
+
 
 @dataclass
 class RecipeLineData:
@@ -332,6 +382,56 @@ class GCodeToSCLConverter:
             
         return self.lines
         
+    def _tool_table_scl(self, params: dict) -> List[str]:
+        """Build the CAM-authored tool-table header lines and validate them against
+        the tool codes the program actually uses (every ``CMD=10 Param``).
+
+        Emits the 5 fields the PLC's ``RecipeHeader`` v0.2 expects
+        (``ProvidesToolConfig``, ``ToolCount``, ``AutoCalcAngles``,
+        ``ToolCode_List[1..4]``, ``ToolAngle_List[1..4]``). See
+        CAM_TOOL_TABLE_HANDOVER.md.
+
+        Raises ``ValueError('TOOL_TABLE:<msg>')`` on a setup the PLC would reject
+        (unmapped tool code -> pre-scan / 16#0311, or a code outside the byte range),
+        so the export layer can surface a clear message and abort.
+        """
+        codes, angles, auto, tool_count = normalize_turret(params or {})
+
+        # Param is a single byte — every configured code must fit 0..255.
+        bad = [c for c in codes if c < 0 or c > 255]
+        if bad:
+            raise ValueError(
+                "TOOL_TABLE:Turret tool code(s) "
+                + ", ".join(str(c) for c in bad)
+                + " are outside the valid 0-255 range (PLC Param is one byte).")
+
+        # Rule #2: every code the program changes to must be mapped to a slot,
+        # else the PLC pre-scan fails (16#0308) / the recipe is rejected.
+        used = sorted({l.param for l in self.lines
+                       if l.cmd == CMD_TOOL_CHANGE and l.param != 0})
+        configured = {codes[i] for i in range(tool_count) if codes[i] != 0}
+        missing = [c for c in used if c not in configured]
+        if missing:
+            raise ValueError(
+                "TOOL_TABLE:Tool code(s) "
+                + ", ".join(str(c) for c in missing)
+                + " are used by this program but not assigned to any turret slot.\n"
+                + "Set them up in Machine ▸ Turret / Tool Table before exporting.")
+
+        lines = [
+            "    ",
+            "    // --- Tool table (CAM-authored) ---",
+            "    Header.ProvidesToolConfig := TRUE;",
+            f"    Header.ToolCount := {tool_count};",
+            f"    Header.AutoCalcAngles := {'TRUE' if auto else 'FALSE'};",
+        ]
+        for i in range(MAX_TURRET_SLOTS):
+            note = "  // unused" if codes[i] == 0 else ""
+            lines.append(f"    Header.ToolCode_List[{i + 1}] := {codes[i]};{note}")
+        for i in range(MAX_TURRET_SLOTS):
+            lines.append(f"    Header.ToolAngle_List[{i + 1}] := {angles[i]:.1f};")
+        return lines
+
     def generate_scl(self,
                      db_name: str = "DB_RecipeProgram1",
                      program_title: str = "Untitled Program",
@@ -444,6 +544,9 @@ class GCodeToSCLConverter:
         scl_lines.append(f"    Header.MaxX := {self.max_x:.3f};")
         scl_lines.append(f"    Header.MinZ := {self.min_z:.3f};")
         scl_lines.append(f"    Header.MaxZ := {self.max_z:.3f};")
+        # Recipe-carried tool table (validates against used tool codes; may raise
+        # ValueError('TOOL_TABLE:...')).
+        scl_lines.extend(self._tool_table_scl(params or {}))
         scl_lines.append("    ")
         scl_lines.append(f"    // Recipe Lines ({line_count} total)")
         

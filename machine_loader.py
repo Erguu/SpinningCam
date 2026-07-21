@@ -18,6 +18,7 @@ MACHINE_PROFILE_KEYS = [
     "cylinder_x_pos", "cylinder_z_base",
     "plc_mode", "plc_tolerance", "plc_exit_tolerance",
     "plc_auto_tune", "plc_target_lines",
+    "turret_slots", "turret_auto_angles",
     "gcode_resolution", "gcode_header", "gcode_footer",
     "max_spin_rpm",
     "custom_commands", "mcode_descriptions",

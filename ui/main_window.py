@@ -382,6 +382,67 @@ class SpinningCamWindow(tk.Tk):
             pass
         self.wait_window(win)
 
+    def refresh_flatness_status(self):
+        """Surface the straight-line finishing flatness advisory after a path
+        calculation. Reads path_gen.last_flatness_warnings (set by calculate_paths).
+        Amber status-bar cue (clamp keeps priority on the single status line) + a modal
+        ONLY for gouge-direction deviations (max_dev > 0 = surface bulges toward the
+        tool → clearance loss). Away-direction (under-finish) is status/log only. Modal
+        is session-suppressible like the clamp popup. Advisory only — no toolpath
+        change. Called after a successful calc, alongside refresh_clamp_status."""
+        try:
+            fw = getattr(self.app.path_gen, "last_flatness_warnings", None) or []
+            cw = getattr(self.app.path_gen, "last_clamp_warnings", None) or []
+            # Status-bar cue: clamp warning (if any) keeps priority on the single line.
+            if fw and not cw:
+                self.lbl_info.config(
+                    text=t("status_flatness_warn").format(n=len(fw), idx=fw[0]["op_index"] + 1),
+                    fg="#ffb020")
+            # Modal only for the gouge direction (toward the tool).
+            gouge = [w for w in fw if w.get("max_dev", 0.0) > 0.0]
+            if gouge and not getattr(self, "_flatness_popup_suppressed", False):
+                ops = "\n".join(
+                    "  • " + t("msg_flatness_warn_op").format(
+                        idx=w["op_index"] + 1,
+                        sz=round(w["start_z"], 1), ez=round(w["end_z"], 1),
+                        dev=round(w["max_dev"], 2))
+                    for w in gouge)
+                self._show_flatness_popup(
+                    t("msg_flatness_warn_body").format(
+                        n=len(gouge), tol=round(gouge[0]["tol"], 2), ops=ops))
+        except Exception:
+            pass
+
+    def _show_flatness_popup(self, body):
+        """Modal straight-line flatness warning; Confirm (may reappear next calc) /
+        Don't-show-again (suppress for the session). Mirrors _show_clamp_popup."""
+        win = tk.Toplevel(self)
+        win.title(t("msg_flatness_warn_title"))
+        win.transient(self)
+        win.resizable(False, False)
+        frm = ttk.Frame(win, padding=16)
+        frm.pack(fill="both", expand=True)
+        tk.Label(frm, text="⚠", font=("Arial", 20), fg="#d08000").pack(anchor="w")
+        tk.Label(frm, text=body, justify="left", wraplength=460).pack(anchor="w", pady=(4, 0))
+        btns = ttk.Frame(frm)
+        btns.pack(fill="x", pady=(14, 0))
+
+        def _dont_show():
+            self._flatness_popup_suppressed = True
+            win.destroy()
+
+        ttk.Button(btns, text=t("btn_dont_show_again"), command=_dont_show).pack(side="left")
+        ttk.Button(btns, text=t("btn_confirm"), command=win.destroy).pack(side="right")
+        win.grab_set()
+        win.update_idletasks()
+        try:  # center over the main window
+            x = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2
+            y = self.winfo_rooty() + (self.winfo_height() - win.winfo_height()) // 3
+            win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+        self.wait_window(win)
+
     def _load_machine_profile(self):
         from machine_loader import list_machine_profiles, migrate_from_settings, get_unique_types
         from machine_adapter import get_adapter
@@ -939,6 +1000,20 @@ class SpinningCamWindow(tk.Tk):
         except Exception:
             _parsed_line_count = None
 
+        # Fail fast on turret/tool-table problems (the PLC would reject the recipe
+        # with 16#0311 / pre-scan) BEFORE bothering the operator with the name and
+        # array-size dialogs.
+        if _parsed_line_count is not None:
+            try:
+                _pre_converter._tool_table_scl(self.app.params)
+            except ValueError as _tt:
+                _tt_msg = str(_tt)
+                if _tt_msg.startswith("TOOL_TABLE:"):
+                    messagebox.showerror(t("msg_export_error_title"),
+                                         _tt_msg[len("TOOL_TABLE:"):])
+                    return
+                raise
+
         db_name = simpledialog.askstring(
             t("dlg_db_name_title"),
             t("dlg_db_name_prompt"),
@@ -1076,6 +1151,13 @@ class SpinningCamWindow(tk.Tk):
             else:
                 messagebox.showinfo(t("msg_cancelled_title"), t("msg_cancelled"))
                 return
+
+        # Turret/tool-table validation failed inside the writer (backstop — the
+        # pre-check above normally catches this first).
+        if not success and stats.get('tool_table_error'):
+            messagebox.showerror(t("msg_export_error_title"),
+                                 stats.get('message', t("msg_scl_error")))
+            return
 
         if success:
             msg = t("msg_scl_success_body").format(

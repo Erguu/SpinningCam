@@ -6,6 +6,13 @@ here with short, operator-facing bullet lines (what changed, not how it was code
 """
 
 CHANGELOG = {
+    "1.008": [
+        "SCL export now writes a Turret / Tool Table into every recipe header, so the PLC takes its tool-slot setup straight from the downloaded recipe instead of an HMI-entered mapping. Set it up in Machine ▸ Turret / Tool Table: enter the tool code in each of the 4 slots (0 = empty), or press 'Populate from tool library' to fill them from your tools automatically.",
+        "Turret angles: tick 'Auto-space angles' to let the PLC space them evenly (3 slots → 0/120/240), or untick it to type your own measured slot angles.",
+        "Safety: if a program uses a tool that isn't assigned to any turret slot, SCL export is now blocked with a clear message (prevents the machine rotating to the wrong tool). Note: recipes generated before this version have no tool table and must be re-exported.",
+        "The Tool window now warns and blocks a tool whose ID number is over 255 or 0 — the PLC tool code is a single byte (1–255), and this stops a mistyped code from being silently clamped in the recipe.",
+        "A tool's Color now actually shows on the roller during simulation (it was always orange before), and the Color field is a drop-down of named colors plus a custom picker so the options are clear.",
+    ],
     "1.007": [
         "Unite: the opposite of Split — select two or more operations (right-click → Unite) to combine them into one. They need not be next to each other; any operations between the picks are kept and slide to after the united operation. Re-joining the adjacent chunks of an earlier Split reproduces the original operation exactly and applies silently.",
         "When the operations you unite differ, a resolver dialog lets YOU choose how each conflicting field is combined — Start/End Z, Pass Angle, Reach, Tilt, Clearance and any other differing setting each get a drop-down (Ramp first→last, or First / Last / Average; Min / Max for Z when picks are out of order). Every default reproduces the automatic merge, so OK just accepts it. Only same-type, same-tool operations can be united, and one Ctrl+Z undoes it.",

@@ -98,6 +98,7 @@ class PathGenerator:
         self.last_op_reach = {}       # op-index → exit reach magnitude of last forming pass (#61)
         self.last_op_end_angle = {}   # op-index → exit angle (deg from +X) of last forming pass (#61)
         self.last_clamp_warnings = []  # ops whose start_z sits inside the clamp zone (#62)
+        self.last_flatness_warnings = []  # straight-line finishing ops over a non-constant-angle surface
 
         props = mandrel_mgr.props
         top_z = props["top_z"]
@@ -265,6 +266,26 @@ class PathGenerator:
             # end_z operasyona özeldir; tanımlıysa kullan, yoksa mandrel tepesine git
             op_end_z = op.get("end_z", None)
             end_h = float(op_end_z) if op_end_z is not None else top_z
+
+            # Straight-line finishing flatness advisory: the 2-point line is only
+            # clearance-correct on a constant-angle (conical) span. Warn (do NOT change
+            # the path) if the surface between start_z and end_z bows off that chord.
+            # Only when the straight_line branch will actually run (finishing + not the
+            # global adaptive/trace mode).
+            if (is_finish and op.get("straight_line_mode", False)
+                    and not params.get("finish_trace_mandrel_profile", False)
+                    and params.get("straight_line_flatness_warn", True)):
+                _fl_tol = float(params.get("straight_line_flatness_tol", 0.15))
+                _fl_dev = self._straight_line_flatness_dev(mandrel_mgr, start_h, end_h, shell_offset)
+                if _fl_dev is not None and abs(_fl_dev) > _fl_tol:
+                    self.last_flatness_warnings.append({
+                        "op_index": op_index,
+                        "op_type": op.get("type", "finishing"),
+                        "start_z": start_h,
+                        "end_z": end_h,
+                        "max_dev": _fl_dev,   # + = bulges toward tool (clearance loss)
+                        "tol": _fl_tol,
+                    })
 
             # Record the CAM Z where this op's LAST forming pass actually reaches,
             # for the Program-tab "Real End Z" column. This mirrors the per-pass
@@ -759,6 +780,14 @@ class PathGenerator:
                 f"[CLAMP] {len(self.last_clamp_warnings)} op(s) start inside the clamp zone "
                 f"(top Z={_w['clamp_top_z']:.1f}); first: op #{_w['op_index'] + 1} "
                 f"'{_w['op_type']}' start_z={_w['start_z']:.1f}")
+
+        if self.last_flatness_warnings:
+            _f = self.last_flatness_warnings[0]
+            logger.warning(
+                f"[FLATNESS] {len(self.last_flatness_warnings)} straight-line finishing op(s) "
+                f"over a non-constant-angle surface; first: op #{_f['op_index'] + 1} "
+                f"Z {_f['start_z']:.1f}->{_f['end_z']:.1f} max_dev={_f['max_dev']:+.2f}mm "
+                f"(tol {_f['tol']:.2f})")
 
         self.last_calculated_paths = toolpaths
         self.last_calculated_sequence = sequence
@@ -2291,6 +2320,40 @@ class PathGenerator:
                                             exit_tolerance=exit_tolerance)
             )
         return out
+
+    def _straight_line_flatness_dev(self, mandrel_mgr, start_z, end_z, shell_offset=0.0):
+        """Max signed radial deviation (mm) of the mandrel profile between start_z and
+        end_z from the straight chord joining the two endpoints — how far a
+        straight-line finishing pass's 2-point line drifts off the real surface.
+
+        Sign: + = surface bulges TOWARD the tool (mid-line clearance shrinks → gouge
+        risk); - = surface dips AWAY (clearance grows → band under-finished). Returns
+        0.0 for a perfectly conical/cylindrical span (the mode's valid precondition),
+        and None when unmeasurable (zero span, or radii unavailable). Pure/read-only:
+        no toolpath or state is touched, so it is safe to unit-test directly.
+        """
+        s = float(start_z); e = float(end_z)
+        if abs(e - s) < 1e-3:
+            return None
+        r_s = mandrel_mgr.get_radius_fast(s)
+        r_e = mandrel_mgr.get_radius_fast(e)
+        if r_s is None or r_e is None:
+            return None
+        r_s += shell_offset; r_e += shell_offset
+        n = max(8, min(65, int(abs(e - s)) + 1))
+        dev_ext = 0.0
+        for k in range(1, n):  # interior samples; the two endpoints are 0 by construction
+            t = k / n
+            z = s + t * (e - s)
+            r = mandrel_mgr.get_radius_fast(z)
+            if r is None:
+                continue
+            r += shell_offset
+            r_chord = r_s + (r_e - r_s) * t
+            dev = r - r_chord
+            if abs(dev) > abs(dev_ext):
+                dev_ext = dev
+        return dev_ext
 
     def measure_min_clearance(self, paths, params, sample_step=0.5):
         """Minimum roller-to-part clearance (mm) along the STRAIGHT segments of the

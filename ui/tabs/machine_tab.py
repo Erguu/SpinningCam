@@ -522,6 +522,121 @@ class MachineTab(ScrollableTabBase):
 
         tk.Label(f_plc, text=t("lbl_plc_hint"), font=("Arial", 8), fg="#555555").pack(anchor="w", padx=5, pady=(2, 6))
 
+        # Turret / Tool Table (recipe-carried tool config → SCL recipe header).
+        # The PLC takes its turret setup from the downloaded recipe, so the CAM
+        # writes slot→tool-code and (optionally) slot angles into every SCL header.
+        # See CAM_TOOL_TABLE_HANDOVER.md.
+        f_turret = ttk.LabelFrame(self.content, text=t("frm_turret"))
+        f_turret.pack(fill="x", padx=10, pady=10)
+
+        tk.Label(f_turret, text=t("lbl_turret_info"),
+                 font=("Arial", 8, "italic"), fg="gray",
+                 wraplength=380, justify="left").pack(anchor="w", padx=5, pady=(4, 6))
+
+        _turret_slots = self.app.params.get("turret_slots") or []
+        def _slot_val(i, key, default):
+            if i < len(_turret_slots) and isinstance(_turret_slots[i], dict):
+                return _turret_slots[i].get(key, default)
+            return default
+
+        var_turret_auto = tk.BooleanVar(value=bool(self.app.params.get("turret_auto_angles", True)))
+        code_vars, angle_vars, angle_entries = [], [], []
+
+        # Column headers
+        f_th = ttk.Frame(f_turret)
+        f_th.pack(fill="x", padx=5)
+        tk.Label(f_th, text=t("turret_slot_col"), width=6, anchor="w").pack(side="left")
+        tk.Label(f_th, text=t("turret_code_col"), width=12, anchor="w").pack(side="left")
+        tk.Label(f_th, text=t("turret_angle_col"), width=12, anchor="w").pack(side="left")
+
+        def _save_turret(*_a):
+            slots = []
+            for i in range(4):
+                try: c = int(float(code_vars[i].get() or 0))
+                except (TypeError, ValueError): c = 0
+                try: a = float(angle_vars[i].get() or 0.0)
+                except (TypeError, ValueError): a = 0.0
+                slots.append({"code": c, "angle": a})
+            self.app.on_param_change("turret_slots", slots, "none")
+            self.app.on_param_change("turret_auto_angles", bool(var_turret_auto.get()), "none")
+
+        for i in range(4):
+            f_row = ttk.Frame(f_turret)
+            f_row.pack(fill="x", padx=5, pady=1)
+            tk.Label(f_row, text=str(i + 1), width=6, anchor="w").pack(side="left")
+            cv = tk.StringVar(value=str(int(_slot_val(i, "code", 0) or 0)))
+            av = tk.StringVar(value=f"{float(_slot_val(i, 'angle', 0.0) or 0.0):.1f}")
+            code_vars.append(cv)
+            angle_vars.append(av)
+            e_code = ttk.Entry(f_row, textvariable=cv, width=12)
+            e_code.pack(side="left")
+            e_code.bind("<Return>", _save_turret)
+            e_code.bind("<FocusOut>", _save_turret)
+            e_code.bind("<Button-1>", lambda ev: ev.widget.focus_force())
+            self.helper.bind_tooltip(e_code,
+                "Bu tarete fiziksel olarak takılı takım kodu (harici kod, 0-255). "
+                "CAM takım ID'si T0103 → kod 103. Boş yuva = 0.")
+            e_ang = ttk.Entry(f_row, textvariable=av, width=12)
+            e_ang.pack(side="left")
+            e_ang.bind("<Return>", _save_turret)
+            e_ang.bind("<FocusOut>", _save_turret)
+            e_ang.bind("<Button-1>", lambda ev: ev.widget.focus_force())
+            angle_entries.append(e_ang)
+
+        def _sync_turret_angles():
+            # Auto: angles are PLC-computed; show a live preview and lock the fields.
+            from recipe_to_scl import normalize_turret
+            if var_turret_auto.get():
+                slots = []
+                for i in range(4):
+                    try: c = int(float(code_vars[i].get() or 0))
+                    except (TypeError, ValueError): c = 0
+                    slots.append({"code": c, "angle": 0.0})
+                _codes, angles, _a, _n = normalize_turret(
+                    {"turret_slots": slots, "turret_auto_angles": True})
+                for i in range(4):
+                    angle_vars[i].set(f"{angles[i]:.1f}")
+                    angle_entries[i].config(state="disabled")
+            else:
+                for i in range(4):
+                    angle_entries[i].config(state="normal")
+
+        def on_turret_auto_toggle():
+            _sync_turret_angles()
+            _save_turret()
+
+        cb_turret_auto = ttk.Checkbutton(f_turret, text=t("cb_turret_auto"),
+                                         variable=var_turret_auto,
+                                         command=on_turret_auto_toggle)
+        cb_turret_auto.pack(anchor="w", padx=5, pady=(4, 2))
+        self.helper.bind_tooltip(cb_turret_auto,
+            "İşaretli: açılar taret yuva sayısından PLC tarafından eşit aralıklı hesaplanır "
+            "(3 yuva → 0/120/240). İşaretsiz: ölçülen gerçek yuva açılarını elle girin.")
+
+        def _populate_turret_from_library():
+            from recipe_to_scl import tool_code_from_id
+            lib = getattr(self.app, "tool_library", None) or []
+            codes = []
+            for tl in lib:
+                c = tool_code_from_id(tl.get("id", ""))
+                if 0 < c <= 255 and c not in codes:
+                    codes.append(c)
+                if len(codes) >= 4:
+                    break
+            for i in range(4):
+                code_vars[i].set(str(codes[i] if i < len(codes) else 0))
+            _sync_turret_angles()
+            _save_turret()
+
+        btn_turret_pop = ttk.Button(f_turret, text=t("btn_turret_populate"),
+                                    command=_populate_turret_from_library)
+        btn_turret_pop.pack(anchor="w", padx=5, pady=(2, 6))
+        self.helper.bind_tooltip(btn_turret_pop,
+            "Takım kütüphanesindeki ID'lerden yuva kodlarını doldurur (T0103 → 103), "
+            "ilk 4 takım. Sonra fiziksel taret düzeninize göre düzenleyin.")
+
+        _sync_turret_angles()   # apply initial lock state to the angle fields
+
         # Custom Commands
         f_cc = ttk.LabelFrame(self.content, text=t("frm_custom_cmds"))
         f_cc.pack(fill="x", padx=10, pady=10)
@@ -670,7 +785,7 @@ class MachineTab(ScrollableTabBase):
             "coords": f_coords, "output_mode": f_output_mode, "offsets": f_offsets,
             "home": f_home, "touch": f_touch, "gcode_out": f_gcode_out,
             "workspace": f_ws, "cylinder": f_cyl, "tilt_arm": f_tilt, "plc": f_plc,
-            "custom_cmds": f_cc, "mcode_desc": f_md,
+            "turret": f_turret, "custom_cmds": f_cc, "mcode_desc": f_md,
         }
         adapter = getattr(self.app, "active_adapter", None)
         if adapter:
