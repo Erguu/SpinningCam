@@ -1,47 +1,10 @@
 import copy
-import os
-import time
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from ui.dialogs.zone_manager import ZoneManager
 from ui.dialogs.tool_manager import ToolManager
 from ui.helpers_ui import _fmt_num, scroll_not_edit
 from i18n import t
-
-# ── Opt-in performance timing (diagnostic; OFF by default) ──────────────────
-# Set the env var SPINCAM_PERF=1 before launching to log per-step timings of a
-# row-selection click to spinning_cam.log (search "[PERF]"). With it unset the
-# helpers below are near-zero-cost no-ops, so this instrumentation NEVER affects
-# a normal run. Purpose: measure where the "clicking an op freezes" time goes
-# (flush savers, tree refreshes, recolor render, deformed-blank render) on a
-# project with many operations, so any later fix targets the real bottleneck.
-PERF_ENABLED = os.environ.get("SPINCAM_PERF", "").strip().lower() not in ("", "0", "false", "no")
-
-# Global counters so we can attribute how many full tree rebuilds a single click
-# triggers (the suspected O(fields x ops) cost when flushing the previous op).
-_PERF_TREE_CALLS = 0
-_PERF_TREE_MS = 0.0
-
-
-class _perf:
-    """Cheap opt-in timer usable as a context manager: ``with _perf("label"):``.
-    Logs elapsed ms when PERF_ENABLED; otherwise does almost nothing."""
-    __slots__ = ("label", "_t0")
-
-    def __init__(self, label):
-        self.label = label
-
-    def __enter__(self):
-        if PERF_ENABLED:
-            self._t0 = time.perf_counter()
-        return self
-
-    def __exit__(self, *exc):
-        if PERF_ENABLED:
-            dt = (time.perf_counter() - self._t0) * 1000.0
-            from logger_config import logger
-            logger.info(f"[PERF] {self.label}: {dt:.1f} ms")
-        return False
 
 # Accurate default each op-parameter field falls back to when left empty.
 # Sourced from the op.get(key, DEFAULT) fallbacks in path_generator.py so the
@@ -582,9 +545,6 @@ class ProgramTab:
         Previously every field saver rebuilt the whole op table, so a single row
         click cost O(fields) full rebuilds (~1 s at 9 ops) — now it is one."""
         savers = self._active_entry_savers
-        if PERF_ENABLED:
-            _n = len(savers)
-            _t0 = time.perf_counter()
         self._in_bulk_flush = True
         self._bulk_needs_refresh = False
         self._bulk_needs_calc = False
@@ -604,10 +564,6 @@ class ProgramTab:
             self._schedule_forced_calc()
         elif self._bulk_needs_calc:
             self._schedule_auto_calc()
-        if PERF_ENABLED:
-            dt = (time.perf_counter() - _t0) * 1000.0
-            from logger_config import logger
-            logger.info(f"[PERF] _flush_entries: {dt:.1f} ms for {_n} savers")
 
     # ------------------------------------------------------------------
     # Customize View — config resolver, field visibility, dynamic columns
@@ -823,7 +779,7 @@ class ProgramTab:
         sb_x.pack(side="bottom", fill="x")
         self.tree_ops.configure(yscrollcommand=sb.set, xscrollcommand=sb_x.set)
         self.tree_ops.pack(side="left", fill="both", expand=True)
-        self.tree_ops.bind("<<TreeviewSelect>>", self._on_select_event)
+        self.tree_ops.bind("<<TreeviewSelect>>", self.on_op_select)
         self.tree_ops.bind("<Double-1>", self._on_tree_double_click)
         # #67: clicking the ☑ cell toggles the row's batch tick (and eats the
         # click so it doesn't disturb the normal row selection).
@@ -1107,8 +1063,6 @@ class ProgramTab:
         if getattr(self, "_in_bulk_flush", False):
             self._bulk_needs_refresh = True
             return
-        if PERF_ENABLED:
-            _perf_t0 = time.perf_counter()
         ops = self.app.params.get("operations", [])
         existing_items = self.tree_ops.get_children()
 
@@ -1150,10 +1104,6 @@ class ProgramTab:
 
         self.update_time_estimate()
         self._update_batch_button()
-        if PERF_ENABLED:
-            global _PERF_TREE_CALLS, _PERF_TREE_MS
-            _PERF_TREE_CALLS += 1
-            _PERF_TREE_MS += (time.perf_counter() - _perf_t0) * 1000.0
 
     def toggle_op_enabled(self):
         """Passivate/reactivate the selected op without deleting it. Disabled
@@ -1764,26 +1714,6 @@ class ProgramTab:
         except Exception:
             pass
 
-    def _on_select_event(self, event):
-        """<<TreeviewSelect>> handler. With SPINCAM_PERF set it times the whole
-        selection (the user-visible "clicking an op freezes" path) and reports how
-        many full tree rebuilds the click triggered; otherwise it just delegates."""
-        if not PERF_ENABLED:
-            return self.on_op_select(event)
-        global _PERF_TREE_CALLS, _PERF_TREE_MS
-        _c0, _m0 = _PERF_TREE_CALLS, _PERF_TREE_MS
-        t0 = time.perf_counter()
-        try:
-            return self.on_op_select(event)
-        finally:
-            dt = (time.perf_counter() - t0) * 1000.0
-            from logger_config import logger
-            n_ops = len(self.app.params.get("operations", []))
-            logger.info(
-                f"[PERF] === on_op_select TOTAL: {dt:.1f} ms | ops={n_ops} | "
-                f"tree_refreshes={_PERF_TREE_CALLS - _c0} "
-                f"({_PERF_TREE_MS - _m0:.1f} ms in refresh_ops_tree) ===")
-
     def on_op_select(self, event, _flush=True):
         # Re-entrant calls DURING a bulk flush (a rebuild=True field saver calls
         # on_op_select to refresh dependent fields) would rebuild the OUTGOING op's
@@ -1823,8 +1753,7 @@ class ProgramTab:
         # so it can land on back-pass entries too (forward/back are interleaved when
         # back_pass_enabled — stride 2).
         self.app.active_editing_pass_idx = cumulative + self._within_op_idx
-        with _perf("recolor_paths"):
-            self.app.recolor_paths()
+        self.app.recolor_paths()
 
         # #63: refresh the faded-blue deformed-blank overlay for the now-current active pass.
         # Rebuilding this revolved surface is the biggest per-click cost, so skip it
@@ -1832,8 +1761,7 @@ class ProgramTab:
         # recolor_paths above already rendered, so there is nothing else to draw.
         if self.app.params.get("show_deformed_blank", True):
             try:
-                with _perf("update_deformed_blank"):
-                    self.app.update_deformed_blank(render=True)
+                self.app.update_deformed_blank(render=True)
             except Exception:
                 pass
 

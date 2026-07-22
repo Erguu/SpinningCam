@@ -26,8 +26,8 @@ kaydırma (ekran dışı hedefe ulaşmak için). (2) "Bir op'a tıklamak bazen s
 - i18n: `ctx_move_to`/`dlg_move_to_title`/`dlg_move_to_prompt` (EN/TR/ES). help_window EN+TR güncellendi.
 
 **Yapılanlar (Item 2 — ölçüm + KÖK-NEDEN DÜZELTMESİ, `ui/tabs/program_tab.py`):**
-- Opt-in perf enstrümantasyonu (TUTULDU): `SPINCAM_PERF=1` env değişkeni ile `on_op_select`
-  alt-adımları `spinning_cam.log`'a loglanır (`[PERF]` ara). Değişken YOKSA ~sıfır maliyetli no-op.
+- Teşhis için geçici opt-in perf enstrümantasyonu (`SPINCAM_PERF=1` → `[PERF]` logları) kullanıldı;
+  ölçüm bitince KALDIRILDI (kod tabanında iz bırakmadı — sadece düzeltme kaldı).
 - ÖLÇÜM (9 op ile): tık başına ~1000–1200 ms. Kök neden = `_flush_entries` önceki op'un HER
   alan-saver'ını çalıştırıyor, her saver `refresh_ops_tree` (+ süre tahmini) çağırıyor → tık başına
   **27 tam tablo yeniden-kurulumu** (~490 ms) + saverlerin re-entrant `on_op_select`'i → ~5× tekrar render.
