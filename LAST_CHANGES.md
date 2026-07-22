@@ -5,6 +5,198 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-22 — İLK-PAS "ÇOK KISA REACH" BUG'I (follow-blank dejenerasyon koruması)
+
+**Belirti:** Roughing'de `reach_follow_blank` (sactan flanş reach tahmini) AÇIKKEN, taslak
+(blank) taban yarıçapına çok yakınsa YALNIZCA ilk pas çok kısa bir reach ile çıkıyordu
+(gerçek reçetede 5.85 mm), diğer tüm paslar tam op reach'i (~93.5) kullanıyordu. Kullanıcı
+"ilk pasın reach'i çok kısa, spline gibi; gerisi linear sharp exit" dedi. Ayrıca ilk pasın
+"daha büyük P2 radius'u var" gözlemi ARAŞTIRILDI ve ÇÜRÜTÜLDÜ — `[PARAM_DEBUG2]` ile P2 radius
+tüm paslar için ~aynı (122.27–122.38); tek gerçek aykırı değer REACH. Pass angle da doğru
+(91° = progressive fan başlangıcı). **Straighten feature'dan BAĞIMSIZ, önceden var olan bug
+(flag KAPALIYKEN de oluyor).**
+
+**Kök neden (`path_generator.py`):** `estimate_flange_reach` tam tabanda ~`(blank - r_base)`
+değerine çöküyor (reçetede blank 77.8, taban ~70.25 → 7.55), tabanın hemen üstünde 0 dönüyor.
+Motor mantığı: flanş reach > 0 ise onu KULLAN, 0 ise op/progressive reach'e DÖN. Bu yüzden
+sadece ilk pas (tek nonzero) o küçük artığı alıyor; gerisi 0 → tam reach'e düşüyor.
+
+**Çözüm (tek noktalı, minimal):** `_follow_reach` hesabından hemen sonra dejenerasyon koruması
+— artık bir tabandan (`reach_follow_min`, varsayılan **10 mm**) küçükse `None` yapılır → o pas
+diğerleri gibi progressive/op reach'e döner. Follow-blank ZATEN opt-in; sağlıklı flanşlar
+(onlarca mm, düzgün azalan) tabanın çok üstünde → ETKİLENMEZ. Dışa doğru fazla-reach güvenli
+yön (parçadan uzağa; clearance yine gerçek mandrel üzerinde kontrol edilir). Hem pass-angle
+hem raw-exit modu tek kaynaktan otomatik düzelir.
+
+**Taban-altı uzantısı (2026-07-22, aynı gün):** `start_z < 0` (parça alt yüzeyinin, `min_z`,
+altında) sorulunca ortaya çıktı: flanş tahmini taban-altında BÜYÜYOR (z=−5→10.8, −10→17.7,
+−20→66), 10 mm tabanı aşıp ilk-pası tekrar kısaltıyordu. Ek koşul: `target_z <= min_z` olan
+pas için de fallback (parça-altında flanş YOK → tam reach). Sağlıklı reçeteler taban-altına
+pas koymaz → onlar için DEĞİŞİKLİK yok. Doğrulandı: `start_z=−5` ilk-pas reach 9.07→93.56.
+NOT: bu SADECE reach'i düzeltir — straighten KAPALIYKEN taban-altı `get_radius_fast`
+ekstrapolasyonu hâlâ yarıçapı çökertir (z=−20'de −24.8, eksenin altı); straighten AÇIK bunu
+da düzeltir (75.2'de kalır). Ayrıca taban-altı fiziksel olarak kıskaç bölgesi → uyarı yine çıkar.
+
+**Ek:** `[PARAM_DEBUG2]` — pas-başına FİNAL geometri log satırı (contact_z, r_contact, P2
+radius, eff_angle, final P3, reach) eklendi; ilk-pası gerisiyle kıyaslamak için (zararsız,
+mevcut PARAM_DEBUG kalıbıyla aynı).
+
+- **Test:** `_test_straighten_fillet.py` — yeni bölüm 5, iki koruma ayrı ayrı: (a) FLOOR (taban
+  ÜSTÜ z=0.5, küçük artık) — `fixed[0]≈88.5` vs `reach_follow_min=0` ile `no-floor[0]≈1.8`;
+  (b) BELOW-BASE (z=−5, floor KAPALI) — `below[0]≈88.5` (min_z dalı bağımsız yakaladı). Tüm
+  eski testler + byte-identical regresyonu GEÇTİ.
+- **Geri alma:** koruma bloğunu sil. (Tek başına `reach_follow_min=0` artık taban-altını geri
+  getirmez — min_z dalı ayrı; ikisini de istersen bloğu tümüyle kaldır.)
+- **BEKLİYOR:** GUI smoke + gerçek reçetede fiziksel doğrulama. Commit kullanıcıya bırakıldı.
+
+---
+
+## 2026-07-21 — OPERASYON-BAŞINA TAKIM DEĞİŞİM KONUMU (v1.009, opt-in) — global/mutlak/göreli
+
+**İstek:** Şimdiye kadar takım değişimi SABİT bir konumda (global home) oluyordu. Kullanıcı,
+her operasyonun kendi takım-değişim konumunu seçebilmesini istedi: ya son pasa **göreli** bir
+konum ya da **mutlak** bir konum — ama global DEĞİL, operasyon bazlı. Karar: konumu **gelen
+(incoming) operasyon** taşır; güvenlik koruması **yalnızca-uyarı** (sert blok değil).
+
+**Çözüm (varsayılan `global` → eski davranış BİREBİR; iki emisyon yeri tek yardımcıdan):**
+- `path_generator.py`: yeni modül-seviye `resolve_tool_change_point(op, prev_end, home_pt,
+  mirror_center=None)` — hedefi girdilerin ÇERÇEVESİNDE döndürür (calculate_paths kanonik,
+  generate_gcode global/dönüşüm-öncesi). Böylece 3D-sim ile NC/SCL aynı noktayı kullanır.
+  Modlar: `global` (home), `absolute` (`tool_change_x/z`), `relative` (`tool_change_dx/dz`,
+  önceki pas sonuna göre). Sabitler: `TOOL_CHANGE_MODES`, `TOOL_CHANGE_SWING_MARGIN_MM=5.0`.
+- İki senkron yer güncellendi: (1) `calculate_paths` tool-change bloğu (~L251) split retract
+  artık hedefi çözer; (2) `generate_gcode` bloğu (~L2026) yeni `_xf_pt` post-processor
+  yardımcısıyla hedefi makine koordinatına çevirir. **`global` modda G-code BİREBİR aynı**
+  (aynı `(Home Z)`/`(Retract X)` etiketleri, aynı sayılar); custom modda `(Tool Change Z/X, <mode>)`.
+- **Yalnızca-uyarı salınım (swing) koruması:** custom bir nokta parça/taslak salınım zarfına
+  yakınsa `last_tool_change_warnings`'a eklenir (`_tool_change_swing_check` radyal boşluk ölçer).
+  Yol ASLA kırpılmaz. Log `[TOOLCHG]`.
+- UI (`ui/tabs/program_tab.py`): `_TOOL_CHANGE_KEYS` her op tipinin `OP_PARAM_UNIVERSE`'üne
+  eklendi; op editöründe tilt bloğundan sonra `tool_change_mode` dropdown'ı (global/mutlak/göreli)
+  + moda göre X/Z veya ΔX/ΔZ alanları; `OP_PARAM_DEFAULTS` + `OP_PARAM_LABELS` güncel.
+- Uyarı yüzeyi (`ui/main_window.py`): `refresh_tool_change_status()` + `_show_tool_change_popup()`
+  (clamp/flatness kalıbının aynısı, oturum-susturmalı); `program_tab` calc sonrası çağırıyor.
+- i18n (EN/TR/ES): `lbl_tc_*`, `opt_tc_*`, `tip_tc_*`, `status_tc_warn`, `msg_tc_warn_*`.
+- Help `_C` (ops EN+TR), `version.py` 1.008→1.009, `changelog.py` 1.009, bu dosya.
+- **Test:** `_test_tool_change_position.py` (resolver birim + global birebir + absolute/relative
+  G-code + swing uyarı fires/silent) GEÇTİ; clamp/tool_table/pass_table regresyonları GEÇTİ.
+- **Geri alma:** operasyonlarda `tool_change_mode` alanını sil (veya `global` yap) → eski davranış.
+- **BEKLİYOR:** GUI smoke (dropdown reveal/hide, popup) + custom noktalı bir programın FİZİKSEL
+  doğrulaması (salınım güvenliği yalnızca-uyarı, sert-blok değil — operatör sorumluluğu).
+
+**Aynı gün takip (kullanıcı geri bildirimi):**
+- **Eksen açıklığı:** X = RADYAL (büyük X = dışarı, parçadan uzağa), Z = EKSENEL (büyük Z = +Z
+  makine yönü, mandrel üstüne — tek başına parçadan uzaklaşmaz). i18n `tip_tc_x/z/dx/dz` netleştirildi,
+  yeni `lbl_tc_axis_hint` editörde sarı ipucu satırı; help EN+TR "eksen yönleri" paragrafı.
+- **Eşzamanlı XZ (opt-in, VARSAYILAN KAPALI):** yeni op alanı `tool_change_simultaneous`. Kapalı =
+  Z-sonra-X bölünmüş (güvenli, eski). Açık = tek çapraz `G0 X.. Z..` (hızlı). UI checkbox (mode≠global'de),
+  `_TOOL_CHANGE_KEYS`+defaults+labels güncel. Emisyon: `generate_gcode` simultaneous'ta tek satır
+  `(Tool Change XZ, <mode>)`; `calculate_paths` tek diagonal rapid.
+- **Çarpışma kontrolü GÜÇLENDİRİLDİ (çapraz için şart):** `_tool_change_swing_check` artık TÜM retract
+  polyline'ını (2 nokta diagonal / 3 nokta split) alıp `(dest_gap, path_min_gap)` döndürür. `_tc_radial_gap`
+  ayrıştırıldı. Uyarı koşulu: `dest_gap < SWING_MARGIN` (M6 taret salınımı) VEYA `path_min_gap < 0`
+  (traverse parçaya dalıyor — retract parçadan başladığı için sadece NEGATİF önemli). NOT: diğer taret
+  takımlarının şeklini modellemez — geometrik radyal yardımcı, garanti değil. i18n `msg_tc_warn_op/body`
+  iki-kontrol açıklamasıyla güncellendi (`pgap` alanı).
+- **Test:** `_test_tool_change_position.py`'e `_FakeMgr` (z=50 bulge) traverse-penetrasyon unit testi +
+  simultaneous tek-satır G-code testi eklendi; hepsi GEÇTİ. clamp/pass_table regresyon GEÇTİ.
+- changelog 1.009 + help `_C` (EN+TR) genişletildi. **BEKLEYEN doğrulamalar hâlâ geçerli.**
+
+**Sim takım-değişim ipucu (kullanıcı isteği — hızlı simülasyonda takım değişimi görünmüyor):**
+- `path_generator.py` tool-change bloğu artık `sequence`'e `("toolchange", nokta, giden, gelen)` MARKER
+  ekliyor (her değişimde, her mod; G-code bunu KULLANMAZ — paths okur). Negatif-taraf ayna döngüsüne
+  `toolchange` X-ayna case'i eklendi.
+- `simulation_controller.py`: worker "toolchange" öğesinde ruloyu değişim noktasına park edip GERÇEK-ZAMANLI
+  ~0.9s duraklıyor (hıza bölünmez → yüksek hızda bile görünür; stop/pause ile kesilebilir) ve
+  `tool_change_active/pos/from/to` bayraklarını set ediyor. `__init__`+finally reset.
+- `main.py` yeni `update_tool_change_cue(active,pos,from,to)` (ANA thread): değişim noktasında yarı-saydam
+  SARI nabız-marker (SetScale sin ile) + üst-kenar banner (`sim_tool_change` i18n, giden→gelen). `import time`
+  eklendi. `ui/main_window.py check_sim_loop` her karede çağırıyor; sim bitince `else` dalında temizliyor.
+- i18n `sim_tool_change` (EN/TR/ES). Test: sequence'te tam 1 marker + doğru from/to + nokta doğrulaması eklendi;
+  hepsi GEÇTİ. **GUI smoke BEKLİYOR** (banner/marker görünürlüğü, dwell hissi).
+- **Rapid hızı (kullanıcı isteği — pas-arası/retract çok hızlı, takip edilemiyor):** `simulation_controller.py`
+  rapid artık 5mm-adım+sabit-uyku yerine ~1mm ince adım + SABİT GÖRSEL HIZ (`RAPID_SIM_MM_PER_SEC=90` mm/gerçek-sn,
+  `RAPID_SIM_MAX_S=2.5` cap) ile ilerliyor → pas kesme temposuna benziyor. Sim-hız kaydırıcısı (`speed_multiplier`)
+  hâlâ ölçekliyor. SADECE simülasyon; G-code/toolpath değişmez. (İnce ayar: sabitleri değiştir.)
+
+**BUGFIX (kullanıcı raporu — relative modda sim≠gcode):** `relative` referansı iki yerde FARKLIYDI:
+`generate_gcode` prev_end = `paths_to_use[idx-1][-1]` (pasın ŞEKİLLENDİRME bitişi, per-pass retract'tan
+ÖNCE) iken `calculate_paths` `current_pt` = retract SONRASI konum → sim ile NC farklı takım-değişim noktası
+hesaplıyordu. Fix: sim artık `toolpaths[-1][-1]` (şekillendirme bitişi) referans alıyor (retract HAREKETİ
+hâlâ current_pt'ten başlar). ΔX/ΔZ = son kesme noktasına göre, HER İKİSİNDE aynı. Regresyon testi eklendi
+(2-pas op1 + retract≠0: gcode hedefi==forming_end+offset VE sim sequence'inde o hedefte biten rapid var).
+Tooltip/help: "relative = FORMING end, otomatik retract'tan ÖNCE" netleştirildi.
+
+**BUGFIX 2 (kullanıcı raporu — negatif-taraf ruloda X yönü/işaret):** Kök neden = motor negatif-taraf
+rulo için X'i mandrel merkezinde AYNALIYOR (`side==-1`, ~L876 `2*center_x - x`). `dx` kanonik çerçevede
+eklenip sonra aynalanınca sim'de işaret TERSİNE dönüyordu → sim `real_prev - dx`, gcode `real_prev + dx`
+(ZIT yönler). Ayrıca absolute modda `mirror_center + abs(...)` işareti eziyordu. Fix: `resolve_tool_change_point`
+imzası `mirror_center` yerine `center_x` + `side` aldı; gerçek-çerçeve X kanonik'e `center + side*(x-center)`
+ile çevriliyor, relative offset `prev + side*dx`. Böylece kullanıcının GİRDİĞİ İŞARET birebir korunuyor
+(abs YOK) ve sim==gcode HER İKİ tarafta. Sim çağrısı `center_x=center_x, side=side`; gcode çağrısı gerçek
+çerçevede (varsayılan center_x=None, side=1) — DEĞİŞMEDİ. UI: sarı ipucu artık makineye-özel
+(`lbl_tc_axis_hint_pos`/`_neg`, `roller_positive_x_side`'a göre) — "parçadan uzaklaşmak için X'i artır/azalt"
+doğru yönü söylüyor. Tooltip `tip_tc_x`/`tip_tc_dx`: "işaret birebir, abs yok; uzak yönü rulo tarafına bağlı".
+Test `_test_tool_change_position.py`'e HER İKİ taraf (positive/negative) + ±ΔX simetri (abs değil) + sim==gcode
+regresyonu eklendi; hepsi GEÇTİ. **Kullanıcının negatif-taraf makinesinde: parçadan uzak = NEGATİF ΔX.**
+
+---
+
+## 2026-07-22 — Fileto düzleştirme TAKİP: roughing tam izleme + clearance yumuşatma
+
+Kullanıcı geri bildirimi: (a) straight-line finishing beklendiği gibi çalışıyor; (b) roughing'de
+ilk pas hâlâ P1'de filetodan etkileniyordu (P2-only düzeltme yetmiyordu); (c) düşük başlangıç
+kıskaç-bölgesi uyarısını tetikliyor.
+
+- **Roughing tam izleme:** `_create_and_store_pass`'e `_place_normal(z)` yardımcısı — bayrak açıkken
+  YERLEŞTİRME normalleri (yaklaşım yönü `approach_follow_surface` + `auto_align` rotasyon hizası)
+  düz duvar normalini (`get_straightened_normal`) kullanır. Böylece P1/yaklaşım ve pas eğimi de
+  duvarı izler, filetoya sapmaz. **GÜVENLİK:** clearance/gouge kontrolü BİLEREK gerçek mandrel'i
+  (`get_radius_fast`) örneklemeye devam eder → dışbükey dudakta takım yine dışarı itilir, asla
+  mandrel'e gömülmez. Fileto şekli (içbükey/dışbükey) sorusu bu yüzden gereksiz.
+- **Kıskaç uyarısı yumuşatma:** düzleştirme AÇIK + op straightening kapsamındaysa (roughing veya
+  straight-line finishing) kıskaç uyarı dict'ine `"softened": True` eklenir. `refresh_clamp_status`
+  (`ui/main_window.py`) uyarıları hard/soft ayırır: soft = sakin durum-çubuğu notu (`status_clamp_soft`,
+  mavi-gri), MODAL YOK; hard = eski amber + modal. Sweeping/adaptive finishing düzleştirilmediği için
+  hard kalır. i18n `status_clamp_soft` (EN/TR/ES).
+- Test genişletildi (`_test_straighten_fillet.py`): roughing temas noktası dışa (min-X), auto-align
+  yaklaşım ucu duvara hizalı, kıskaç soft/hard ayrımı, bayrak-kapalı byte-birebir. Regresyon:
+  clamp_zone/flatness/pass_table/reach/surface_angle/tool_table GEÇTİ.
+- Help `_C` güncellendi. **BEKLEYEN:** GUI smoke + FİZİKSEL doğrulama.
+
+## 2026-07-21 — BAŞLANGIÇ FİLETO DÜZLEŞTİRME (opt-in, auto-detect) — silindir/koni mandrel
+
+**Sorun:** Silindir benzeri mandrel'in duvarı ile alın yüzü arasında küçük bir yuvarlatma
+(fileto) radiusu var. Yol üretimi yüzeyi noktasal izlediği için ilk paslar bu küçük radiusu
+"tırmanıyor" — oysa o bölge küçük ve ihmal edilebilir; kullanıcı düz duvar açısını izlemek
+istiyor. Eski geçici çözüm: Start Z'yi ≥10 verip Machine-tab Program-Start-Z ile global kaydırmak.
+
+**Çözüm (opt-in, varsayılan KAPALI → eski davranış birebir):**
+- `mandrel_analyzer.py`: `get_straightened_radius(z)` + `get_straightened_normal(z)` +
+  yardımcı `_flat_start_params()`. Fileto→duvar geçişini MEVCUT `get_flat_start_z()` ile
+  otomatik bulur (yellow "flat start" ipucunu besleyen aynı dedektör). Geçişin ALTINDA
+  gerçek fileto radiusu yerine EKSTRAPOLE edilmiş düz duvar çizgisini döndürür; geçişin
+  üstünde ve düz-bölümü olmayan (tamamen eğri) mandrel'de `get_radius_fast`/`get_normal_at_z`
+  ile BİREBİR aynı. Fileto içbükey olduğu için ekstrapole çizgi mandrel'in DIŞINDA kalır →
+  takım mandrel'e gömülemez (gouge-güvenli).
+- `main.py`: yeni param `straighten_start_fillet` (varsayılan `False`; MACHINE_PROFILE_KEY DEĞİL).
+- `path_generator.py` iki çağrı yeri, bayrağa GATE'li: (1) roughing temas noktası
+  (`r_contact`/`nx,nz` @ contact_z ~473), (2) straight-line finishing 2-nokta çizgisi
+  (start_h/end_h ~530). Bayrak kapalıyken tam eski kod yolu.
+- **KAPSAM DIŞI (bilerek):** sweeping/adaptive (trace-mandrel-profile) finishing — yüzeyi
+  nokta-nokta huglamalı, ekstrapolasyon amacını bozar. `path_generator.py`'de adaptive+sweeping
+  dallarına AÇIKLAMA NOTU eklendi ki ileride "neden burada çalışmıyor" hemen görülsün.
+- **UI:** Process sekmesi → "Conformal Path Settings" bölümüne "Straighten Start Fillet
+  (opt-in)" onay kutusu (`ui/tabs/process_tab.py`); i18n `cb_straighten_fillet` (EN/TR/ES,
+  `i18n.py`). `add_checkbox` varsayılan mode="all" → toggle'da yeniden hesap.
+- Help (`ui/dialogs/help_window.py` `_C`) + bu dosya güncellendi.
+- Test: `_test_straighten_fillet.py` (geometri yardımcıları + straight-line finish + roughing
+  entegrasyonu + bayrak-kapalı byte-birebir regresyon) → HEPSİ GEÇTİ (headless).
+
+**BEKLEYEN:** GUI smoke + FİZİKSEL doğrulama.
+**Sınır:** geçiş noktası bir sezgisel (slope_threshold=0.08); tuhaf profilde yanlış nokta
+seçebilir → gerekirse ileride op-başına manuel override.
+
 ## 2026-07-21 — Reçete-taşımalı TARET / TAKIM TABLOSU (SCL post-processor) + takım rengi simülasyonda
 
 **PLC handover (`CAM_TOOL_TABLE_HANDOVER.md`):** PLC artık taret eşlemesini HMI'dan değil

@@ -346,6 +346,17 @@ class ProcessTab(ScrollableTabBase):
                                  "Konik/düz mandrel için gereksiz; küresel veya konkav şekillerde etkili.")
         self.helper.add_spinbox(self.content, self.app, "exit_arc_angle", t("lbl_exit_arc"), 0.0, 180.0, 1.0,
                                 "Çıkış yayının (T2→P3) tanjant-kiriş açısı (derece). 0 = düz çizgi.")
+        self.helper.add_checkbox(self.content, self.app, "straighten_start_fillet", t("cb_straighten_fillet"),
+                                 "Silindir/koni mandrel'in duvarı ile alın yüzü arasındaki küçük yuvarlatma "
+                                 "(fileto) radiusunu YOK SAY. Açıkken, fileto→duvar geçişinin ALTINDA işleyen "
+                                 "paslar gerçek fileto eğrisini izlemek yerine EKSTRAPOLE edilmiş düz duvar "
+                                 "çizgisini izler — böylece ilk paslar küçük radiusu 'tırmanmaz'. Geçiş noktası "
+                                 "otomatik bulunur (düz-başlangıç ipucuyla aynı dedektör); düz bölümü olmayan "
+                                 "(tamamen eğri) mandrel asla düzleştirilmez. Fileto içbükey olduğu için "
+                                 "düzleştirilen çizgi mandrel'in DIŞINDA kalır (mandrel'e gömülme riski yok). "
+                                 "SADECE straight-line bitirme + kaba pasoya uygulanır — sweeping/adaptive "
+                                 "(konformal) bitirme bilerek hariçtir (o mod gerçek yüzeyi izler). "
+                                 "Varsayılan KAPALI (eski davranış birebir).")
 
         # --- Geometry Settings ---
         self.helper.add_section_header(self.content, t("section_geometry"), color="darkblue")

@@ -329,24 +329,34 @@ class SpinningCamWindow(tk.Tk):
         session. Called from both the async poller and the synchronous Calculate
         button so it fires whichever path the user takes."""
         try:
-            cw = getattr(self.app.path_gen, "last_clamp_warnings", None) or []
-            # Persistent status-bar indicator
-            if cw:
+            cw_all = getattr(self.app.path_gen, "last_clamp_warnings", None) or []
+            # Partition: "hard" = full amber alarm + modal (real, unexpected low start);
+            # "soft" = intentional low start because start-fillet straightening is on →
+            # calm status-bar note only, no modal.
+            hard = [w for w in cw_all if not w.get("softened")]
+            soft = [w for w in cw_all if w.get("softened")]
+
+            # Persistent status-bar indicator (hard takes priority on the single line)
+            if hard:
                 self.lbl_info.config(
-                    text=t("status_clamp_warn").format(n=len(cw), idx=cw[0]["op_index"] + 1),
+                    text=t("status_clamp_warn").format(n=len(hard), idx=hard[0]["op_index"] + 1),
                     fg="#ffb020")
+            elif soft:
+                self.lbl_info.config(
+                    text=t("status_clamp_soft").format(n=len(soft), idx=soft[0]["op_index"] + 1),
+                    fg="#88aacc")
             else:
                 self.lbl_info.config(text=t("status_ready"), fg="#ddd")
 
-            # Modal popup (unless suppressed for the session via "Don't show again")
-            if cw and not getattr(self, "_clamp_popup_suppressed", False):
-                top = cw[0]["clamp_top_z"]
+            # Modal popup ONLY for hard warnings (unless suppressed this session)
+            if hard and not getattr(self, "_clamp_popup_suppressed", False):
+                top = hard[0]["clamp_top_z"]
                 ops = "\n".join(
                     "  • " + t("msg_clamp_warn_op").format(
                         idx=w["op_index"] + 1, type=w["op_type"], sz=round(w["start_z"], 1))
-                    for w in cw)
+                    for w in hard)
                 self._show_clamp_popup(
-                    t("msg_clamp_warn_body").format(n=len(cw), top=round(top, 1), ops=ops))
+                    t("msg_clamp_warn_body").format(n=len(hard), top=round(top, 1), ops=ops))
         except Exception:
             pass
 
@@ -429,6 +439,63 @@ class SpinningCamWindow(tk.Tk):
 
         def _dont_show():
             self._flatness_popup_suppressed = True
+            win.destroy()
+
+        ttk.Button(btns, text=t("btn_dont_show_again"), command=_dont_show).pack(side="left")
+        ttk.Button(btns, text=t("btn_confirm"), command=win.destroy).pack(side="right")
+        win.grab_set()
+        win.update_idletasks()
+        try:  # center over the main window
+            x = self.winfo_rootx() + (self.winfo_width() - win.winfo_width()) // 2
+            y = self.winfo_rooty() + (self.winfo_height() - win.winfo_height()) // 3
+            win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+        self.wait_window(win)
+
+    def refresh_tool_change_status(self):
+        """Surface the per-op tool-change swing advisory. Reads
+        path_gen.last_tool_change_warnings (set by calculate_paths when a CUSTOM
+        absolute/relative tool-change point sits near the turret swing envelope).
+        Lowest-priority amber status cue (clamp/flatness keep the single status
+        line if present) + a session-suppressible modal. Warn-only by design —
+        the toolpath is never changed."""
+        try:
+            tw = getattr(self.app.path_gen, "last_tool_change_warnings", None) or []
+            cw = getattr(self.app.path_gen, "last_clamp_warnings", None) or []
+            fw = getattr(self.app.path_gen, "last_flatness_warnings", None) or []
+            if tw and not cw and not fw:
+                self.lbl_info.config(
+                    text=t("status_tc_warn").format(n=len(tw), idx=tw[0]["op_index"] + 1),
+                    fg="#ffb020")
+            if tw and not getattr(self, "_tc_popup_suppressed", False):
+                ops = "\n".join(
+                    "  • " + t("msg_tc_warn_op").format(
+                        idx=w["op_index"] + 1, mode=w["mode"],
+                        x=round(w["x"], 1), z=round(w["z"], 1),
+                        gap=round(w["gap"], 1),
+                        pgap=round(w.get("path_gap", w["gap"]), 1))
+                    for w in tw)
+                self._show_tool_change_popup(t("msg_tc_warn_body").format(n=len(tw), ops=ops))
+        except Exception:
+            pass
+
+    def _show_tool_change_popup(self, body):
+        """Modal tool-change swing warning; Confirm (may reappear next calc) /
+        Don't-show-again (suppress for the session). Mirrors _show_clamp_popup."""
+        win = tk.Toplevel(self)
+        win.title(t("msg_tc_warn_title"))
+        win.transient(self)
+        win.resizable(False, False)
+        frm = ttk.Frame(win, padding=16)
+        frm.pack(fill="both", expand=True)
+        tk.Label(frm, text="⚠", font=("Arial", 20), fg="#d08000").pack(anchor="w")
+        tk.Label(frm, text=body, justify="left", wraplength=460).pack(anchor="w", pady=(4, 0))
+        btns = ttk.Frame(frm)
+        btns.pack(fill="x", pady=(14, 0))
+
+        def _dont_show():
+            self._tc_popup_suppressed = True
             win.destroy()
 
         ttk.Button(btns, text=t("btn_dont_show_again"), command=_dont_show).pack(side="left")
@@ -684,6 +751,16 @@ class SpinningCamWindow(tk.Tk):
                 try: self.app.update_deformed_blank(render=False)
                 except Exception: pass
 
+            # Tool-change cue (banner + pulsing marker) while the worker dwells at a
+            # change point. Updated every frame so the marker pulses; cleared as soon
+            # as the dwell ends. The worker only sets the flags (main thread renders).
+            sc = self.app.sim_controller
+            self.app.update_tool_change_cue(
+                getattr(sc, "tool_change_active", False),
+                getattr(sc, "tool_change_pos", None),
+                getattr(sc, "tool_change_from", ""),
+                getattr(sc, "tool_change_to", ""))
+
             if pos is not None:
                 self.app.update_roller_visual(pos, rad, tilt_deg=tilt)
                 try:
@@ -699,6 +776,9 @@ class SpinningCamWindow(tk.Tk):
             self.after(20, self.check_sim_loop)
         else:
             self._sim_last_blank_pass = -2   # #63: reset so the next sim run redraws fresh
+            # Make sure the tool-change cue is gone when the sim ends/stops.
+            try: self.app.update_tool_change_cue(False)
+            except Exception: pass
             if getattr(self, "_sim_lines_hidden", False):
                 self._set_sim_lines_visibility(True)
                 try: self.app.plotter.render()

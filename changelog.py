@@ -6,6 +6,15 @@ here with short, operator-facing bullet lines (what changed, not how it was code
 """
 
 CHANGELOG = {
+    "1.009": [
+        "Tool-change position is now configurable per operation (Program tab → operation → Tool Change). Choose Global (home) — the default, unchanged behaviour — or Absolute X/Z to retract to an explicit point, or Relative to last pass to retract to a ΔX/ΔZ offset from where the previous pass ended. It only affects an operation whose tool differs from the one before it; the first operation still homes.",
+        "The X/Z and ΔX/ΔZ values are applied with their literal sign (no abs) — a negative value really moves the other way. A yellow hint tailored to your machine tells you which sign moves AWAY from the part: on a negative-side roller that is a SMALLER X, on a positive-side roller a LARGER X. (Fixes a case where the sim and the exported G-code moved the tool-change point in opposite directions on negative-side machines.)",
+        "New 'Simultaneous XZ' option per operation: off (default) keeps the safe Z-first-then-X retract; on moves both axes together in one diagonal rapid (faster). A diagonal can cut a convex corner, so the retract path itself is now collision-checked.",
+        "Both the 3D simulation and the exported G-code/SCL use the same resolved tool-change point, so what you see is what the machine runs.",
+        "Simulation now pauses briefly at every tool change with a yellow banner (outgoing → incoming tool) and a pulsing marker at the change point — so you can actually see WHERE and WHEN the tool swaps, even on a fast run.",
+        "Simulation moves are now paced by distance instead of point count: rapids (retracts and moves between passes) no longer jump, and a pass built from only a couple of points — e.g. a straight-line finish — travels at the same followable pace as a many-point pass instead of whipping through. Dense passes keep their previous feel. (The sim-speed slider still scales everything.)",
+        "Safety: a custom tool-change point is checked two ways after Calculate — clearance AT the point (where M6 rotates the turret, so a tool could strike on the swing) and clearance ALONG the retract move (a diagonal that dips into the part). Either triggers a warning (status cue + popup). It is advisory only — the toolpath is never changed.",
+    ],
     "1.008": [
         "SCL export now writes a Turret / Tool Table into every recipe header, so the PLC takes its tool-slot setup straight from the downloaded recipe instead of an HMI-entered mapping. Set it up in Machine ▸ Turret / Tool Table: enter the tool code in each of the 4 slots (0 = empty), or press 'Populate from tool library' to fill them from your tools automatically.",
         "Turret angles: tick 'Auto-space angles' to let the PLC space them evenly (3 slots → 0/120/240), or untick it to type your own measured slot angles.",

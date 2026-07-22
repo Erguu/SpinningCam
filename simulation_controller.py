@@ -3,6 +3,18 @@ import threading
 import numpy as np
 from logger_config import logger
 
+# Simulation pacing. Moves are timed by the machine's REAL rates (mm per
+# MINUTE): a cut runs at the operation's feed, a rapid at the machine profile's
+# rapid-traverse rate. This makes play time proportional to physical length, so
+# pass-to-pass speeds are truthful and rapids read as clearly faster than cuts —
+# and a 2-point straight-line finish no longer whips through. Rates are
+# converted to mm per real second; the sim-speed slider then scales everything.
+DEFAULT_RAPID_RATE_MM_MIN = 5000.0   # used when the machine profile has no rapid rate
+DEFAULT_CUT_FEED_MM_MIN = 300.0      # used when a cut item carries no feed
+CUT_SIM_MIN_MM_PER_SEC = 3.0         # floor so a very slow feed doesn't freeze the sim
+RAPID_SIM_MAX_S = 2.5                # cap so a long traverse doesn't drag
+CUT_SIM_STEP_MM = 1.0                # sub-step size (keeps tilt interpolation smooth)
+
 class SimulationController:
     def __init__(self, plotter, ui_manager, get_actors_callback):
         self.plotter = plotter
@@ -18,6 +30,15 @@ class SimulationController:
         self.thread = None
         self.cleanup_needed = False
         self.speed_multiplier = 1.0  # 1.0 = normal, >1 = faster, <1 = slower
+
+        # Tool-change cue: the worker dwells briefly at each tool change (real time,
+        # so it's visible even at high playback speed) and flags it; the main thread
+        # (check_sim_loop) draws a banner + pulsing marker while active.
+        self.tool_change_active = False
+        self.tool_change_pos = None
+        self.tool_change_from = ""
+        self.tool_change_to = ""
+        self.tool_change_dwell = 0.9  # seconds of real-time pause at each tool change
 
         self.step_mode = False   # when True: pause after every sequence item
         self.is_paused = False   # True while waiting for step_one() / set_step_mode(False)
@@ -92,6 +113,10 @@ class SimulationController:
             # Set default radius
             self.current_radius = default_rad
 
+            # Rapid pace = machine profile's rapid-traverse rate (mm/min → mm/s).
+            rapid_mm_s = max(1.0, float(params.get("rapid_rate_mm_min",
+                                                   DEFAULT_RAPID_RATE_MM_MIN)) / 60.0)
+
             logger.info(f"Starting Simulation Thread. Sequence Mode: {sequence is not None}")
 
             if sequence:
@@ -103,21 +128,24 @@ class SimulationController:
                     data = item[1]
 
                     if itype == "rapid":
-                        # Interpolate segment
+                        # Interpolate segment. Rapids used to jump (5 mm steps, a
+                        # fixed tiny sleep) so they were hard to follow between
+                        # passes. Now: fine ~1 mm steps paced by the machine's real
+                        # rapid-traverse rate, capped so a long traverse won't drag.
                         p1, p2 = data[0], data[1]
-                        dist = np.linalg.norm(p2 - p1)
-                        steps = int(dist / 5.0)
-                        if steps < 1: steps = 1
+                        dist = float(np.linalg.norm(p2 - p1))
+                        spd = max(0.01, self.speed_multiplier)
+                        steps = max(1, int(dist / 1.0))
+                        total_t = min(dist / rapid_mm_s, RAPID_SIM_MAX_S)
+                        dt = (total_t / steps) / spd
 
                         vec = p2 - p1
-                        spd = max(0.01, self.speed_multiplier)
                         for s in range(steps + 1):
                             if not self.is_running: break
                             self._general_pause_event.wait()
                             if not self.is_running: break
-                            t = s / steps
-                            self.current_pos = p1 + (vec * t)
-                            time.sleep(0.002 / spd)
+                            self.current_pos = p1 + (vec * (s / steps))
+                            time.sleep(dt)
 
                     elif itype == "cut":
                         # Play path
@@ -127,6 +155,9 @@ class SimulationController:
                             self.current_radius = float(item[2])
                         if len(item) > 3:
                             self.current_tool_id = str(item[3])
+                        # Real cutting feed (mm/min) attached by calculate_paths.
+                        cut_feed = float(item[4]) if len(item) > 4 else DEFAULT_CUT_FEED_MM_MIN
+                        cut_mm_s = max(CUT_SIM_MIN_MM_PER_SEC, cut_feed / 60.0)
 
                         cut_tilts = None
                         if tilts is not None and cut_counter < len(tilts):
@@ -136,18 +167,52 @@ class SimulationController:
                         self.current_pass_idx = cut_counter   # #63: drives the deformed blank
                         cut_counter += 1
 
-                        step_delay = 0.002
-                        if len(path) < 100: step_delay = 0.005 # Slower for short paths
-
                         spd = max(0.01, self.speed_multiplier)
-                        for _cpi, pt in enumerate(path):
-                            if not self.is_running: break
-                            self._general_pause_event.wait()
-                            if not self.is_running: break
-                            self.current_pos = pt
+
+                        # Play the first point, then walk each segment paced by the
+                        # operation's real feed (mm/s) and subdivided into ~1 mm
+                        # sub-steps. A 2-point straight finish then travels at the
+                        # correct feed instead of whipping through; a dense pass keeps
+                        # its feel (each segment is already < 1 mm, so subs == 1).
+                        if len(path):
+                            self.current_pos = path[0]
                             if cut_tilts is not None:
-                                self.current_tilt = float(cut_tilts[_cpi])
-                            time.sleep(step_delay / spd)
+                                self.current_tilt = float(cut_tilts[0])
+                        for _cpi in range(1, len(path)):
+                            if not self.is_running: break
+                            p_prev = np.asarray(path[_cpi - 1], dtype=float)
+                            p_cur = np.asarray(path[_cpi], dtype=float)
+                            seg = float(np.linalg.norm(p_cur - p_prev))
+                            subs = max(1, int(seg / CUT_SIM_STEP_MM))
+                            dt = (seg / cut_mm_s / subs) / spd
+                            t_prev = float(cut_tilts[_cpi - 1]) if cut_tilts is not None else None
+                            t_cur = float(cut_tilts[_cpi]) if cut_tilts is not None else None
+                            for s in range(1, subs + 1):
+                                if not self.is_running: break
+                                self._general_pause_event.wait()
+                                if not self.is_running: break
+                                f = s / subs
+                                self.current_pos = p_prev + (p_cur - p_prev) * f
+                                if t_prev is not None:
+                                    self.current_tilt = t_prev + (t_cur - t_prev) * f
+                                time.sleep(dt)
+
+                    elif itype == "toolchange":
+                        # Park the roller at the change point and flag the cue, then
+                        # dwell in REAL time (not divided by speed) so it's visible
+                        # even on a fast run. Interruptible by stop / general pause.
+                        self.current_pos = np.asarray(data, dtype=float)
+                        self.tool_change_pos = np.asarray(data, dtype=float)
+                        self.tool_change_from = str(item[2]) if len(item) > 2 else ""
+                        self.tool_change_to = str(item[3]) if len(item) > 3 else ""
+                        self.tool_change_active = True
+                        _end = time.time() + max(0.0, self.tool_change_dwell)
+                        while self.is_running and time.time() < _end:
+                            self._general_pause_event.wait()
+                            if not self.is_running:
+                                break
+                            time.sleep(0.02)
+                        self.tool_change_active = False
 
                     # Step-mode pause: hold after every sequence item until Step is clicked
                     if self.step_mode and self.is_running:
@@ -191,4 +256,6 @@ class SimulationController:
             self.current_pass_idx = -1
             self.current_tilt = None
             self.current_tool_id = ""
+            self.tool_change_active = False
+            self.tool_change_pos = None
             logger.info("Simulation Thread Finished.")

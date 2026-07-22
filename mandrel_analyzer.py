@@ -249,6 +249,73 @@ class MandrelManager:
 
         return None  # No flat section detected
 
+    def _flat_start_params(self) -> Optional[tuple[float, float, float]]:
+        """
+        Returns (flat_z, r0, slope) describing the straight (constant-angle) surface
+        that begins at the fillet→wall transition, or None if the profile has no such
+        flat run (a purely curved / conical mandrel that must NOT be straightened).
+
+        `flat_z`  = Z where the edge radius ends and the straight wall begins
+                    (the same value that drives the Program-tab "flat start" hint).
+        `r0`      = radius at flat_z.
+        `slope`   = dr/dz of the straight section (≈0 for a cylinder, the cone slope
+                    for a cone) — used to extrapolate the wall line back over the fillet.
+
+        Used only by the opt-in start-fillet straightening feature.
+        """
+        flat_z = self.get_flat_start_z()
+        if flat_z is None:
+            return None
+        r0 = self.get_radius_fast(flat_z)
+        # Fit the slope over a short span into the flat region so a single noisy sample
+        # can't tilt the extrapolated line. Bounded so we stay inside the flat run and
+        # do not reach across into another feature further up the profile.
+        span = 10.0  # mm
+        mask = (self.profile_z >= flat_z) & (self.profile_z <= flat_z + span)
+        zs = self.profile_z[mask]
+        rs = self.profile_r[mask]
+        if len(zs) >= 2 and (zs.max() - zs.min()) > 1e-6:
+            slope = float(np.polyfit(zs, rs, 1)[0])
+        else:
+            r_up = self.get_radius_fast(flat_z + span)
+            slope = (r_up - r0) / span if span else 0.0
+        return (float(flat_z), float(r0), float(slope))
+
+    def get_straightened_radius(self, z_level: float) -> float:
+        """
+        Radius at `z_level`, but with the start edge-fillet ignored: below the
+        flat→fillet transition the straight wall line is EXTRAPOLATED instead of
+        following the real fillet curve. At/above the transition, and for profiles
+        with no flat run (purely curved), this is identical to get_radius_fast().
+
+        Because a fillet is concave, the extrapolated line sits radially OUTSIDE the
+        real mandrel there, so a tool placed on it never digs into the mandrel.
+        Opt-in only — call sites gate on params["straighten_start_fillet"].
+        """
+        p = self._flat_start_params()
+        if p is None:
+            return self.get_radius_fast(z_level)
+        flat_z, r0, slope = p
+        if z_level >= flat_z:
+            return self.get_radius_fast(z_level)
+        return r0 + slope * (z_level - flat_z)
+
+    def get_straightened_normal(self, z_level: float) -> tuple[float, float]:
+        """
+        Surface normal at `z_level` consistent with get_straightened_radius(): below the
+        flat→fillet transition it returns the CONSTANT normal of the straight wall
+        (so conformal placement matches the extrapolated line, not the fillet). At/above
+        the transition, or with no flat run, it falls back to get_normal_at_z().
+        """
+        p = self._flat_start_params()
+        if p is None or z_level >= p[0]:
+            return self.get_normal_at_z(z_level)
+        slope = p[2]
+        nx = 1.0; nz = -slope
+        length = math.sqrt(nx*nx + nz*nz)
+        if length < 1e-6: return (1.0, 0.0)
+        return (nx / length, nz / length)
+
     def get_normal_at_z(self, z_level: float) -> tuple[float, float]:
         """
         Calculates the surface normal vector (nx, nz) at a given Z level in the XZ plane.

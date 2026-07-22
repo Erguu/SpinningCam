@@ -40,6 +40,8 @@ OP_PARAM_DEFAULTS = {
     "tilt_start": 0,
     "tilt_end": 0,
     "tilt_offset": 0,
+    "tool_change_dx": 0,
+    "tool_change_dz": 0,
     "back_pass_arc_x": 0,
     "back_pass_arc_z": 0,
     "speed": 200,                   # falls back to global surface_speed_m_min
@@ -51,6 +53,8 @@ OP_PARAM_DEFAULTS = {
     "back_pass_feed": "= Feed",
     "end_z": "= mandrel top",
     "plunge_x": "= center + 50",
+    "tool_change_x": "= home X",
+    "tool_change_z": "= home Z",
 }
 
 
@@ -71,8 +75,13 @@ OP_PARAM_DEFAULTS = {
 
 _UNIVERSE_COMMON = ["speed_mode", "speed", "feed_mode", "feed"]
 
+# Per-op tool-change position (2026-07-21). Applies to any op type; only takes
+# effect on the op that first needs a new tool. Default mode "global" = home.
+_TOOL_CHANGE_KEYS = ["tool_change_mode", "tool_change_x", "tool_change_z",
+                     "tool_change_dx", "tool_change_dz", "tool_change_simultaneous"]
+
 OP_PARAM_UNIVERSE = {
-    "roughing": _UNIVERSE_COMMON + [
+    "roughing": _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + [
         "name", "tool_id", "count", "direction",
         "tilt_mode", "tilt_start", "tilt_end", "tilt_offset",
         "start_z", "end_z", "p2_z_extend", "proj_extend_bottom", "proj_extend_top",
@@ -88,14 +97,14 @@ OP_PARAM_UNIVERSE = {
         "back_pass_enabled", "back_pass_swapped", "back_pass_feed",
         "back_pass_arc_x", "back_pass_arc_z",
     ],
-    "finishing": _UNIVERSE_COMMON + [
+    "finishing": _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + [
         "name", "tool_id", "count", "direction",
         "tilt_mode", "tilt_start", "tilt_end", "tilt_offset",
         "start_z", "end_z", "proj_extend_bottom", "proj_extend_top",
         "clearance", "pass_shape", "straight_line_mode",
     ],
-    "cutting":  _UNIVERSE_COMMON + ["name", "tool_id", "z_pos", "plunge_x"],
-    "bending":  _UNIVERSE_COMMON + ["name", "tool_id", "z_pos", "plunge_x"],
+    "cutting":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + ["name", "tool_id", "z_pos", "plunge_x"],
+    "bending":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + ["name", "tool_id", "z_pos", "plunge_x"],
 }
 
 # Tilt fields only exist on tilt-arm machines; filtered out otherwise.
@@ -109,6 +118,10 @@ OP_PARAM_LABELS = {
     "tool_id": "lbl_tool_id", "count": "lbl_pass_count", "direction": "lbl_direction",
     "tilt_mode": "lbl_tilt_mode", "tilt_start": "lbl_tilt_start",
     "tilt_end": "lbl_tilt_end", "tilt_offset": "lbl_tilt_offset",
+    "tool_change_mode": "lbl_tc_mode",
+    "tool_change_x": "lbl_tc_x", "tool_change_z": "lbl_tc_z",
+    "tool_change_dx": "lbl_tc_dx", "tool_change_dz": "lbl_tc_dz",
+    "tool_change_simultaneous": "lbl_tc_simul",
     "start_z": "lbl_zone_start", "end_z": "lbl_zone_end",
     "p2_z_extend": "lbl_p2z_extend",
     "proj_extend_bottom": "lbl_proj_bottom", "proj_extend_top": "lbl_proj_top",
@@ -1189,6 +1202,7 @@ class ProgramTab:
         if status == "ok":
             self.ui_root.refresh_clamp_status()
             self.ui_root.refresh_flatness_status()
+            self.ui_root.refresh_tool_change_status()
         else:
             self.ui_root.lbl_info.config(text=t("status_ready"), fg="#ddd")
 
@@ -1995,6 +2009,64 @@ class ProgramTab:
                                      tooltip="Yüzey normaline eklenen sabit açı (°). "
                                              "Pozitif = takım ilerleme yönünde öne yatar (lead), "
                                              "negatif = geriye yatar (lag). B limitlerine kırpılır.")
+
+        # Per-op tool-change position (2026-07-21). Only takes effect on an op that
+        # first needs a NEW tool. "global" (default) = machine home; "absolute" pins
+        # an explicit X/Z; "relative" offsets from the previous pass's end.
+        f_tcm = ttk.Frame(self.f_prop_editor)
+        f_tcm._pkey = "tool_change_mode"
+        f_tcm.pack(fill="x", padx=10, pady=2)
+        ttk.Label(f_tcm, text=t("lbl_tc_mode"), width=15).pack(side="left")
+        _tc_map = {t("opt_tc_global"): "global", t("opt_tc_absolute"): "absolute",
+                   t("opt_tc_relative"): "relative"}
+        _tc_rev = {v: k for k, v in _tc_map.items()}
+        _tc_var = tk.StringVar(value=_tc_rev.get(op.get("tool_change_mode", "global"),
+                                                 t("opt_tc_global")))
+        cb_tcm = ttk.Combobox(f_tcm, values=list(_tc_map.keys()), textvariable=_tc_var,
+                              state="readonly", width=16)
+        cb_tcm.pack(side="right", fill="x", expand=True)
+        scroll_not_edit(cb_tcm)
+        def _on_tcm(event=None, _i=idx, _v=_tc_var, _m=_tc_map):
+            self.app.params["operations"][_i]["tool_change_mode"] = _m.get(_v.get(), "global")
+            self._schedule_auto_calc()
+            # Re-render so mode-specific fields (X/Z vs dX/dZ) swap in/out.
+            self.on_op_select(None, _flush=False)
+        cb_tcm.bind("<<ComboboxSelected>>", _on_tcm)
+        self.helper.bind_tooltip(cb_tcm, t("tip_tc_mode"))
+        _tc_mode = op.get("tool_change_mode", "global")
+        if _tc_mode in ("absolute", "relative"):
+            # Axis-sign reminder, made specific to THIS machine's roller side:
+            # away-from-part is +X on a positive-side roller, −X on a negative-side
+            # one (the engine mirrors X around the mandrel center for the latter).
+            _pos_side = bool(self.app.params.get("roller_positive_x_side", True))
+            _hint_key = "lbl_tc_axis_hint_pos" if _pos_side else "lbl_tc_axis_hint_neg"
+            f_tchint = ttk.Frame(self.f_prop_editor)
+            f_tchint.pack(fill="x", padx=10, pady=(0, 1))
+            ttk.Label(f_tchint, text=t(_hint_key),
+                      foreground="#888800", font=("Arial", 8, "italic"),
+                      wraplength=260, justify="left").pack(side="left")
+        if _tc_mode == "absolute":
+            self._add_prop_entry(idx, "tool_change_x", t("lbl_tc_x"), op, is_float=True,
+                                 tooltip=t("tip_tc_x"))
+            self._add_prop_entry(idx, "tool_change_z", t("lbl_tc_z"), op, is_float=True,
+                                 tooltip=t("tip_tc_z"))
+        elif _tc_mode == "relative":
+            self._add_prop_entry(idx, "tool_change_dx", t("lbl_tc_dx"), op, is_float=True,
+                                 tooltip=t("tip_tc_dx"))
+            self._add_prop_entry(idx, "tool_change_dz", t("lbl_tc_dz"), op, is_float=True,
+                                 tooltip=t("tip_tc_dz"))
+        if _tc_mode in ("absolute", "relative"):
+            # Simultaneous XZ: one coordinated diagonal rapid instead of Z-then-X.
+            f_tcs = ttk.Frame(self.f_prop_editor)
+            f_tcs._pkey = "tool_change_simultaneous"
+            f_tcs.pack(fill="x", padx=10, pady=1)
+            ttk.Label(f_tcs, text=t("lbl_tc_simul"), width=15).pack(side="left")
+            _tcs_var = tk.BooleanVar(value=bool(op.get("tool_change_simultaneous", False)))
+            def _toggle_tcs(_i=idx, _v=_tcs_var):
+                self.app.params["operations"][_i]["tool_change_simultaneous"] = _v.get()
+                self._schedule_auto_calc()
+            ttk.Checkbutton(f_tcs, variable=_tcs_var, command=_toggle_tcs).pack(side="right")
+            self.helper.bind_tooltip(f_tcs, t("tip_tc_simul"))
 
         # Zone range: Start Z to End Z  (with flat-section hint)
         try:

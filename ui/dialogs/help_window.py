@@ -366,6 +366,26 @@ gouge). If you see it, split the operation at the slope change or
 switch it to sweeping/adaptive finishing. Tune the trigger with
 the flatness tolerance parameter (default 0.15 mm).
 
+Straighten start fillet (opt-in): a cylinder/cone mandrel often has
+a small rounded radius where the wall meets the end face. Normally
+the passes follow that fillet, so the first passes climb the little
+radius. Turn on "Straighten Start Fillet" and any pass machining
+below the fillet→wall transition instead follows the EXTRAPOLATED
+straight wall, ignoring the small radius. The transition is found
+automatically (same detector as the "flat start" hint); a mandrel
+with no straight section is never straightened. For roughing, the
+whole pass follows the wall (contact point AND the approach angle),
+while the collision/gouge check still uses the REAL mandrel — so on
+an outward (convex) lip the tool is still pushed out to clear it; it
+can never be driven into the mandrel. This applies to STRAIGHT-LINE
+finishing and ROUGHING only — sweeping/adaptive finishing
+intentionally keeps hugging the real surface.
+
+When straightening is on and a pass starts low (behind the radius),
+the clamp-zone advisory softens to a calm note instead of the amber
+alarm — but still reminds you to verify the roller clears the
+counter-press.
+
 
 PROGRESSIVE ANGLE & REACH (per-pass P3 exit shaping)
 ════════════════════════════════════════════════════════════════
@@ -784,6 +804,58 @@ importing tools from another machine, re-check calibration for
 your own setup.
 
 
+TOOL-CHANGE POSITION (per operation)
+════════════════════════════════════════════════════════════════
+When an operation needs a different tool than the one before it,
+the machine retracts and M6 rotates the turret. Each operation has
+a Tool Change setting that controls WHERE that retract goes:
+
+  Global (home)        Retract to the machine home / Program Start.
+                       This is the default and the safest choice.
+  Absolute X/Z         Retract to an explicit point you type in.
+  Relative to last     Retract to an offset (ΔX / ΔZ) from the
+                       previous pass's FORMING end (its last cutting
+                       point, before the automatic per-pass retract) —
+                       handy for a quick change close to the work.
+
+Axis directions: X is the RADIAL axis — a larger X moves the roller
+further OUT, away from the part. Z is the AXIAL (lathe) axis — a
+larger Z moves in the +Z machine direction (toward the mandrel top).
+Note that increasing Z alone does NOT move away from the part; it
+just slides along the axis, so mind the mandrel profile.
+
+Move order: by default the retract goes Z first, then X — this
+clears the part axially before traversing radially. Tick
+Simultaneous XZ to move both axes together in one diagonal rapid
+(faster). A diagonal can cut across a convex corner, so use it only
+where the straight line to the point is clear.
+
+It only matters on an operation whose tool differs from the one
+before it; the first operation always homes.
+
+Simulation cue: during playback the sim pauses briefly at every
+tool change and shows a yellow banner (outgoing → incoming tool)
+with a pulsing marker at the change point, so a fast run doesn't
+hide where the swap happens.
+
+HOW THE COLLISION CHECK WORKS
+After Calculate, a custom tool-change point is checked two ways:
+  1. Clearance AT the point — the radial distance from the roller
+     (plus its radius) to the outermost part/blank surface at that
+     Z. M6 rotates the turret here, so a small value means a tool
+     could strike the part as it swings in.
+  2. Clearance ALONG the move — the retract path is sampled and the
+     closest approach to the part is measured. The move starts at
+     the part, so only a NEGATIVE value matters: it means the path
+     (typically a Simultaneous-XZ diagonal) dips into the part.
+Either one trips a warning. It is a geometric radial check against
+the mandrel/blank profile — it does NOT model the exact shape of
+the OTHER tools on the turret, so treat it as an aid, not a
+guarantee, and keep generous clearance. The warning is advisory
+only; the toolpath is never changed. Move the point further OUT in
+X, clear of the blank in Z, or turn Simultaneous XZ off to clear it.
+
+
 CALCULATE
 ════════════════════════════════════════════════════════════════
 After any change to operations or parameters, press Calculate to
@@ -1186,6 +1258,59 @@ aktarma tek bir .zip yazar (tools.json + her takımın STEP dosyası);
 ID'lileri değiştirmeden önce sorar). NOT: r_tool kalibre, makineye
 özel bir değerdir — başka bir makineden takım içe aktardıktan sonra
 kendi kurulumunuz için kalibrasyonu yeniden kontrol edin.
+
+
+TAKIM DEĞİŞİM KONUMU (operasyon başına)
+════════════════════════════════════════════════════════════════
+Bir operasyon bir öncekinden farklı bir takım gerektirdiğinde makine
+geri çekilir ve M6 tareti döndürür. Her operasyonun, bu geri çekilmenin
+NEREYE gideceğini belirleyen bir Takım Değişim ayarı vardır:
+
+  Global (home)        Makine home / Program Start'a geri çekilir.
+                       Varsayılan ve en güvenli seçenek budur.
+  Mutlak X/Z           Girdiğiniz açık bir noktaya geri çekilir.
+  Son pasa göre        Önceki pasın ŞEKİLLENDİRME bitişine (otomatik
+                       pas-sonu geri çekilmeden önceki son kesme
+                       noktası) göre bir ofsete (ΔX / ΔZ) geri çekilir
+                       — işe yakın hızlı bir değişim için kullanışlı.
+
+Eksen yönleri: X RADYAL eksendir — daha büyük X rulonu daha DIŞARI,
+parçadan uzağa taşır. Z EKSENEL (torna) eksenidir — daha büyük Z,
++Z makine yönünde (mandrel üstüne doğru) hareket eder. Yalnızca Z'yi
+artırmak parçadan UZAKLAŞMAZ; sadece eksen boyunca kayar, bu yüzden
+mandrel profiline dikkat edin.
+
+Hareket sırası: varsayılan olarak geri çekilme önce Z, sonra X gider
+— traverse öncesi parçadan eksenel uzaklaşır. Her iki ekseni tek bir
+çapraz rapid'de birlikte hareket ettirmek için Eşzamanlı XZ'yi
+işaretleyin (daha hızlı). Çapraz hareket dışbükey bir köşeyi
+kesebilir, bu yüzden yalnızca noktaya giden düz çizgi açıksa kullanın.
+
+Yalnızca takımı bir öncekinden farklı olan operasyonda etkilidir;
+ilk operasyon her zaman home'a gider.
+
+Simülasyon ipucu: oynatma sırasında sim her takım değişiminde kısa
+süre duraklar ve sarı bir başlık (giden → gelen takım) ile değişim
+noktasında nabız gibi atan bir işaret gösterir; böylece hızlı bir
+oynatmada değişimin nerede olduğu kaçmaz.
+
+ÇARPIŞMA KONTROLÜ NASIL ÇALIŞIR
+Hesapla sonrası özel bir takım-değişim noktası iki şekilde kontrol
+edilir:
+  1. Noktadaki BOŞLUK — rulodan (artı yarıçapı) o Z'deki en dıştaki
+     parça/taslak yüzeyine radyal mesafe. M6 tareti burada döndürür,
+     bu yüzden küçük değer takımın dönerken parçaya çarpabileceği
+     anlamına gelir.
+  2. Hareket BOYUNCA boşluk — geri çekilme yolu örneklenir ve parçaya
+     en yakın yaklaşım ölçülür. Hareket parçadan başladığı için
+     yalnızca NEGATİF değer önemlidir: yol (genellikle Eşzamanlı-XZ
+     çaprazı) parçaya dalıyor demektir.
+Herhangi biri uyarı verir. Bu, mandrel/taslak profiline karşı
+geometrik radyal bir kontroldür — taretteki DİĞER takımların tam
+şeklini modellemez, bu yüzden garanti değil yardımcı olarak görün ve
+bol boşluk bırakın. Uyarı yalnızca tavsiyedir; takım yolu değişmez.
+Gidermek için noktayı X'te daha DIŞARI, Z'de taslaktan uzağa taşıyın
+veya Eşzamanlı XZ'yi kapatın.
 
 
 HESAPLA

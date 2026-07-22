@@ -10,6 +10,47 @@ from logger_config import logger
 from kinematics import get_kinematics
 
 
+def representative_feed_mm_min(op, path, params, center_x=0.0):
+    """Resolve an operation's cutting feed to mm/min, for SIMULATION pacing.
+
+    The 3D sim now moves the roller along the toolpath at the machine's real
+    linear feed so pass-to-pass speeds are truthful. An ``mm_min`` feed is used
+    directly; an ``mm_rev`` feed is converted with a representative spindle rpm
+    (RPM directly, or derived from CSS using the pass's mean diameter, capped at
+    the spindle limit — the same relation ``generate_gcode`` uses). Always
+    returns a positive value, falling back to the global default feed.
+    """
+    default_feed = float(params.get("feed_rate_mm_min", 300.0) or 300.0)
+    try:
+        feed = float(op.get("feed", default_feed))
+    except (TypeError, ValueError):
+        feed = default_feed
+    if feed <= 0:
+        feed = default_feed
+
+    if str(op.get("feed_mode", "mm_min")) != "mm_rev":
+        return feed
+
+    # mm/rev → mm/min needs an rpm.
+    try:
+        spd = float(op.get("speed", params.get("surface_speed_m_min", 200.0)))
+    except (TypeError, ValueError):
+        spd = 200.0
+    if str(op.get("speed_mode", "CSS")) == "RPM":
+        rpm = spd
+    else:
+        # CSS (m/min) → rpm using the pass's mean diameter as a stand-in.
+        try:
+            xs = [abs(float(p[0]) - center_x) for p in path]
+            r_rep = max(1.0, sum(xs) / len(xs)) if xs else 50.0
+        except (TypeError, ValueError, IndexError):
+            r_rep = 50.0
+        dia_mm = 2.0 * r_rep
+        rpm = (spd * 1000.0) / (math.pi * dia_mm) if dia_mm > 0 else 0.0
+        rpm = min(rpm, float(params.get("spindle_speed_limit_rpm", 3000.0)))
+    return feed * max(1.0, rpm)
+
+
 def effective_clamp_length(params):
     """Clamp / counter-press zone length in effect (mm, measured UP from the mandrel
     base). TODO #62. The per-part override ``clamp_zone_length`` wins when > 0; otherwise
@@ -28,6 +69,62 @@ def effective_clamp_length(params):
     return max(0.0, v)
 
 
+# ── Per-op tool-change position (2026-07-21) ─────────────────────────────────
+# The tool-change retract target is normally the global machine home (Program
+# Start). An operation may override it: "absolute" pins an explicit X/Z; "relative"
+# offsets from the previous pass's end. Default "global" = unchanged behavior.
+# resolve_tool_change_point returns the target in the SAME coordinate frame as the
+# prev_end / home_pt passed in (canonical in calculate_paths, global/pre-transform
+# in generate_gcode), so BOTH emission sites stay in sync from this one function.
+TOOL_CHANGE_MODES = ("global", "absolute", "relative")
+# Advisory swing clearance (mm): a custom change point closer than this to the
+# outermost part/blank obstacle is flagged (M6 rotates the turret — warn only).
+TOOL_CHANGE_SWING_MARGIN_MM = 5.0
+
+
+def resolve_tool_change_point(op, prev_end, home_pt, center_x=None, side=1.0):
+    """Return the tool-change retract target ``[x, y, z]`` for ``op``.
+
+    The user enters X / ΔX in the REAL machine frame (what they read in the
+    G-code): the value is applied with its LITERAL SIGN — a positive ΔX increases
+    X, a negative ΔX decreases it. No abs() — the operator picks the direction.
+
+    op        operation dict; reads ``tool_change_mode`` + ``tool_change_x/z``
+              (absolute) or ``tool_change_dx/dz`` (relative).
+    prev_end  end point of the previous pass (used by "relative").
+    home_pt   machine home in the CALLER's frame (fallback / "global").
+    center_x  mandrel X center. Pass it ONLY from the 3D sim, whose frame is the
+              canonical positive-X side that later gets mirrored around center_x
+              for a negative-side roller. Then the real-frame X the user typed is
+              converted INTO that canonical frame so it lands correctly after the
+              mirror. The G-code emitter already works in the real frame, so it
+              passes ``center_x=None`` and no conversion happens.
+    side      +1 = positive-X roller (no mirror), -1 = negative-X roller. Only
+              used with ``center_x`` to flip the X offset into the sim frame.
+    """
+    def to_frame_x(real_x):
+        # real machine X -> caller frame X. Identity in the G-code emitter
+        # (center_x is None); in the sim it undoes the end-of-pass X mirror so
+        # the value the user typed survives it: canonical = center + side*(x-center).
+        if center_x is None:
+            return real_x
+        return center_x + side * (real_x - center_x)
+
+    mode = str(op.get("tool_change_mode", "global") or "global").lower()
+    if mode == "absolute":
+        x = float(op.get("tool_change_x", home_pt[0]))
+        z = float(op.get("tool_change_z", home_pt[2]))
+        return np.array([to_frame_x(x), home_pt[1], z])
+    if mode == "relative":
+        dx = float(op.get("tool_change_dx", 0.0))
+        dz = float(op.get("tool_change_dz", 0.0))
+        # prev_end is already in the caller frame; the offset just needs the same
+        # X-direction flip as the frame (side) so +ΔX means +X in the real frame.
+        return np.array([prev_end[0] + side * dx, prev_end[1], prev_end[2] + dz])
+    # global (default) — unchanged behavior
+    return np.array([home_pt[0], home_pt[1], home_pt[2]])
+
+
 class PathGenerator:
     def __init__(self):
         self.last_calculated_paths = []
@@ -37,6 +134,44 @@ class PathGenerator:
         self.last_kinematic_warnings = []  # reachability issues from last G-code generation
         self._path_op_map = []             # toolpath index → op dict (parallel to last_calculated_paths)
         self.last_op_end_z = {}            # op-index → CAM Z the op's last forming pass reaches (incl. p2_z_extend)
+        self.last_tool_change_warnings = []  # custom tool-change points near the turret swing envelope
+
+    def _tc_radial_gap(self, pt, center_x, mandrel_mgr, params, r_tool):
+        """Radial clearance (mm) between the roller contact at ``pt`` and the
+        outermost part/blank obstacle at that Z. Negative = the roller/tool is
+        inside the part envelope (penetration)."""
+        try:
+            surf_r = float(mandrel_mgr.get_radius_fast(float(pt[2])))
+        except Exception:
+            surf_r = 0.0
+        blank_r     = float(params.get("blank_radius", 0.0) or 0.0)
+        blank_thick = float(params.get("final_part_thickness_on_mandrel", 0.0) or 0.0)
+        shell       = float(params.get("shell_thickness", 0.0) or 0.0)
+        obstacle_r  = max(surf_r, blank_r) + blank_thick + shell
+        radial      = abs(float(pt[0]) - center_x)  # roller-center radial pos
+        return radial - obstacle_r - float(r_tool)
+
+    def _tool_change_swing_check(self, path_pts, center_x, mandrel_mgr, params, r_tool):
+        """Advisory collision check for a CUSTOM tool-change retract. ``path_pts`` is
+        the ordered list of waypoints the roller actually travels (2 points for a
+        simultaneous diagonal, 3 for the Z-first / X-second split). Returns
+        ``(dest_gap, path_min_gap)``:
+
+          dest_gap      radial clearance at the FINAL point — where M6 rotates the
+                        turret; a small value means a tool could strike on the swing.
+          path_min_gap  the smallest clearance ANYWHERE along the sampled traverse —
+                        the retract starts at the part surface, so only a NEGATIVE
+                        value (the move dips into the part, e.g. a diagonal cutting a
+                        convex corner) signals a rapid-crash. Warn-only — never clips."""
+        def gap(pt):
+            return self._tc_radial_gap(pt, center_x, mandrel_mgr, params, r_tool)
+        pts = [np.asarray(p, dtype=float) for p in path_pts]
+        dest_gap = gap(pts[-1])
+        mins = [dest_gap]
+        for a, b in zip(pts[:-1], pts[1:]):
+            for f in np.linspace(0.0, 1.0, 11):
+                mins.append(gap(a + (b - a) * f))
+        return dest_gap, min(mins)
 
     def _ensure_ops_dict(self, params):
         if "operations" in params and isinstance(params["operations"], list) and len(params["operations"]) > 0:
@@ -99,6 +234,7 @@ class PathGenerator:
         self.last_op_end_angle = {}   # op-index → exit angle (deg from +X) of last forming pass (#61)
         self.last_clamp_warnings = []  # ops whose start_z sits inside the clamp zone (#62)
         self.last_flatness_warnings = []  # straight-line finishing ops over a non-constant-angle surface
+        self.last_tool_change_warnings = []  # custom tool-change points near the turret swing envelope
 
         props = mandrel_mgr.props
         top_z = props["top_z"]
@@ -190,25 +326,78 @@ class PathGenerator:
             need_tool_change = (op_tool_id != current_tool) or (current_tool is None)
             
             if need_tool_change and current_tool is not None:
-                # Retract to Home SAFE (Split move: Z home first, then X out)
-                # 1. Move to Home Z (keeping current X)
-                safe_mid = np.array([current_pt[0], 0, home_z])
-
-                # Only add if distance > 1mm
-                if np.linalg.norm(current_pt - safe_mid) > 1.0:
-                    r_seg1 = np.array([current_pt, safe_mid])
-                    rapids.append(r_seg1)
-                    sequence.append(("rapid", r_seg1))
-
-                # 2. Move to Home X (at Home Z)
+                # Resolve the retract target: global home (default), an absolute
+                # point, or a point relative to the previous pass end. Same helper
+                # the G-code emitter uses, so the 3D sim and the NC program agree.
+                # RELATIVE reference = the previous pass's FORMING endpoint
+                # (toolpaths[-1][-1]), NOT current_pt (which is the post-per-pass-
+                # retract position). This mirrors the emitter's
+                # paths_to_use[idx-1][-1] exactly, so sim and NC land on the same
+                # tool-change point. The retract MOVE below still starts from
+                # current_pt (where the roller physically sits).
+                prev_forming_end = (np.asarray(toolpaths[-1][-1], dtype=float)
+                                    if len(toolpaths) > 0 else current_pt)
                 home_pt = np.array([home_x_can, 0, home_z])
-                if np.linalg.norm(safe_mid - home_pt) > 1.0:
-                    r_seg2 = np.array([safe_mid, home_pt])
-                    rapids.append(r_seg2)
-                    sequence.append(("rapid", r_seg2))
+                # Sim frame = canonical (mirrored around center_x at pass end for a
+                # negative-side roller). Pass center_x + side so the user's real-frame
+                # X/ΔX survives the mirror and matches the G-code exactly.
+                tc_target = resolve_tool_change_point(
+                    op, prev_forming_end, home_pt, center_x=center_x, side=side)
 
-                current_pt = home_pt
-                
+                end_pt = np.array([tc_target[0], 0, tc_target[2]])
+                simultaneous = bool(op.get("tool_change_simultaneous", False))
+
+                if simultaneous:
+                    # Single coordinated diagonal move — both axes travel together.
+                    # Faster, but the straight line can cut a convex corner, so the
+                    # traverse is collision-checked below.
+                    tc_waypoints = [current_pt, end_pt]
+                    if np.linalg.norm(current_pt - end_pt) > 1.0:
+                        r_seg = np.array([current_pt, end_pt])
+                        rapids.append(r_seg)
+                        sequence.append(("rapid", r_seg))
+                else:
+                    # Split move: Z first (keeping current X), then X — keeps the
+                    # roller clear of the part axially before traversing in X.
+                    safe_mid = np.array([current_pt[0], 0, tc_target[2]])
+                    tc_waypoints = [current_pt, safe_mid, end_pt]
+                    if np.linalg.norm(current_pt - safe_mid) > 1.0:
+                        r_seg1 = np.array([current_pt, safe_mid])
+                        rapids.append(r_seg1)
+                        sequence.append(("rapid", r_seg1))
+                    if np.linalg.norm(safe_mid - end_pt) > 1.0:
+                        r_seg2 = np.array([safe_mid, end_pt])
+                        rapids.append(r_seg2)
+                        sequence.append(("rapid", r_seg2))
+
+                current_pt = end_pt
+
+                # Sim-only marker: a brief on-screen cue + dwell at the change point
+                # so a fast playback shows WHERE the tool change happens and which
+                # tool takes over. Ignored by the G-code emitter (which reads paths,
+                # not the sequence). Fires for every tool change, any mode.
+                sequence.append(("toolchange",
+                                 np.array([end_pt[0], 0.0, end_pt[2]]),
+                                 str(current_tool), str(op_tool_id)))
+
+                # Warn-only guard for a custom (non-global) change point: (a) the
+                # destination may sit in the turret swing envelope (M6 strike), and
+                # (b) the retract traverse may dip into the part (rapid crash — only
+                # possible with the diagonal move). Advisory — never clips.
+                if str(op.get("tool_change_mode", "global") or "global").lower() != "global":
+                    dest_gap, path_min_gap = self._tool_change_swing_check(
+                        tc_waypoints, center_x, mandrel_mgr, params, r_tool)
+                    if dest_gap < TOOL_CHANGE_SWING_MARGIN_MM or path_min_gap < 0.0:
+                        self.last_tool_change_warnings.append({
+                            "op_index": op_index,
+                            "op_type": op.get("type", "op"),
+                            "mode": str(op.get("tool_change_mode", "global")),
+                            "simultaneous": simultaneous,
+                            "x": float(end_pt[0]), "z": float(end_pt[2]),
+                            "gap": float(dest_gap),
+                            "path_gap": float(path_min_gap),
+                        })
+
             current_tool = op_tool_id
 
             # --- Cutting / Bending: simple radial plunge, single pass ---
@@ -232,7 +421,8 @@ class PathGenerator:
                     for seg in self._safe_rapid_segments(current_pt, start_pt, current_pt[0]):
                         rapids.append(seg)
                         sequence.append(("rapid", seg))
-                    sequence.append(("cut", path, r_tool, op_tool_id))
+                    sequence.append(("cut", path, r_tool, op_tool_id,
+                                     representative_feed_mm_min(op, path, params, center_x)))
                     retract_pt = np.array([end_pt[0] + retract_x_can, 0, end_pt[2] + retract_z_offset])
                     r_seg2 = np.array([end_pt, retract_pt])
                     rapids.append(r_seg2)
@@ -256,11 +446,22 @@ class PathGenerator:
             # counter-press region. Uses a small epsilon so a start exactly at the top edge
             # is fine.
             if clamp_top_z is not None and start_h < clamp_top_z - 1e-6:
+                # Soften the advisory when start-fillet straightening is enabled AND this
+                # op is one that straightening applies to (roughing, or straight-line
+                # finishing): the low start is then intentional (starting behind the
+                # radius), so surface it as a calm note rather than the amber alarm/modal.
+                # Sweeping/adaptive finishing is NOT straightened, so its low start still
+                # gets the full warning.
+                _op_straightened = params.get("straighten_start_fillet", False) and (
+                    (not is_finish)
+                    or (op.get("straight_line_mode", False)
+                        and not params.get("finish_trace_mandrel_profile", False)))
                 self.last_clamp_warnings.append({
                     "op_index": op_index,
                     "op_type": op.get("type", "roughing"),
                     "start_z": start_h,
                     "clamp_top_z": clamp_top_z,
+                    "softened": bool(_op_straightened),
                 })
 
             # end_z operasyona özeldir; tanımlıysa kullan, yoksa mandrel tepesine git
@@ -381,6 +582,29 @@ class PathGenerator:
                             except (TypeError, ValueError):
                                 _fb_off = 0.0
                             _follow_reach = max(_fr * _fb_fac + _fb_off, 0.0)
+                            # Degenerate-flange guard (2026-07-22): at the very base
+                            # estimate_flange_reach collapses to ~(blank - r_base). On a
+                            # barely-oversized blank that residual is only a few mm, so it
+                            # would make ONLY the first pass a short stub while every pass
+                            # above (where the model already returns 0) falls back to the
+                            # full progressive reach — the "short first pass" bug. Treat a
+                            # sub-floor residual as exhausted (None) so the first pass
+                            # falls back like the rest. Follow-blank is already opt-in and
+                            # healthy flanges (tens of mm, smoothly decreasing) are well
+                            # above the floor, so they are untouched. Over-reaching outward
+                            # is the safe direction (away from the part; clearance is still
+                            # checked on the real mandrel).
+                            #
+                            # Below the base (target_z <= min_z) there is NO part and so no
+                            # flange: the estimate is unphysical there and actually GROWS as
+                            # you go more negative (it would sneak back above the floor and
+                            # re-shorten the pass). So also fall back for any target at/below
+                            # min_z. Healthy recipes never place a forming pass there, so
+                            # this changes nothing for them.
+                            _fb_min = float(op.get("reach_follow_min", 10.0) or 0.0)
+                            _min_z = mandrel_mgr.props.get("min_z", 0.0)
+                            if _follow_reach < _fb_min or target_z <= _min_z:
+                                _follow_reach = None
 
                 # Pass Angle override — Option B: L3 = |P2→P3| preserved, only direction rotates.
                 # θ_A = angle of P2→P1 from +X in XZ. θ_B = θ_A + pass_angle. p3 = L3 * (cos θ_B, sin θ_B).
@@ -470,8 +694,15 @@ class PathGenerator:
                 p2_z_extend = float(op.get("p2_z_extend", 0.0)) if not is_finish else 0.0
                 contact_z   = target_z + p2_z_extend
 
-                r_contact = mandrel_mgr.get_radius_fast(contact_z) + shell_offset
-                nx, nz = mandrel_mgr.get_normal_at_z(contact_z)
+                # Start edge-fillet straightening (opt-in): below the fillet→wall
+                # transition, follow the extrapolated straight wall instead of the
+                # small start radius. No-op above the transition or on curved mandrels.
+                if params.get("straighten_start_fillet", False):
+                    r_contact = mandrel_mgr.get_straightened_radius(contact_z) + shell_offset
+                    nx, nz = mandrel_mgr.get_straightened_normal(contact_z)
+                else:
+                    r_contact = mandrel_mgr.get_radius_fast(contact_z) + shell_offset
+                    nx, nz = mandrel_mgr.get_normal_at_z(contact_z)
                 total_off = r_tool + blank_thick + op_clearance
                 # Per-op conformal flag: normal-projected P2 placement. Falls back to global conformal_clearance_all_operations.
                 conformal = op.get("conformal_clearance_operation_specific", params.get("conformal_clearance_all_operations", False))
@@ -512,6 +743,23 @@ class PathGenerator:
                         if p3_x - op_clearance >= 0.0:
                             p3_x -= op_clearance
 
+                # [PARAM_DEBUG2] Consolidated FINAL per-pass geometry (read-only trace):
+                # contact radius, resolved P2, effective angle, and the final P3 offset
+                # AFTER the clearance cancellation above. Use this to compare the first
+                # pass against the rest (p2 radius / pass angle / p3x / p3z).
+                if not is_finish:
+                    _dbg_eff_ang = _eff_angle if _pa_deg is not None else float('nan')
+                    _dbg_final_reach = math.hypot(p3_x, p3_z)
+                    _dbg_p2_radius = p2_x - center_x
+                    logger.info(
+                        f"[PARAM_DEBUG2] '{op.get('type','?')} {i+1}' (global pass {global_pass_idx+1}): "
+                        f"contact_z={contact_z:.2f} r_contact={r_contact:.3f} "
+                        f"P2 radius(X-center)={_dbg_p2_radius:+.3f} P2_z={p2_z:.3f} | "
+                        f"pass_angle={('%.1f' % _pa_deg) if _pa_deg is not None else 'raw'}° "
+                        f"eff_angle={_dbg_eff_ang:.1f}° | "
+                        f"P3 X={p3_x:+.3f} Z={p3_z:+.3f} reach={_dbg_final_reach:.3f}"
+                    )
+
                 pass_label = f"{op.get('type').capitalize()} {i+1}"
                 
                 prev_paths_len = len(toolpaths)
@@ -522,22 +770,40 @@ class PathGenerator:
                 if is_finish:
                     adaptive_mode = params.get("finish_trace_mandrel_profile", False)
                     if adaptive_mode:
+                        # NOTE: `straighten_start_fillet` is NOT applied to sweeping /
+                        # adaptive (trace-mandrel-profile) finishing. Those modes are meant
+                        # to hug the real surface point-by-point, so extrapolating the wall
+                        # over the fillet would defeat their purpose. Straightening is
+                        # intentionally scoped to STRAIGHT-LINE finishing + ROUGHING only
+                        # (see main.py "straighten_start_fillet" and the branches below).
                         conf_start = max(m_min_z, start_h)
                         conf_end   = min(m_top_z, end_h)
                         self._create_adaptive_pass(conf_start, conf_end, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_label, toolpaths, projections, control_points, deviations, params, additional_radial_offset=op_clearance)
                     elif op.get("straight_line_mode", False):
                         total_off = r_tool + blank_thick + op_clearance
-                        r_s = mandrel_mgr.get_radius_fast(start_h) + shell_offset
-                        nx_s, nz_s = mandrel_mgr.get_normal_at_z(start_h)
+                        # Start edge-fillet straightening (opt-in): if start_h sits in the
+                        # fillet, sample the extrapolated straight wall so the 2-point line
+                        # holds the surface angle instead of tilting into the radius.
+                        _straighten = params.get("straighten_start_fillet", False)
+                        if _straighten:
+                            r_s = mandrel_mgr.get_straightened_radius(start_h) + shell_offset
+                            nx_s, nz_s = mandrel_mgr.get_straightened_normal(start_h)
+                            r_e = mandrel_mgr.get_straightened_radius(end_h) + shell_offset
+                            nx_e, nz_e = mandrel_mgr.get_straightened_normal(end_h)
+                        else:
+                            r_s = mandrel_mgr.get_radius_fast(start_h) + shell_offset
+                            nx_s, nz_s = mandrel_mgr.get_normal_at_z(start_h)
+                            r_e = mandrel_mgr.get_radius_fast(end_h) + shell_offset
+                            nx_e, nz_e = mandrel_mgr.get_normal_at_z(end_h)
                         p_s = np.array([center_x + r_s + nx_s * total_off, 0.0, start_h + nz_s * total_off])
-                        r_e = mandrel_mgr.get_radius_fast(end_h) + shell_offset
-                        nx_e, nz_e = mandrel_mgr.get_normal_at_z(end_h)
                         p_e = np.array([center_x + r_e + nx_e * total_off, 0.0, end_h + nz_e * total_off])
                         toolpaths.append(np.array([p_s, p_e]))
                         projections.append(np.array([[center_x + r_s, 0.0, start_h], [center_x + r_e, 0.0, end_h]]))
                         control_points.append(np.array([]))
                         deviations.append(np.array([0.0, 0.0]))
                     else:
+                        # (sweeping finishing — surface-hugging, `straighten_start_fillet`
+                        # deliberately NOT applied here; see the adaptive-branch note above.)
                         self._create_sweeping_pass(start_h, end_h, mandrel_mgr, center_x, r_tool, blank_thick, op_clearance, shell_offset, pass_label, toolpaths, projections, control_points, deviations, safety_clearance=0.0)
                 else:
                     # effective_p1_z extends the approach arm so its START stays at target_z - p1_z
@@ -661,7 +927,8 @@ class PathGenerator:
                             sequence.append(("rapid", seg))
 
                         # Cut Path
-                        sequence.append(("cut", fwd_path, r_tool, op_tool_id))
+                        sequence.append(("cut", fwd_path, r_tool, op_tool_id,
+                                         representative_feed_mm_min(op, fwd_path, params, center_x)))
                         current_pt = end_pt
 
                         # Back pass (or swapped back pass)
@@ -682,7 +949,9 @@ class PathGenerator:
                                 for seg in self._safe_rapid_segments(current_pt, bp_s, current_pt[0]):
                                     rapids.append(seg)
                                     sequence.append(("rapid", seg))
-                            sequence.append(("cut", bck_path, r_tool, op_tool_id))
+                            sequence.append(("cut", bck_path, r_tool, op_tool_id,
+                                             representative_feed_mm_min({**op, "feed": bck_feed},
+                                                                        bck_path, params, center_x)))
                             bp_ret = np.array([bp_e[0] + retract_x_can, 0, bp_e[2] + retract_z_offset])
                             rapids.append(np.array([bp_e, bp_ret]))
                             sequence.append(("rapid", np.array([bp_e, bp_ret])))
@@ -753,6 +1022,10 @@ class PathGenerator:
                     mirrored_seq.append(("rapid", s))
                 elif kind == "cut":
                     mirrored_seq.append(("cut", _mirror_pts(item[1]), item[2]) + item[3:])
+                elif kind == "toolchange":
+                    p = np.array(item[1], dtype=float)
+                    p[0] = 2.0 * center_x - p[0]
+                    mirrored_seq.append(("toolchange", p) + tuple(item[2:]))
                 else:
                     mirrored_seq.append(item)
             sequence = mirrored_seq
@@ -788,6 +1061,14 @@ class PathGenerator:
                 f"over a non-constant-angle surface; first: op #{_f['op_index'] + 1} "
                 f"Z {_f['start_z']:.1f}->{_f['end_z']:.1f} max_dev={_f['max_dev']:+.2f}mm "
                 f"(tol {_f['tol']:.2f})")
+
+        if self.last_tool_change_warnings:
+            _tc = self.last_tool_change_warnings[0]
+            logger.warning(
+                f"[TOOLCHG] {len(self.last_tool_change_warnings)} custom tool-change "
+                f"point(s) with a collision risk; first: op #{_tc['op_index'] + 1} "
+                f"'{_tc['mode']}' X={_tc['x']:.1f} Z={_tc['z']:.1f} "
+                f"dest_gap={_tc['gap']:+.1f}mm path_gap={_tc.get('path_gap', _tc['gap']):+.1f}mm")
 
         self.last_calculated_paths = toolpaths
         self.last_calculated_sequence = sequence
@@ -1230,6 +1511,18 @@ class PathGenerator:
     def _create_and_store_pass(self, p1_x_offset, p1_z_offset, p3_z_offset, p3_x_offset, initial_p2, base_rot, auto_align, t_list, p_list, c_list, d_list, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_name, params, debug_lines=None, op=None, op_clearance=0.0):
             # --- Smart Spline Optimization V6 (Morphing) ---
             # Instead of rigid shifting, independently adjust control points based on where collision occurs.
+
+            # Start edge-fillet straightening (opt-in): use the extrapolated straight-wall
+            # normal for PLACEMENT (approach direction + rotation alignment) so the pass
+            # follows the wall angle through the start radius instead of the fillet.
+            # The clearance / gouge check below deliberately keeps sampling the REAL
+            # mandrel (get_radius_fast), so this never weakens collision safety — the
+            # tool is placed on the intended line but still pushed out if it would hit
+            # a convex lip. No-op above the transition / on curved mandrels / flag off.
+            _straighten = params.get("straighten_start_fillet", False)
+            def _place_normal(z):
+                return (mandrel_mgr.get_straightened_normal(z) if _straighten
+                        else mandrel_mgr.get_normal_at_z(z))
             
             # 1. Initialize Absolute Control Points
             p2 = initial_p2
@@ -1278,7 +1571,7 @@ class PathGenerator:
                     #     along the whole arm instead of only at P2 (no over-clearing of P2
                     #     on tapered walls). Reduces exactly to -Z on a vertical surface.
                     if (op or {}).get("approach_follow_surface", False):
-                        _anx, _anz = mandrel_mgr.get_normal_at_z(p2.Z())
+                        _anx, _anz = _place_normal(p2.Z())
                         _appr = np.array([_anz, 0.0, -_anx])      # tangent ⟂ surface normal
                         _aln  = np.linalg.norm(_appr)
                         _appr = _appr / _aln if _aln > 1e-9 else np.array([0.0, 0.0, -1.0])
@@ -1418,7 +1711,7 @@ class PathGenerator:
                     if len(pts_raw) == 0: break
 
                 # 3. Apply Rotation (Aligned to P2 surface normal)
-                nx, nz = mandrel_mgr.get_normal_at_z(p2.Z())
+                nx, nz = _place_normal(p2.Z())
                 if pass_shape in ("linear_approach", "linear_full"):
                     # Rotation about P2 would tilt the pure-Z approach arm and shift P3
                     # off its computed position — both guarantees this shape exists for.
@@ -1799,10 +2092,15 @@ class PathGenerator:
         home_z = params.get("home_z", 150.0)
         
         # [NEW] Transform Home Position through post-processor
-        home_x_machine = ((home_x - origin_x) * dir_x) + off_x
-        home_z_machine = ((home_z - origin_z) * dir_z) + off_z
-        if dia_mode: home_x_machine *= 2.0
-        
+        def _xf_pt(gx, gz):
+            """Post-processor transform for a single (global X, global Z) — same math
+            as the per-point transform_pt below, reused for the tool-change target."""
+            xo = ((gx - origin_x) * dir_x) + off_x
+            zo = ((gz - origin_z) * dir_z) + off_z
+            if dia_mode: xo *= 2.0
+            return xo, zo
+        home_x_machine, home_z_machine = _xf_pt(home_x, home_z)
+
         # Machine Settings Comment Block
         gen_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         gcode.append(f"(Generated: {gen_time})")
@@ -1907,9 +2205,25 @@ class PathGenerator:
             tool_differs = (op_tool != current_tool)
             
             if tool_differs and current_tool is not None:
+                 # Resolve the retract target (global home / absolute / relative to
+                 # the previous pass end) — same helper the 3D sim uses so they agree.
+                 _prev_end = (np.asarray(paths_to_use[global_path_idx - 1][-1], dtype=float)
+                              if global_path_idx > 0 else np.array([home_x, 0.0, home_z]))
+                 _tc = resolve_tool_change_point(
+                     op, _prev_end, np.array([home_x, 0.0, home_z]))
+                 _tc_x_m, _tc_z_m = _xf_pt(float(_tc[0]), float(_tc[2]))
+                 _tc_mode = str(op.get("tool_change_mode", "global") or "global").lower()
+                 _tc_sim = bool(op.get("tool_change_simultaneous", False))
                  gcode.extend(["", "(--- TOOL CHANGE SAFETY ---)"])
-                 gcode.append(f"G0 Z{home_z_machine:.3f} (Home Z)")
-                 gcode.append(f"G0 X{safe_x_machine:.3f} (Retract X)")
+                 if _tc_mode == "global":
+                     gcode.append(f"G0 Z{_tc_z_m:.3f} (Home Z)")
+                     gcode.append(f"G0 X{_tc_x_m:.3f} (Retract X)")
+                 elif _tc_sim:
+                     # Coordinated diagonal — both axes move together in one G0.
+                     gcode.append(f"G0 X{_tc_x_m:.3f} Z{_tc_z_m:.3f} (Tool Change XZ, {_tc_mode})")
+                 else:
+                     gcode.append(f"G0 Z{_tc_z_m:.3f} (Tool Change Z, {_tc_mode})")
+                     gcode.append(f"G0 X{_tc_x_m:.3f} (Tool Change X, {_tc_mode})")
                  gcode.extend(["M5", "M1"])
 
             if tool_differs or current_tool is None:

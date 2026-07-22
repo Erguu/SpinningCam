@@ -4,6 +4,7 @@ import os
 import sys
 import numpy as np
 import math
+import time
 import tkinter as tk
 from tkinter import filedialog
 import threading
@@ -186,6 +187,15 @@ class SpinningApp:
             # more than the tolerance. See PROPOSAL_straight_line_flatness_warning.md.
             "straight_line_flatness_warn": True,
             "straight_line_flatness_tol": 0.15,
+
+            # Start edge-fillet straightening (opt-in, auto-detect). When True, passes
+            # that machine below the fillet→wall transition follow the EXTRAPOLATED
+            # straight wall line instead of climbing the small start radius. Auto-detects
+            # the transition via MandrelManager.get_flat_start_z(); a purely curved
+            # (no flat run) mandrel is never straightened. Applies to STRAIGHT-LINE
+            # finishing + ROUGHING only (sweeping/adaptive finishing is intentionally
+            # excluded — see path_generator.py straightening notes). Off = byte-identical.
+            "straighten_start_fillet": False,
 
             # #63: show the faded-blue deformed-blank overlay (follows the selected pass).
             "show_deformed_blank": True,
@@ -1746,6 +1756,60 @@ class SpinningApp:
                 self.actors["roller_tip"].SetPosition(rx_tip, 0.0, rz_tip)
         except Exception as e:
             logger.error(f"Roller move error: {e}")
+
+    def update_tool_change_cue(self, active, pos=None, from_tool="", to_tool=""):
+        """Show / hide the simulation tool-change cue: a pulsing translucent marker
+        at the change point plus a banner naming the outgoing→incoming tool. Called
+        every sim frame from the MAIN thread (check_sim_loop) — the sim worker only
+        sets the flags. Visual only; never touches the toolpath or G-code."""
+        try:
+            if active and pos is not None:
+                px, pz = float(pos[0]), float(pos[2])
+                # Marker sphere — built once, then only its scale pulses (no flicker).
+                if not self.actors.get("tc_marker"):
+                    base_r = float(self.params.get("roller_visual_radius", 25.0)) * 0.6 + 8.0
+                    marker = pv.Sphere(radius=base_r, center=(px, 0.0, pz),
+                                       theta_resolution=20, phi_resolution=20)
+                    self.actors["tc_marker"] = self.plotter.add_mesh(
+                        marker, color="yellow", opacity=0.35, smooth_shading=True)
+                    self._tc_marker_center = (px, pz)
+                    try:  # scale about the sphere center so it pulses in place
+                        self.actors["tc_marker"].SetOrigin(px, 0.0, pz)
+                    except Exception:
+                        pass
+                a = self.actors.get("tc_marker")
+                if a is not None:
+                    pulse = 1.0 + 0.45 * abs(math.sin(time.time() * 6.0))
+                    try:
+                        a.SetScale(pulse, pulse, pulse)
+                    except Exception:
+                        pass
+                # Banner text — added once while the cue is active.
+                if not self.actors.get("tc_banner"):
+                    try:
+                        from i18n import t as _t
+                        _label = _t("sim_tool_change")
+                    except Exception:
+                        _label = "TOOL CHANGE"
+                    _ft = str(from_tool or "?"); _tt = str(to_tool or "?")
+                    msg = f"{_label}   {_ft}  →  {_tt}"
+                    try:
+                        self.actors["tc_banner"] = self.plotter.add_text(
+                            msg, position="upper_edge", font_size=16,
+                            color="yellow", shadow=True)
+                    except Exception:
+                        self.actors["tc_banner"] = self.plotter.add_text(
+                            msg, position=(20, 40), font_size=16, color="yellow")
+            else:
+                for k in ("tc_marker", "tc_banner"):
+                    if self.actors.get(k):
+                        try:
+                            self.plotter.remove_actor(self.actors[k])
+                        except Exception:
+                            pass
+                        self.actors[k] = None
+        except Exception as e:
+            logger.debug(f"tool-change cue: {e}")
 
     def recolor_paths(self):
         """Mevcut pas aktörlerinin rengini yeniden boyar — hesaplama yapmaz, anlık."""
