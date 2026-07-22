@@ -201,6 +201,14 @@ Band             mandrel marking the contact zone — where the roller
                  the mandrel profile and does not alter the toolpaths.
                  Only appears for operations with a contact zone set.
 
+Bent-Sheet       A faded-blue surface showing how the SELECTED pass
+Overlay          bends the blank, updated as you click operations or
+                 step passes. Visual only — never affects toolpaths or
+                 G-code. Toggle it under "Show Bent-Sheet Overlay".
+                 NOTE: rebuilding this surface is the main cost of
+                 clicking an operation, so turning it OFF makes op
+                 selection noticeably snappier on large programs.
+
 
 TIP
 ════════════════════════════════════════════════════════════════
@@ -310,6 +318,15 @@ Bandı              bant çizer — rulonun temas beslemesine (contact
                    çalışır. Mandrel profilini takip eder ve takım
                    yollarını değiştirmez. Yalnızca temas bölgesi
                    tanımlı operasyonlar için görünür.
+
+Bükülmüş Sac      SEÇİLİ pasın sacı nasıl büktüğünü gösteren soluk
+Kaplaması         mavi bir yüzey; operasyona tıkladıkça veya pas
+                   değiştirdikçe güncellenir. SADECE görsel — takım
+                   yolunu veya G-code'u etkilemez. "Bükülmüş Sac
+                   Kaplamasını Göster" ile aç/kapat. NOT: bu yüzeyin
+                   yeniden hesaplanması bir operasyona tıklamanın ana
+                   maliyetidir; KAPATMAK çok operasyonlu programlarda
+                   operasyon seçimini belirgin şekilde hızlandırır.
 
 
 İPUCU
@@ -589,9 +606,18 @@ Names are labels only — they never affect the toolpath.
 RIGHT-CLICK on any row opens a context menu with the row actions:
 Rename, Copy, On/Off, Reset to factory defaults, Continue ⤵,
 Split, Unite, Reach⟲, Angle⟲, Pass Table, Batch, Move up/down,
-Delete and the operation Library. This menu is now the primary place
-for these actions — they were removed from the toolbar to keep it
-compact and always fit on screen.
+Move to #…, Delete and the operation Library. This menu is now the
+primary place for these actions — they were removed from the toolbar
+to keep it compact and always fit on screen.
+
+REORDERING operations: besides Move up/down (one row at a time), you
+can DRAG A ROW and drop it where you want — a blue line shows where it
+will land. To reach a position that is off-screen (e.g. move row 20 up
+to row 2), keep holding the drag and SCROLL with the mouse wheel to
+bring the target into view, then drop. If several rows are targeted
+(☑ ticks or a multi-row selection) and you grab one of them, the whole
+block moves together. For an exact spot, use right-click → Move to #…
+and type the target line number. All of these are one Ctrl+Z to undo.
 
 UNITE is the opposite of Split: select two or more operations and it
 combines them into one, taking the first pick's slot. They do NOT
@@ -1064,9 +1090,18 @@ bir etikettir — takım yolunu asla etkilemez.
 Herhangi bir satıra SAĞ TIKLAMAK satır işlemlerini içeren menüyü
 açar: Yeniden adlandır, Kopyala, Aç/Kapat, Fabrika varsayılanına
 sıfırla, Devam ⤵, Böl, Birleştir, Reach⟲, Açı⟲, Pas Tablosu, Toplu,
-Yukarı/Aşağı taşı, Sil ve operasyon Kütüphanesi. Bu menü artık bu
-işlemlerin ASIL yeri — araç çubuğunu derli toplu tutmak ve her
-ekranda sığdırmak için araç çubuğundan kaldırıldılar.
+Yukarı/Aşağı taşı, # konumuna taşı…, Sil ve operasyon Kütüphanesi. Bu
+menü artık bu işlemlerin ASIL yeri — araç çubuğunu derli toplu tutmak
+ve her ekranda sığdırmak için araç çubuğundan kaldırıldılar.
+
+OPERASYON SIRALAMA: Yukarı/Aşağı taşı (tek tek) dışında, bir satırı
+SÜRÜKLEYİP istediğiniz yere bırakabilirsiniz — mavi bir çizgi nereye
+düşeceğini gösterir. Ekran dışı bir konuma ulaşmak için (örn. 20.
+satırı 2. satıra taşımak) sürüklemeyi bırakmadan FARE TEKERİYLE kaydırıp
+hedefi görünür yapın, sonra bırakın. Birden çok satır hedefliyse (☑
+işaretleri veya çoklu seçim) ve içlerinden birini tutarsanız, blok
+birlikte taşınır. Kesin bir konum için sağ-tık → # konumuna taşı… ile
+hedef satır numarasını yazın. Bunların hepsi tek Ctrl+Z ile geri alınır.
 
 BİRLEŞTİR, Böl'ün tersidir: iki veya daha fazla operasyon seçin, tek
 operasyonda birleştirir (ilk seçimin yerine yerleşir). YAN YANA olmak

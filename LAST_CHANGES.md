@@ -5,6 +5,55 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-22 — OPERASYON SÜRÜKLE-BIRAK SIRALAMA + "# KONUMUNA TAŞI" + SEÇİM PERF DÜZELTMESİ (~10×) + BÜKÜLMÜŞ SAC KAPLAMA AÇ/KAPAT
+
+**İstek:** (1) Program sekmesinde operasyonları Yukarı/Aşağı ile tek tek taşımak yavaş —
+20.'yi 2.'ye almak ~36 tıklama. Sürükle-bırak istendi; sürükleme sırasında FARE TEKERİYLE
+kaydırma (ekran dışı hedefe ulaşmak için). (2) "Bir op'a tıklamak bazen saniyelerce donuyor,
+özellikle çok op varken" — önce SEBEBİ ÖLÇELİM, sonra düzeltelim.
+
+**Yapılanlar (Item 1 — sıralama, `ui/tabs/program_tab.py`):**
+- `move_op`'un çekirdeği `_reorder_to(targets, new_start)` helper'ına ayrıldı (remaining-index
+  uzayında new_start). ▲▼ düğmeleri/menü davranışı BİREBİR aynı — sadece ortak çekirdeğe delege.
+- Sürükle-bırak: `<ButtonPress-1>`/`<B1-Motion>`/`<ButtonRelease-1>` `add="+"` ile bağlandı.
+  Press, Tk seçimi daraltmadan ÖNCE çalışır (instance binding class'tan önce) → çoklu-satır bloğu
+  yakalar. Küçük eşik (6 px) geçilmeden gerçek sürükleme başlamaz (düz tık hâlâ seçer). Mavi
+  ekleme çizgisi (`_drop_line`, tree'ye place). ☑ hücresinde sürükleme YOK (tık = işaret).
+- Sürükleme sırasında `<MouseWheel>` listeyi kaydırır (`yview_scroll`) + çizgiyi günceller;
+  sürükleme dışında `None` döner → Tk varsayılan kaydırma. 20.→2. senaryosu: tut, tekerle kaydır, bırak.
+- Sağ-tık menüsüne "# konumuna taşı…" (`move_op_to_position`, `simpledialog.askinteger`, 1-tabanlı
+  satır → new_start=ans-1). Aynı `_reorder_to` çekirdeği; tek Ctrl+Z ile geri alınır.
+- i18n: `ctx_move_to`/`dlg_move_to_title`/`dlg_move_to_prompt` (EN/TR/ES). help_window EN+TR güncellendi.
+
+**Yapılanlar (Item 2 — ölçüm + KÖK-NEDEN DÜZELTMESİ, `ui/tabs/program_tab.py`):**
+- Opt-in perf enstrümantasyonu (TUTULDU): `SPINCAM_PERF=1` env değişkeni ile `on_op_select`
+  alt-adımları `spinning_cam.log`'a loglanır (`[PERF]` ara). Değişken YOKSA ~sıfır maliyetli no-op.
+- ÖLÇÜM (9 op ile): tık başına ~1000–1200 ms. Kök neden = `_flush_entries` önceki op'un HER
+  alan-saver'ını çalıştırıyor, her saver `refresh_ops_tree` (+ süre tahmini) çağırıyor → tık başına
+  **27 tam tablo yeniden-kurulumu** (~490 ms) + saverlerin re-entrant `on_op_select`'i → ~5× tekrar render.
+- DÜZELTME (davranış-koruyan, merkezî): `_flush_entries` artık BULK — savers sırasında
+  `refresh_ops_tree`/`_schedule_auto_calc`/`_schedule_forced_calc`/`on_op_select` DEFER edilir
+  (`_in_bulk_flush` bayrağı + `_bulk_needs_*`), flush SONUNDA TEK refresh + en fazla bir recalc.
+  Ayrıca `_add_prop_entry` saver'ı DEĞİŞMEYEN değeri erken-döner (düz tık = sıfır iş). Re-entrant
+  `on_op_select` bulk sırasında atlanır → gereksiz render'lar gitti.
+- SONUÇ (ölçülü): tık ~1000–1200 ms → **~110–170 ms** (kaplama açık), `_flush_entries` ~1000 ms →
+  **~0.1 ms**, tablo yeniden-kurulumu 27 → **0**. Op sayısıyla artık ÖLÇEKLENMİYOR.
+
+**Yapılanlar (Item 3 — Bükülmüş Sac Kaplaması aç/kapat, `ui/tabs/process_tab.py`):**
+- Zaten var olan `show_deformed_blank` param'ı (varsayılan açık) için Process sekmesine onay kutusu
+  ("Bükülmüş Sac Kaplamasını Göster", i18n `cb_show_deformed_blank`). Toggle HAFİF redraw
+  (`update_deformed_blank(render=True)`) + `save_settings_json()` — TAM sahne yeniden kurmaz, takım
+  yolu HESAPLAMAZ. `on_op_select` kaplama KAPALIYKEN `update_deformed_blank`'ı tümden atlar.
+- SONUÇ: kaplama kapalıyken tık **~35–90 ms** (kaplama = tık başına en büyük tekil maliyet, #63
+  revolve yüzeyi). Tercih settings.json'da kalıcı. SADECE görsel — G-code/sim etkilenmez.
+
+**Doğrulama:** `_test_reorder.py` (saf sıralama matematiği, ▲▼/sürükle/taşı-# hepsi) 17/17 PASS;
+tüm dosyalar derleniyor; i18n anahtarları çözülüyor. **GUI SMOKE GEÇTİ** (kullanıcı doğruladı:
+sürükle-bırak + mavi çizgi + tekerle kaydırma + taşı-# + Ctrl+Z + kaplama aç/kapat hepsi çalışıyor;
+perf before/after ölçüldü). help_window EN+TR güncellendi.
+
+---
+
 ## 2026-07-22 — GIT & TAKIM-KÜTÜPHANESİ POLİTİKASI (tek kaynak) + TEMİZ-KURULUM TUTARLILIK KONTROLÜ
 
 **İstek:** "Ne push edilir / ne göz ardı edilir" kuralları tek bir yerde yazılı olsun (benim

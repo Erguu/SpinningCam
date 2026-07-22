@@ -1,10 +1,47 @@
 import copy
+import os
+import time
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from ui.dialogs.zone_manager import ZoneManager
 from ui.dialogs.tool_manager import ToolManager
 from ui.helpers_ui import _fmt_num, scroll_not_edit
 from i18n import t
+
+# ── Opt-in performance timing (diagnostic; OFF by default) ──────────────────
+# Set the env var SPINCAM_PERF=1 before launching to log per-step timings of a
+# row-selection click to spinning_cam.log (search "[PERF]"). With it unset the
+# helpers below are near-zero-cost no-ops, so this instrumentation NEVER affects
+# a normal run. Purpose: measure where the "clicking an op freezes" time goes
+# (flush savers, tree refreshes, recolor render, deformed-blank render) on a
+# project with many operations, so any later fix targets the real bottleneck.
+PERF_ENABLED = os.environ.get("SPINCAM_PERF", "").strip().lower() not in ("", "0", "false", "no")
+
+# Global counters so we can attribute how many full tree rebuilds a single click
+# triggers (the suspected O(fields x ops) cost when flushing the previous op).
+_PERF_TREE_CALLS = 0
+_PERF_TREE_MS = 0.0
+
+
+class _perf:
+    """Cheap opt-in timer usable as a context manager: ``with _perf("label"):``.
+    Logs elapsed ms when PERF_ENABLED; otherwise does almost nothing."""
+    __slots__ = ("label", "_t0")
+
+    def __init__(self, label):
+        self.label = label
+
+    def __enter__(self):
+        if PERF_ENABLED:
+            self._t0 = time.perf_counter()
+        return self
+
+    def __exit__(self, *exc):
+        if PERF_ENABLED:
+            dt = (time.perf_counter() - self._t0) * 1000.0
+            from logger_config import logger
+            logger.info(f"[PERF] {self.label}: {dt:.1f} ms")
+        return False
 
 # Accurate default each op-parameter field falls back to when left empty.
 # Sourced from the op.get(key, DEFAULT) fallbacks in path_generator.py so the
@@ -535,12 +572,42 @@ class ProgramTab:
         txt.config(state="disabled")
 
     def _flush_entries(self):
-        """Force-save all active entry widgets to params (call before destroying widgets or closing)."""
-        for fn in self._active_entry_savers:
-            try:
-                fn()
-            except:
-                pass
+        """Force-save all active entry widgets to params (call before destroying
+        widgets or closing).
+
+        Runs as a BULK operation: while the savers fire, each one DEFERS its table
+        refresh, its recalc scheduling and any editor rebuild (see the _in_bulk_flush
+        guards in refresh_ops_tree / _schedule_auto_calc / _schedule_forced_calc /
+        on_op_select). We then do ONE refresh and at most one recalc at the end.
+        Previously every field saver rebuilt the whole op table, so a single row
+        click cost O(fields) full rebuilds (~1 s at 9 ops) — now it is one."""
+        savers = self._active_entry_savers
+        if PERF_ENABLED:
+            _n = len(savers)
+            _t0 = time.perf_counter()
+        self._in_bulk_flush = True
+        self._bulk_needs_refresh = False
+        self._bulk_needs_calc = False
+        self._bulk_needs_forced = False
+        try:
+            for fn in savers:
+                try:
+                    fn()
+                except:
+                    pass
+        finally:
+            self._in_bulk_flush = False
+        # Collapse everything the savers asked for into a single pass.
+        if self._bulk_needs_refresh:
+            self.refresh_ops_tree()
+        if self._bulk_needs_forced:
+            self._schedule_forced_calc()
+        elif self._bulk_needs_calc:
+            self._schedule_auto_calc()
+        if PERF_ENABLED:
+            dt = (time.perf_counter() - _t0) * 1000.0
+            from logger_config import logger
+            logger.info(f"[PERF] _flush_entries: {dt:.1f} ms for {_n} savers")
 
     # ------------------------------------------------------------------
     # Customize View — config resolver, field visibility, dynamic columns
@@ -756,11 +823,24 @@ class ProgramTab:
         sb_x.pack(side="bottom", fill="x")
         self.tree_ops.configure(yscrollcommand=sb.set, xscrollcommand=sb_x.set)
         self.tree_ops.pack(side="left", fill="both", expand=True)
-        self.tree_ops.bind("<<TreeviewSelect>>", self.on_op_select)
+        self.tree_ops.bind("<<TreeviewSelect>>", self._on_select_event)
         self.tree_ops.bind("<Double-1>", self._on_tree_double_click)
         # #67: clicking the ☑ cell toggles the row's batch tick (and eats the
         # click so it doesn't disturb the normal row selection).
         self.tree_ops.bind("<Button-1>", self._on_tree_click)
+        # Drag & drop reorder. Bound with add="+" so they run alongside the ☑
+        # handler above; the press handler runs before Tk's own selection logic
+        # (instance bindings fire before class bindings) so it can capture the
+        # pre-click target set for multi-row drags. A plain click never triggers
+        # a move (motion must pass a small threshold first).
+        self._drag_reset_state()
+        self.tree_ops.bind("<ButtonPress-1>",   self._on_drag_press,   add="+")
+        self.tree_ops.bind("<B1-Motion>",       self._on_drag_motion,  add="+")
+        self.tree_ops.bind("<ButtonRelease-1>", self._on_drag_release, add="+")
+        # Mouse wheel scrolls the list DURING a drag so an op can be dragged to a
+        # position that is currently off-screen (e.g. row 20 → row 2). Outside a
+        # drag it returns None and Tk's default wheel-scroll takes over.
+        self.tree_ops.bind("<MouseWheel>", self._on_drag_wheel, add="+")
         # #70: right-click context menu with the row actions (rename lives here).
         self.tree_ops.bind("<Button-3>", self._on_tree_right_click)
         # Ctrl+A highlights every row (native list meaning). Delete/Move then
@@ -1022,6 +1102,13 @@ class ProgramTab:
         ToolManager(self.frame.winfo_toplevel(), self.ui_root)
 
     def refresh_ops_tree(self):
+        # During a bulk flush, coalesce: remember that a refresh is needed and do
+        # it ONCE at the end instead of once per field saver.
+        if getattr(self, "_in_bulk_flush", False):
+            self._bulk_needs_refresh = True
+            return
+        if PERF_ENABLED:
+            _perf_t0 = time.perf_counter()
         ops = self.app.params.get("operations", [])
         existing_items = self.tree_ops.get_children()
 
@@ -1063,6 +1150,10 @@ class ProgramTab:
 
         self.update_time_estimate()
         self._update_batch_button()
+        if PERF_ENABLED:
+            global _PERF_TREE_CALLS, _PERF_TREE_MS
+            _PERF_TREE_CALLS += 1
+            _PERF_TREE_MS += (time.perf_counter() - _perf_t0) * 1000.0
 
     def toggle_op_enabled(self):
         """Passivate/reactivate the selected op without deleting it. Disabled
@@ -1102,6 +1193,10 @@ class ProgramTab:
 
     def _schedule_auto_calc(self, delay_ms=300):
         """Debounced auto-calc: resets the timer on every call; fires once after delay_ms of silence."""
+        # During a bulk flush, defer: one recalc is scheduled after the flush.
+        if getattr(self, "_in_bulk_flush", False):
+            self._bulk_needs_calc = True
+            return
         if self._auto_calc_debounce_id is not None:
             self.frame.after_cancel(self._auto_calc_debounce_id)
         self._auto_calc_debounce_id = self.frame.after(delay_ms, self._fire_auto_calc)
@@ -1114,6 +1209,10 @@ class ProgramTab:
         still refresh the 3D/sim blank overlay — otherwise it keeps the cached
         reach and the knob appears dead. Shares the same debounce id as the
         auto-calc timer so the two never double-fire."""
+        # During a bulk flush, defer: one recalc is scheduled after the flush.
+        if getattr(self, "_in_bulk_flush", False):
+            self._bulk_needs_forced = True
+            return
         if self._auto_calc_debounce_id is not None:
             self.frame.after_cancel(self._auto_calc_debounce_id)
         self._auto_calc_debounce_id = self.frame.after(delay_ms, self._fire_forced_calc)
@@ -1600,6 +1699,7 @@ class ProgramTab:
         m.add_separator()
         m.add_command(label=t("ctx_move_up"), command=lambda: self.move_op(-1), state=has)
         m.add_command(label=t("ctx_move_down"), command=lambda: self.move_op(1), state=has)
+        m.add_command(label=t("ctx_move_to"), command=self.move_op_to_position, state=has)
         m.add_separator()
         m.add_command(label=t("btn_del_op"), command=self.del_op, state=has)
         m.add_separator()
@@ -1664,7 +1764,34 @@ class ProgramTab:
         except Exception:
             pass
 
+    def _on_select_event(self, event):
+        """<<TreeviewSelect>> handler. With SPINCAM_PERF set it times the whole
+        selection (the user-visible "clicking an op freezes" path) and reports how
+        many full tree rebuilds the click triggered; otherwise it just delegates."""
+        if not PERF_ENABLED:
+            return self.on_op_select(event)
+        global _PERF_TREE_CALLS, _PERF_TREE_MS
+        _c0, _m0 = _PERF_TREE_CALLS, _PERF_TREE_MS
+        t0 = time.perf_counter()
+        try:
+            return self.on_op_select(event)
+        finally:
+            dt = (time.perf_counter() - t0) * 1000.0
+            from logger_config import logger
+            n_ops = len(self.app.params.get("operations", []))
+            logger.info(
+                f"[PERF] === on_op_select TOTAL: {dt:.1f} ms | ops={n_ops} | "
+                f"tree_refreshes={_PERF_TREE_CALLS - _c0} "
+                f"({_PERF_TREE_MS - _m0:.1f} ms in refresh_ops_tree) ===")
+
     def on_op_select(self, event, _flush=True):
+        # Re-entrant calls DURING a bulk flush (a rebuild=True field saver calls
+        # on_op_select to refresh dependent fields) would rebuild the OUTGOING op's
+        # editor and re-render the 3D scene for nothing — the flush is immediately
+        # followed by a fresh rebuild for the NEW selection. Skip them. This also
+        # removes the ~5× redundant recolor/deformed-blank renders seen per click.
+        if getattr(self, "_in_bulk_flush", False):
+            return
         sel = self.tree_ops.selection()
         self._update_batch_button()
         if not sel:
@@ -1696,14 +1823,19 @@ class ProgramTab:
         # so it can land on back-pass entries too (forward/back are interleaved when
         # back_pass_enabled — stride 2).
         self.app.active_editing_pass_idx = cumulative + self._within_op_idx
-        self.app.recolor_paths()
+        with _perf("recolor_paths"):
+            self.app.recolor_paths()
 
         # #63: refresh the faded-blue deformed-blank overlay for the now-current active pass.
-        # Cheap — rebuilds only the small overlay surface + renders; does NOT recompute paths.
-        try:
-            self.app.update_deformed_blank(render=True)
-        except Exception:
-            pass
+        # Rebuilding this revolved surface is the biggest per-click cost, so skip it
+        # entirely when the overlay is turned off (Process ▸ Show Bent-Sheet Overlay) —
+        # recolor_paths above already rendered, so there is nothing else to draw.
+        if self.app.params.get("show_deformed_blank", True):
+            try:
+                with _perf("update_deformed_blank"):
+                    self.app.update_deformed_blank(render=True)
+            except Exception:
+                pass
 
         if _flush:
             self._flush_entries()
@@ -2628,13 +2760,24 @@ class ProgramTab:
 
         def save(e=None):
             try:
-                v = var.get().strip()
-                if v == "":
-                    self.app.params["operations"][op_idx].pop(key, None)
+                op = self.app.params["operations"][op_idx]
+                raw = var.get().strip()
+                # No-change guard: a plain selection flush re-runs EVERY field saver
+                # with its existing value. If nothing actually changed, do no work
+                # (no table refresh, no recalc, no panel rebuild) — this is what
+                # makes a row click cheap. Real edits fall through unchanged.
+                had = key in op
+                if raw == "":
+                    if not had:
+                        return
+                    op.pop(key, None)
                 else:
+                    v = raw
                     if is_int: v = int(v)
                     elif is_float: v = float(v)
-                    self.app.params["operations"][op_idx][key] = v
+                    if had and op.get(key) == v:
+                        return
+                    op[key] = v
                 self.refresh_ops_tree()
                 if self.app.params.get("auto_calculate_paths", False):
                     self._schedule_auto_calc()
@@ -4426,23 +4569,37 @@ class ProgramTab:
         targets = self._batch_targets()
         if not targets:
             return
+        n, k = len(self.app.params.get("operations", [])), len(targets)
+        if d < 0:
+            new_start = max(0, targets[0] - 1)
+        else:
+            new_start = min(n - k, targets[0] + 1)
+        self._reorder_to(targets, new_start)
+
+    def _reorder_to(self, targets, new_start):
+        """Move the ``targets`` ops (current indices) so the block starts at
+        ``new_start`` in the remaining-op index space (0..n-k) — i.e. the index
+        the block occupies once the moved ops are pulled out. Shared by the ▲▼
+        buttons/menu (move_op), drag & drop, and "Move to #…". Handles the flush,
+        undo push, batch-tick carry-over and reselection. No-op (returns False)
+        if the block would not actually move."""
+        targets = sorted(targets)
+        if not targets:
+            return False
         # Commit pending edits for the anchor op first (savers are still bound
         # to its current index), then discard them so the reselect below can't
         # write stale widget values into whichever op swaps into that index.
         self._flush_entries()
         ops = self.app.params.get("operations", [])
         n, k = len(ops), len(targets)
+        new_start = max(0, min(new_start, n - k))
         tset = set(targets)
-        if d < 0:
-            new_start = max(0, targets[0] - 1)
-        else:
-            new_start = min(n - k, targets[0] + 1)
         remaining = [op for i, op in enumerate(ops) if i not in tset]
         sel_ops = [ops[i] for i in targets]
         new_ops = remaining[:new_start] + sel_ops + remaining[new_start:]
-        # No-op guard: block already sits against the edge in that direction.
+        # No-op guard: block already sits exactly where requested.
         if [id(o) for o in new_ops] == [id(o) for o in ops]:
-            return
+            return False
 
         self._push_undo(t("act_move_op"))
         from_checks = bool(self._batch_checked)
@@ -4460,6 +4617,143 @@ class ProgramTab:
             self._update_batch_button()
         self.tree_ops.selection_set(*[str(p) for p in new_positions])
         self.on_op_select(None, _flush=False)
+        return True
+
+    def move_op_to_position(self):
+        """"Move to #…" (right-click menu): ask for a 1-based target line and move
+        the current target block so its first row lands there. Keyboard-friendly
+        alternative to dragging; shares the same _reorder_to core."""
+        targets = self._batch_targets()
+        if not targets:
+            return
+        n = len(self.app.params.get("operations", []))
+        ans = simpledialog.askinteger(
+            t("dlg_move_to_title"),
+            t("dlg_move_to_prompt").format(n=n),
+            initialvalue=targets[0] + 1, minvalue=1, maxvalue=n,
+            parent=self.frame.winfo_toplevel())
+        if ans is None:
+            return
+        # The block's first row ends up at index new_start in the rebuilt list,
+        # so the requested 1-based line maps straight to new_start = ans - 1
+        # (_reorder_to clamps it into range).
+        self._reorder_to(targets, ans - 1)
+
+    # ── Drag & drop reorder ────────────────────────────────────────────────
+    def _drag_reset_state(self):
+        self._drag_start_idx = None      # row grabbed on press (int) or None
+        self._drag_press_y = 0           # y at press, for the motion threshold
+        self._drag_pre_targets = None    # multi-row block captured at press
+        self._drag_targets = None        # op block being dragged (list of idx)
+        self._dragging = False           # True once past the motion threshold
+        self._drag_last_y = 0            # last cursor y (for wheel re-anchor)
+        self._drop_pos = None            # display insert index (0..n)
+        # Old indicator frame belongs to the previous tree (rebuild destroyed it).
+        self._drop_line = None
+
+    def _on_drag_press(self, event):
+        """Record a potential drag start. Runs before Tk collapses the selection,
+        so the current target set is captured for multi-row drags. Never starts a
+        drag by itself and never returns 'break' — a plain click still selects."""
+        self._dragging = False
+        self._drag_start_idx = None
+        if self.tree_ops.identify_region(event.x, event.y) != "cell":
+            return None
+        if self.tree_ops.identify_column(event.x) == "#1":  # ☑ cell → tick, not drag
+            return None
+        row = self.tree_ops.identify_row(event.y)
+        if not row:
+            return None
+        try:
+            self._drag_start_idx = int(row)
+        except ValueError:
+            self._drag_start_idx = None
+            return None
+        self._drag_press_y = event.y
+        # Capture the pre-collapse target set: if the grabbed row is part of a
+        # multi-row batch/selection, the whole block travels together.
+        pre = self._batch_targets()
+        self._drag_pre_targets = pre if self._drag_start_idx in pre and len(pre) > 1 else None
+        return None
+
+    def _on_drag_motion(self, event):
+        if self._drag_start_idx is None:
+            return None
+        if not self._dragging:
+            if abs(event.y - self._drag_press_y) < 6:   # small threshold: real drag only
+                return None
+            self._dragging = True
+            self._drag_targets = list(self._drag_pre_targets) if self._drag_pre_targets \
+                else [self._drag_start_idx]
+            self.tree_ops.config(cursor="hand2")
+        self._drag_last_y = event.y
+        self._update_drop_indicator(event.y)
+        return "break"   # suppress the default range-select while dragging
+
+    def _on_drag_wheel(self, event):
+        """Scroll the list during a drag so off-screen drop targets are reachable.
+        No-op (default scroll) when not dragging."""
+        if not self._dragging:
+            return None
+        self.tree_ops.yview_scroll(-1 if event.delta > 0 else 1, "units")
+        self._update_drop_indicator(self._drag_last_y)
+        return "break"
+
+    def _on_drag_release(self, event):
+        if not self._dragging:
+            self._drag_start_idx = None
+            return None
+        targets = self._drag_targets or []
+        pos = self._drop_pos
+        self._end_drag()
+        if targets and pos is not None:
+            tset = set(targets)
+            # Display insert index → remaining-space start = non-target ops before it.
+            new_start = sum(1 for i in range(pos) if i not in tset)
+            self._reorder_to(targets, new_start)
+        return "break"
+
+    def _end_drag(self):
+        self._dragging = False
+        self._drag_start_idx = None
+        self._drag_targets = None
+        try:
+            self.tree_ops.config(cursor="")
+        except Exception:
+            pass
+        if getattr(self, "_drop_line", None) is not None:
+            self._drop_line.place_forget()
+
+    def _update_drop_indicator(self, y):
+        """Position the blue insertion line and record the display insert index
+        (0..n) for the drop. Above/below a row is decided by the cursor's half."""
+        n = len(self.app.params.get("operations", []))
+        kids = self.tree_ops.get_children()
+        if not kids:
+            self._drop_pos = 0
+            return
+        row = self.tree_ops.identify_row(y)
+        if not row:
+            first = self.tree_ops.bbox(kids[0])
+            if first and y < first[1]:
+                self._drop_pos, item, edge = 0, kids[0], "above"
+            else:
+                self._drop_pos, item, edge = n, kids[-1], "below"
+        else:
+            r = int(row)
+            bbox = self.tree_ops.bbox(row)
+            if bbox and y < bbox[1] + bbox[3] / 2:
+                self._drop_pos, item, edge = r, row, "above"
+            else:
+                self._drop_pos, item, edge = r + 1, row, "below"
+        bbox = self.tree_ops.bbox(item)
+        if not bbox:
+            return
+        ly = bbox[1] if edge == "above" else bbox[1] + bbox[3]
+        if getattr(self, "_drop_line", None) is None:
+            self._drop_line = tk.Frame(self.tree_ops, height=2, bg="#1e88e5")
+        self._drop_line.place(x=0, y=max(0, ly - 1), relwidth=1.0)
+        self._drop_line.lift()
 
     def rebuild(self):
         for widget in self.frame.winfo_children():

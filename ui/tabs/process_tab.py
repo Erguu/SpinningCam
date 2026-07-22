@@ -32,6 +32,31 @@ class ProcessTab(ScrollableTabBase):
         self.helper.add_checkbox(self.content, self.app, "show_heatmap", t("cb_show_heatmap"),
                                  "Her pas noktasının mandrel yüzeyine olan mesafesini renk skalasıyla göster. "
                                  "Mavi=güvenli mesafe, kırmızı=mandrel'e çok yakın veya çarpışma riski.")
+
+        # Bent-sheet (deformed-blank) overlay toggle. Purely visual — the faded-blue
+        # revolved surface (#63) that shows how the SELECTED pass bends the blank.
+        # Rebuilding it is the single biggest per-click cost when selecting ops, so
+        # turning it OFF makes op selection noticeably snappier on large programs.
+        # Wired to a light redraw (update_deformed_blank) instead of a full scene
+        # rebuild, so the toggle itself is instant and never recomputes toolpaths.
+        f_db = ttk.Frame(self.content)
+        f_db.pack(fill="x", padx=10, pady=2)
+        self._db_var = tk.BooleanVar(value=bool(self.app.params.get("show_deformed_blank", True)))
+        def _toggle_deformed_blank():
+            self.app.params["show_deformed_blank"] = self._db_var.get()
+            try:
+                self.app.update_deformed_blank(render=True)
+            except Exception:
+                pass
+            self.app.save_settings_json()
+        cb_db = ttk.Checkbutton(f_db, text=t("cb_show_deformed_blank"),
+                                variable=self._db_var, command=_toggle_deformed_blank)
+        cb_db.pack(anchor="w")
+        self.helper.bind_tooltip(cb_db,
+            "Seçili pasın sacı nasıl büktüğünü gösteren soluk mavi kaplamayı aç/kapat. "
+            "SADECE görsel — takım yolunu veya G-code'u etkilemez. Kapatmak, çok operasyonlu "
+            "programlarda operasyon seçimini belirgin şekilde hızlandırır (her tıklamada bu "
+            "yüzey yeniden hesaplanır).")
         self.helper.add_spinbox(self.content, self.app, "shell_thickness", t("sp_shell_thickness"), 0, 20, 0.1,
                                 "3D görünümdeki shell (kabuk) meshinin kalınlığı (mm) — sadece görseldir, G-code'u etkilemez. "
                                 "STL export için kullanılır.")
