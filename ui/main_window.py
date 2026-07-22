@@ -894,6 +894,8 @@ class SpinningCamWindow(tk.Tk):
         tilts = getattr(self.app.path_gen, 'last_tilt_angles', None)  # tilt-arm machines only
         self.app.sim_controller.run(True, self.app.path_gen.last_calculated_paths, self.app.params,
                                     sequence=seq, tilts=tilts)
+        try: self.ui_process.refresh_process_time()
+        except Exception: pass
         self.check_sim_loop()
 
     def stop_sim(self):

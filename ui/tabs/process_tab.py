@@ -451,24 +451,69 @@ class ProcessTab(ScrollableTabBase):
         ttk.Label(f_simspd, text=t("lbl_sim_speed"), font=("Arial", 9)).pack(anchor="w")
         f_simspd_row = ttk.Frame(f_simspd)
         f_simspd_row.pack(fill="x")
-        self._sim_speed_lbl = tk.Label(f_simspd_row, text="1.00x", width=6,
-                                       font=("Arial", 9, "bold"), fg="#004488")
-        self._sim_speed_lbl.pack(side="right")
         self._sim_speed_var = tk.DoubleVar(value=1.0)
-        def _on_sim_speed(val):
-            multiplier = round(float(val), 2)
-            self.app.sim_controller.speed_multiplier = multiplier
-            self._sim_speed_lbl.config(text=f"{multiplier:.2f}x")
-        sim_slider = tk.Scale(
-            f_simspd_row, variable=self._sim_speed_var,
-            from_=0.01, to=2.0, resolution=0.01, orient="horizontal", showvalue=False,
-            command=_on_sim_speed, bg="#f0f0f0", highlightthickness=0)
-        sim_slider.pack(side="left", fill="x", expand=True)
-        self.helper.bind_tooltip(f_simspd,
-            "Simülasyon oynatma hızını ayarla.\n"
-            "Sol uç = 0.01x (çok yavaş / inceleme modu)\n"
-            "Orta    = 1.00x (normal hız)\n"
-            "Sağ uç = 2.00x (hızlı önizleme)")
+
+        def _apply_sim_speed(*_):
+            try:
+                m = float(self._sim_speed_var.get())
+            except (tk.TclError, ValueError):
+                return
+            if m <= 0:
+                m = 0.01
+                self._sim_speed_var.set(m)
+            self.app.sim_controller.speed_multiplier = m
+            self.refresh_process_time()
+
+        sim_spin = ttk.Spinbox(
+            f_simspd_row, textvariable=self._sim_speed_var,
+            from_=0.01, to=1000.0, increment=0.25, width=8,
+            command=_apply_sim_speed)
+        sim_spin.pack(side="left")
+        sim_spin.bind("<Return>", _apply_sim_speed)
+        sim_spin.bind("<FocusOut>", _apply_sim_speed)
+        ttk.Label(f_simspd_row, text="×", font=("Arial", 10, "bold")).pack(side="left", padx=(3, 0))
+        self._sim_speed_spin = sim_spin
+        self.helper.bind_tooltip(sim_spin,
+            "Simülasyon oynatma hız çarpanı. İstediğiniz değeri yazın (ör. 0.25, 1, 5, 50)\n"
+            "veya okçuklarla artırıp azaltın.\n"
+            "1× = gerçek işlem süresi. 2× = yarı sürede oynatır.")
+
+        # Process time: the real machine time (at 1×) and the scaled playback time.
+        self._proc_time_lbl = tk.Label(f_simspd, text="", font=("Arial", 9),
+                                       fg="#004488", anchor="w", justify="left")
+        self._proc_time_lbl.pack(anchor="w", pady=(3, 0))
+        self.refresh_process_time()
+
+    def refresh_process_time(self):
+        """Update the sim process-time readout: real machining time (speed 1×) and
+        the scaled playback time (real ÷ speed multiplier)."""
+        lbl = getattr(self, "_proc_time_lbl", None)
+        if lbl is None:
+            return
+        try:
+            from simulation_controller import estimate_process_seconds
+            seq = getattr(self.app.path_gen, "last_calculated_sequence", None)
+            real = estimate_process_seconds(seq, self.app.params)
+        except Exception:
+            real = 0.0
+        try:
+            mult = float(self._sim_speed_var.get())
+        except (tk.TclError, ValueError):
+            mult = 1.0
+        if mult <= 0:
+            mult = 1.0
+
+        def _fmt(sec):
+            sec = max(0, int(round(sec)))
+            m, s = divmod(sec, 60)
+            h, m = divmod(m, 60)
+            return f"{h:d}:{m:02d}:{s:02d}" if h else f"{m:d}:{s:02d}"
+
+        if real <= 0:
+            lbl.config(text=t("lbl_proc_time_none"))
+        else:
+            lbl.config(text=t("lbl_proc_time").format(
+                real=_fmt(real), play=_fmt(real / mult), mult=f"{mult:g}"))
 
 
     def _toggle_sim_pause(self):

@@ -1203,6 +1203,8 @@ class ProgramTab:
             self.ui_root.refresh_clamp_status()
             self.ui_root.refresh_flatness_status()
             self.ui_root.refresh_tool_change_status()
+            try: self.ui_root.ui_process.refresh_process_time()
+            except Exception: pass
         else:
             self.ui_root.lbl_info.config(text=t("status_ready"), fg="#ddd")
 

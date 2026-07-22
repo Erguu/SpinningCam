@@ -11,6 +11,7 @@ MACHINE_PROFILE_KEYS = [
     "machine_gcode_offset_x", "machine_gcode_offset_z",
     "output_mode", "origin_use_home", "roller_positive_x_side",
     "home_x", "home_z", "retract_x", "retract_z",
+    "rapid_rate_mm_min",
     "workspace_show", "workspace_x_min", "workspace_x_max",
     "workspace_z_min", "workspace_z_max",
     "clamp_zone_baseline",

@@ -5,6 +5,61 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-22 — SİM HIZI SERBEST GİRİŞ ALANI + İŞLEM SÜRESİ GÖSTERİMİ
+
+**İstek:** Sim hız kaydırıcısı yerine istenildiği kadar artırıp azaltılabilen bir GİRİŞ ALANI;
+ayrıca "process time" gösterimi — 1× gerçek işlem süresi, 2× yaparsam yarısı vb.
+
+**Çözüm:**
+- **Sim hızı:** `process_tab.py` içindeki `tk.Scale` (0.01–2.0 kaydırıcı) → `ttk.Spinbox`
+  (from_=0.01, to=1000, increment=0.25, serbest yazım). `_apply_sim_speed` Return/FocusOut/ok
+  ile `speed_multiplier`'ı ayarlar; artık 2× ile sınırlı DEĞİL. Eski `_sim_speed_lbl` kaldırıldı.
+- **İşlem süresi:** yeni `estimate_process_seconds(sequence, params)` (simulation_controller.py)
+  diziyi yürür — kesim segmentleri her pasın feed'iyle (`item[4]`), rapid'ler makine rapid
+  rate'iyle; takım-değişim dwell'i (sim-özel) HARİÇ. Bu, sim'in 1×'te oynadığı GERÇEK süre.
+  `process_tab.refresh_process_time()` gerçek süreyi (1×) ve ölçekli oynatma süresini (gerçek ÷
+  çarpan) `H:MM:SS`/`M:SS` formatında gösterir (`lbl_proc_time` / `lbl_proc_time_none`).
+- **Zamanlama sadeleşti:** `RAPID_SIM_MAX_S` cap ve `CUT_SIM_MIN_MM_PER_SEC` floor KALDIRILDI —
+  artık serbest çarpan yavaş/uzun işleri hallediyor; yalnızca div-by-zero için 0.001 epsilon.
+  Böylece 1× oynatma = gerçek işlem süresi (etiketle tutarlı).
+- Refresh tetikleyicileri: hesaplama bitince (`program_tab` post-calc), sim başlarken
+  (`main_window.run_sim`), ve hız değişiminde. i18n "slider"→"field" güncellendi.
+
+**Doğrulama:** `estimate_process_seconds` birim testi (100mm@600 + 200mm rapid@6000 = 12.0s;
+feed'siz cut→300 fallback=60s; boş=0). `_test_tool_change_position.py` 17/17 PASS. **GUI SMOKE
+BEKLİYOR** — Spinbox yazım/ok davranışı + process-time etiketinin çarpanla güncellenmesi.
+
+---
+
+## 2026-07-22 — SİMÜLASYON GERÇEK-HIZ ZAMANLAMASI (kesim = op feed, rapid = makine rapid rate)
+
+**İstek:** Simülasyon hareketleri "temsili gerçek hızlarda" oynasın. Önceki durum: kesim (`cut`)
+NOKTA SAYISINA göre zamanlanıyordu (2 noktalı düz-çizgi finish anında bitiyor); rapid ise sabit
+görsel hıza (90 mm/s) sabitlenmişti — ikisi de gerçek feed/rapid değerlerinden bağımsızdı.
+
+**Çözüm — ikisi de GERÇEK değerden:**
+- **Kesim:** her pas o operasyonun kendi feed'iyle oynar. `path_generator.py` içinde yeni modül
+  fonksiyonu `representative_feed_mm_min(op, path, params, center_x)` feed'i mm/min'e çözer
+  (`mm_rev` → temsili rpm ile; RPM doğrudan, CSS ise pasın ortalama çapından, spindle limitiyle
+  sınırlı — `generate_gcode`'un kullandığı bağıntının aynısı). Değer `("cut", …)` dizi öğesine
+  5. alan olarak eklenir (3 append yeri: ileri/geri/tek-pas). Geri pas `back_pass_feed` shim'iyle.
+- **Rapid:** makine profilinden `rapid_rate_mm_min` (yeni alan) → mm/s. Programa YAZILMAZ, sadece
+  sim zamanlaması. `MACHINE_PROFILE_KEYS`'e eklendi; Machine sekmesi "Program Start / Retract"
+  altında "Rapid Rate (mm/min)" alanı (render="none", geometri recalc yok), varsayılan 5000.
+- `simulation_controller.py`: `RAPID_SIM_MM_PER_SEC`/`CUT_SIM_MM_PER_SEC` sabitleri kaldırıldı;
+  yerine `DEFAULT_RAPID_RATE_MM_MIN=5000`, `DEFAULT_CUT_FEED_MM_MIN=300`, `CUT_SIM_MIN_MM_PER_SEC=3`
+  (çok yavaş feed sim'i dondurmasın diye taban), `RAPID_SIM_MAX_S=2.5` (uzun traverse takılmasın).
+  Kesim per-pas `item[4]` feed'inden, rapid `params["rapid_rate_mm_min"]`'den hızlanır. Sim hız
+  kaydırıcısı yine hepsini ölçekler (`dt / spd`). 1 mm alt-adım + tilt lineer interp korundu.
+
+**Etki:** artık pas-pas hız oranları GERÇEK (yavaş contact-feed finish, hızlı rough'un yanında
+yavaş görünür); rapid'ler kesimlerden belirgin hızlı; 2-noktalı düz finish artık akıp geçmiyor.
+Yoğun paslar önceki hissini korur (segment < 1 mm → subs==1). `_test_tool_change_position.py`
+17/17 PASS (5-alanlı cut öğesi toolchange regresyonunu bozmadı). **GUI SMOKE BEKLİYOR** —
+Rapid Rate alanının görünürlüğü/kalıcılığı + hız hissi (feed'ler yavaşsa slider'la hızlandır).
+
+---
+
 ## 2026-07-22 — İLK-PAS "ÇOK KISA REACH" BUG'I (follow-blank dejenerasyon koruması)
 
 **Belirti:** Roughing'de `reach_follow_blank` (sactan flanş reach tahmini) AÇIKKEN, taslak

@@ -838,6 +838,20 @@ tool change and shows a yellow banner (outgoing → incoming tool)
 with a pulsing marker at the change point, so a fast run doesn't
 hide where the swap happens.
 
+SIMULATION TIMING
+Playback is timed by the program's real rates, not by point count:
+each cutting pass plays at that operation's own feed, so a slow
+contact-feed finish looks slow next to a fast rough and a short
+(2-point) straight-line finish no longer whips through. Rapids play
+at the machine's rapid-traverse rate — set it in Machine ▸ Program
+Start / Retract ▸ 'Rapid Rate (mm/min)'. That value only times the
+simulation; it is never written into the exported program.
+
+Sim Speed is a typed × multiplier — enter any value (0.25, 5, 50…)
+or step it with the arrows. 1× plays in the real process time; 2×
+takes half. The 'Process time' line shows the real machining time
+(at 1×) and the scaled playback time at your chosen multiplier.
+
 HOW THE COLLISION CHECK WORKS
 After Calculate, a custom tool-change point is checked two ways:
   1. Clearance AT the point — the radial distance from the roller
@@ -1293,6 +1307,21 @@ Simülasyon ipucu: oynatma sırasında sim her takım değişiminde kısa
 süre duraklar ve sarı bir başlık (giden → gelen takım) ile değişim
 noktasında nabız gibi atan bir işaret gösterir; böylece hızlı bir
 oynatmada değişimin nerede olduğu kaçmaz.
+
+SİMÜLASYON ZAMANLAMASI
+Oynatma, nokta sayısına değil programın gerçek hızlarına göre
+zamanlanır: her kesme pası o operasyonun kendi feed'iyle oynar, bu
+yüzden yavaş bir contact-feed finish hızlı bir rough'un yanında yavaş
+görünür ve kısa (2 noktalı) düz-çizgi finish artık akıp geçmez.
+Rapid'ler makinenin hızlı-ilerleme hızıyla oynar — bunu Makine ▸
+Program Start / Retract ▸ 'Rapid Rate (mm/min)' altında ayarlayın. Bu
+değer YALNIZCA simülasyonu zamanlar; dışa aktarılan programa asla
+yazılmaz.
+
+Sim Hızı bir × çarpan alanıdır — istediğiniz değeri yazın (0.25, 5,
+50…) veya okçuklarla adımlayın. 1× gerçek işlem süresinde oynar; 2×
+yarı sürede. 'İşlem süresi' satırı gerçek işlem süresini (1×) ve
+seçtiğiniz çarpandaki ölçekli oynatma süresini gösterir.
 
 ÇARPIŞMA KONTROLÜ NASIL ÇALIŞIR
 Hesapla sonrası özel bir takım-değişim noktası iki şekilde kontrol

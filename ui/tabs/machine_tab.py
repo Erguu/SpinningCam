@@ -244,6 +244,27 @@ class MachineTab(ScrollableTabBase):
         add_home_spinbox(f_home, "retract_z", t("lbl_retract_z"),
                          "Her pas sonrası rulonun Z ekseninde geri çekilme miktarı (göreceli, mm).")
 
+        # Rapid-traverse rate — drives the SIMULATION pace of G0 moves (not written
+        # to the program). Changing it only re-times the sim, so no path recalc.
+        def add_rapid_rate(p, key, title, tooltip=""):
+            f = ttk.Frame(p)
+            f.pack(fill="x", padx=5, pady=2)
+            tk.Label(f, text=title).pack(side="left")
+            var = tk.DoubleVar(value=float(self.app.params.get(key, 5000.0)))
+            def on_change():
+                try: self.app.on_param_change(key, var.get(), "none")
+                except: pass
+            e = ttk.Entry(f, textvariable=var, width=10)
+            e.pack(side="right")
+            e.bind("<Return>", lambda ev: on_change())
+            e.bind("<FocusOut>", lambda ev: on_change())
+            e.bind("<Button-1>", lambda event: event.widget.focus_force())
+            self.helper.bind_tooltip(e, tooltip)
+            self.helper.bind_tooltip(f, tooltip)
+
+        add_rapid_rate(f_home, "rapid_rate_mm_min", t("lbl_rapid_rate"),
+                       t("tip_rapid_rate"))
+
         # Touch Point Calibration
         f_touch = ttk.LabelFrame(self.content, text=t("frm_touch"))
         f_touch.pack(fill="x", padx=10, pady=10)

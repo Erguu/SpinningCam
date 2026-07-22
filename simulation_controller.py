@@ -5,15 +5,40 @@ from logger_config import logger
 
 # Simulation pacing. Moves are timed by the machine's REAL rates (mm per
 # MINUTE): a cut runs at the operation's feed, a rapid at the machine profile's
-# rapid-traverse rate. This makes play time proportional to physical length, so
-# pass-to-pass speeds are truthful and rapids read as clearly faster than cuts —
-# and a 2-point straight-line finish no longer whips through. Rates are
-# converted to mm per real second; the sim-speed slider then scales everything.
+# rapid-traverse rate. So at speed 1x the sim plays for the real process time;
+# the speed multiplier divides that (2x = half). There is no watchability cap or
+# floor any more — the free speed field handles slow/long jobs instead.
 DEFAULT_RAPID_RATE_MM_MIN = 5000.0   # used when the machine profile has no rapid rate
 DEFAULT_CUT_FEED_MM_MIN = 300.0      # used when a cut item carries no feed
-CUT_SIM_MIN_MM_PER_SEC = 3.0         # floor so a very slow feed doesn't freeze the sim
-RAPID_SIM_MAX_S = 2.5                # cap so a long traverse doesn't drag
 CUT_SIM_STEP_MM = 1.0                # sub-step size (keeps tilt interpolation smooth)
+
+
+def estimate_process_seconds(sequence, params):
+    """Total REAL machining time (seconds) for a sim `sequence`: cutting moves at
+    each pass's own feed, rapids at the machine's rapid-traverse rate. The
+    tool-change dwell is a sim-only cue and is excluded. This is what the sim
+    plays in at speed 1x. Returns 0.0 for an empty / None sequence."""
+    if not sequence:
+        return 0.0
+    rapid_mm_s = max(1.0, float(params.get("rapid_rate_mm_min",
+                                           DEFAULT_RAPID_RATE_MM_MIN)) / 60.0)
+    total = 0.0
+    for item in sequence:
+        kind = item[0]
+        if kind == "cut":
+            path = item[1]
+            feed = float(item[4]) if len(item) > 4 else DEFAULT_CUT_FEED_MM_MIN
+            mm_s = max(0.001, feed / 60.0)
+            for i in range(1, len(path)):
+                d = float(np.linalg.norm(np.asarray(path[i], dtype=float)
+                                         - np.asarray(path[i - 1], dtype=float)))
+                total += d / mm_s
+        elif kind == "rapid":
+            seg = item[1]
+            d = float(np.linalg.norm(np.asarray(seg[1], dtype=float)
+                                     - np.asarray(seg[0], dtype=float)))
+            total += d / rapid_mm_s
+    return total
 
 class SimulationController:
     def __init__(self, plotter, ui_manager, get_actors_callback):
@@ -131,12 +156,12 @@ class SimulationController:
                         # Interpolate segment. Rapids used to jump (5 mm steps, a
                         # fixed tiny sleep) so they were hard to follow between
                         # passes. Now: fine ~1 mm steps paced by the machine's real
-                        # rapid-traverse rate, capped so a long traverse won't drag.
+                        # rapid-traverse rate (no cap — the speed field handles it).
                         p1, p2 = data[0], data[1]
                         dist = float(np.linalg.norm(p2 - p1))
                         spd = max(0.01, self.speed_multiplier)
                         steps = max(1, int(dist / 1.0))
-                        total_t = min(dist / rapid_mm_s, RAPID_SIM_MAX_S)
+                        total_t = dist / rapid_mm_s
                         dt = (total_t / steps) / spd
 
                         vec = p2 - p1
@@ -157,7 +182,7 @@ class SimulationController:
                             self.current_tool_id = str(item[3])
                         # Real cutting feed (mm/min) attached by calculate_paths.
                         cut_feed = float(item[4]) if len(item) > 4 else DEFAULT_CUT_FEED_MM_MIN
-                        cut_mm_s = max(CUT_SIM_MIN_MM_PER_SEC, cut_feed / 60.0)
+                        cut_mm_s = max(0.001, cut_feed / 60.0)
 
                         cut_tilts = None
                         if tilts is not None and cut_counter < len(tilts):
