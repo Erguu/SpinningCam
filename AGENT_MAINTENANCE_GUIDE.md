@@ -133,7 +133,8 @@ Grep + `CODE_NAVIGATION.md` before starting any of these; some may already be ad
   relevant `TODO.md` item, and `CODE_NAVIGATION.md` if you moved/added a subsystem.
 - **Commit discipline:** never stage `settings.json`, `__pycache__`, `dist/`, `build/`, `*.pem`,
   `*.lic` (all gitignored except settings.json which is tracked but should stay unstaged).
-  End commit messages with the Co-Authored-By trailer.
+  End commit messages with the Co-Authored-By trailer. **Full policy (what ships vs. stays
+  local, and the tool-library clean-install invariant): see §8.**
 
 ---
 
@@ -155,3 +156,46 @@ Grep + `CODE_NAVIGATION.md` before starting any of these; some may already be ad
 - Toolpath math semantics that change existing programs' output, unless behind an opt-in flag.
 - `settings.json` on disk while the app is running.
 - Re-attempting VTK free-drag widgets (proven unstable) without a different interaction model.
+
+---
+
+## 8. Git & tool-library policy (what ships, what stays local)
+
+Single source of truth for "what to commit / what to leave out." `.gitignore` enforces the
+hard cases automatically; this section covers the judgment calls it cannot.
+
+### The clean-install invariant (do not break)
+A fresh `git clone` must be able to run. So **every STEP file a shipped `*.default.json` seed
+references must be TRACKED in git.** The tool library ships as a *baseline*: the tracked
+`tool_geometry/*.STEP` files + the tracked seeds (`tools.default.json`, `machines/*.default.json`)
+must always reference each other. `first_run_seed.py` copies a `*.default.json` seed → live file
+on first launch, so a seed that points at an untracked/missing STEP crashes first run.
+
+Enforced by `check_seed_step_consistency()` in `check_packaging.py` (also part of
+`python check_packaging.py`), and by the standalone `_test_seed_consistency.py`. Run it after any
+tool-library or seed change.
+
+### Always commit
+- All source code and its `_test_*.py` (tests are tracked — `_test_` is a test, not scratch).
+- Docs: `LAST_CHANGES.md`, `changelog.py`, `CODE_NAVIGATION.md`, `TODO.md`, this guide, specs.
+- The shipping tool baseline: tracked `tool_geometry/*.STEP` **and** the `*.default.json` seeds
+  that reference them — advanced *together*, never one without the other.
+
+### Never commit (default — even though some are git-tracked)
+- Secrets/artifacts: `*.pem`, `*.lic`, `__pycache__/`, `build/`, `dist/`, `*.log` (gitignored).
+- Per-user runtime state that collides on pull: `settings.json`, live `tools.json`,
+  live `machines/*.json` (gitignored; the `*.default.json` seeds ship instead).
+- Personal work products: root-level CAD (`/*.STEP`, `/*.stp`, `*.ssp` — gitignored).
+- **The user's local tool-library churn.** `tool_geometry/*.STEP` is *tracked*, so git surfaces
+  the user's local tool swaps (renames/deletes/adds) as pending. Do **NOT** push these by default
+  — the user manages their own tools and shares them via the app's zip Export/Import, not git.
+  Leave those deltas unstaged unless the user explicitly says "include my tools" (see below).
+- Scratch: `_diag_*.py`, `_research_*.py`, one-off `PROPOSAL_*.md` (unless the user asks to keep it).
+
+### "Include my tools" — advancing the shipping baseline (explicit opt-in only)
+When the user says to promote their current library to what ships, do it atomically in ONE commit:
+1. `git add tool_geometry/<new ids>.STEP` and stage any tracked-STEP deletions.
+2. Regenerate the seed so `tools.default.json` references exactly the STEPs you just staged
+   (ids, `step_file` paths, `r_tool`/radius, rotations).
+3. Run `_test_seed_consistency.py` — it must pass (proves the seed ⇄ STEP set is closed).
+4. Only then commit. Never ship a seed edit without its STEPs, or STEPs without updating the seed.

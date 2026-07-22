@@ -23,6 +23,7 @@ Exit code is 0 only when everything passes, so this is CI/pre-ship friendly.
 """
 
 import importlib
+import json
 import os
 import re
 import subprocess
@@ -57,6 +58,72 @@ def _shipped_names():
             for f in os.listdir(full):
                 names.add(f)
     return names
+
+
+def _git_tracked_files():
+    """Set of repo-relative paths (forward slashes) tracked by git, or None if git
+    or the repo is unavailable (e.g. running from a built exe)."""
+    try:
+        r = subprocess.run(["git", "ls-files"], cwd=ROOT,
+                           capture_output=True, text=True, timeout=30)
+        if r.returncode != 0:
+            return None
+        return {ln.strip().replace("\\", "/") for ln in r.stdout.splitlines() if ln.strip()}
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _iter_step_refs(seed_abs):
+    """Yield every STEP path referenced anywhere in a seed JSON (the `step_file`
+    field, or any string value ending in .step), normalized to forward slashes."""
+    try:
+        with open(seed_abs, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:  # noqa: BLE001
+        return
+    stack = [data]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, dict):
+            stack.extend(cur.values())
+        elif isinstance(cur, list):
+            stack.extend(cur)
+        elif isinstance(cur, str) and cur.lower().endswith(".step"):
+            yield cur.replace("\\", "/")
+
+
+def check_seed_step_consistency():
+    """Clean-install invariant (see AGENT_MAINTENANCE_GUIDE.md §8): every STEP a
+    shipped ``*.default.json`` seed references must be TRACKED in git, so a fresh
+    clone finds it — otherwise ``first_run_seed`` writes a live tools.json pointing
+    at a missing file and the app breaks on first launch. Returns (problems, warnings)."""
+    problems, warnings = [], []
+    tracked = _git_tracked_files()
+
+    if tracked is not None:
+        seeds = sorted(p for p in tracked if p.endswith(".default.json"))
+    else:
+        seeds = []
+        for dp, dn, fns in os.walk(ROOT):
+            dn[:] = [d for d in dn if d not in _SKIP_DIRS]
+            for f in fns:
+                if f.endswith(".default.json"):
+                    seeds.append(os.path.relpath(os.path.join(dp, f), ROOT).replace("\\", "/"))
+
+    for seed in seeds:
+        for step in _iter_step_refs(os.path.join(ROOT, seed)):
+            exists = os.path.exists(os.path.join(ROOT, step))
+            if tracked is not None:
+                if step not in tracked:
+                    why = "exists on disk but is NOT tracked" if exists else "is missing"
+                    problems.append(
+                        f"SEED '{seed}' references '{step}' which {why} in git — a clean clone "
+                        f"would break. Commit the STEP with the seed (see §8), or fix the reference.")
+            elif not exists:
+                problems.append(f"SEED '{seed}' references missing '{step}'")
+            else:
+                warnings.append(f"git unavailable — only checked '{step}' exists, not that it is tracked")
+    return problems, warnings
 
 
 def check_static():
@@ -95,6 +162,11 @@ def check_static():
         rel = os.path.relpath(src, ROOT)
         warnings.append(f"'{base}' is read in {rel} but is not in SHIP_NEXT_TO_EXE or "
                         f"NOT_SHIPPED — ship it or list it as excluded")
+
+    # 4. Clean-install invariant: shipped seeds must only reference tracked STEPs (§8).
+    seed_problems, seed_warnings = check_seed_step_consistency()
+    problems += seed_problems
+    warnings += seed_warnings
 
     return problems, warnings
 

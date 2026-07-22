@@ -5,6 +5,35 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-22 — GIT & TAKIM-KÜTÜPHANESİ POLİTİKASI (tek kaynak) + TEMİZ-KURULUM TUTARLILIK KONTROLÜ
+
+**İstek:** "Ne push edilir / ne göz ardı edilir" kuralları tek bir yerde yazılı olsun (benim
+oturum-hafızama bağlı DEĞİL) + takım kütüphanesi sürüklenmesini yakalayan bir tutarlılık kontrolü.
+Şu anki takım kütüphanem baseline'a TERFİ ETTİRİLMEYECEK (T01xx baseline'ı shiplenmeye devam).
+
+**Bulgu (grounding):** git `tool_geometry/T0101-T0103.STEP` + `tools.default.json`'u izliyor (seed bu
+3'ü referanslıyor) → temiz klon TUTARLI (kırılmaz), ama ESKİ takım setini kuruyor. Kullanıcı diskte
+T001-T005 kullanıyor (izlenmiyor). Landmine: seed ileride T001-T005'e işaret edip STEP'ler
+commit edilmezse temiz kurulum KIRILIR — bunu hiçbir şey engellemiyordu.
+
+**Yapılanlar:**
+- **Politika (tek kaynak):** `AGENT_MAINTENANCE_GUIDE.md` yeni **§8 "Git & tool-library policy"** —
+  temiz-kurulum invariant'ı (shipped `*.default.json` seed'in referansladığı her STEP git'te
+  İZLENMELİ), "her zaman commit / asla commit etme (varsayılan) / 'include my tools' opt-in"
+  listeleri. §5 commit-discipline maddesi §8'e işaret ediyor. Hafıza notu (feedback_push_hygiene)
+  artık §8'e yönlendiriyor (repo = kaynak, oturum-bağımsız).
+- **Tutarlılık kontrolü:** `check_packaging.py` → `check_seed_step_consistency()` (git ls-files ile
+  izlenen dosya seti; her seed'in `step_file`/`.STEP` referansları izleniyor mu?). `check_static`'e
+  4. adım olarak bağlandı (`python check_packaging.py` artık bunu zorluyor). Git yoksa exists-fallback.
+- **Test:** yeni izlenen `_test_seed_consistency.py`. BUGÜN GEÇER (T0101-3 izleniyor & referanslı).
+  Negatif doğrulama (throwaway, silindi): T0103'ü izlenmeyen taklit et → 1 problem yakalanıyor.
+
+**Doğrulama:** `_test_seed_consistency.py` PASS; `check_packaging.py` PASSED (static); negatif kontrol
+sürüklenmeyi yakaladı. Takım kütüphanesine/seed'e DOKUNULMADI (baseline aynı). Sadece dev/CI aracı,
+runtime davranışı DEĞİŞMEDİ.
+
+---
+
 ## 2026-07-22 — SİM HIZI SERBEST GİRİŞ ALANI + İŞLEM SÜRESİ GÖSTERİMİ
 
 **İstek:** Sim hız kaydırıcısı yerine istenildiği kadar artırıp azaltılabilen bir GİRİŞ ALANI;
