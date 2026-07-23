@@ -28,7 +28,26 @@ no i18n change. `LAST_CHANGES.md` stays detailed as our dev log. Verified: file
 imports, `entries_since` still selects the right versions. Zero engine risk.
 **Commit + GUI smoke (see the dialog on a version bump) PENDING.**
 
-### 88. Comparison PDF — self-documenting export (full parameters + rendered path plot)
+### 88. ✅ IMPLEMENTED 2026-07-23 (headless-verified; GUI smoke + commit PENDING) — Comparison PDF — self-documenting export
+
+**Done:** the path plot ALREADY existed (`SpinningCamPDF.add_path_diagram` — vector XZ
+diagram, general + close view, mandrel profile, colored per op; my earlier "text-only"
+note was wrong). Added the missing half: `add_op_parameters(params)` dumps EVERY key/
+value of EVERY operation (sorted → diffable) in a 2-col table, plus expanded the
+Geometry section into "Geometry & Process" (shell, safety gaps, mandrel offsets, clamp
+zone, conformal, straighten). Latin-1-safe formatter. `_test_pdf_export.py` PASS (valid
+PDF; decompressed streams contain the param dump + keys + op name + diagram). Detail →
+LAST_CHANGES 2026-07-23.
+
+**Follow-ups (user, same day):** (1) PDF param SELECTION — EXPORT-TIME dialog
+(`ui/dialogs/pdf_param_dialog.py`): on Export PDF a flat checkbox list of every param
+used by the program appears (Select All/None); the choice is remembered GLOBALLY
+(`params["pdf_param_selection"]`) so a repeat export is just OK. `export_pdf(...,
+param_selection=)` filters the dump (empty/None = all). i18n `pdfsel_*`. The first-tried
+Customize-View "PDF" column was REVERTED per the user's choice of a single place.
+(2) Dropped the path-diagram "General View" — only the close "Passes (XZ)" view remains.
+`_test_pdf_export.py` covers the flat selection. Still headless-only (the dialog itself
+needs a GUI smoke).
 
 **Why (user, 2026-07-23):** wants a PDF that shows the toolpaths (from a fixed,
 repeatable perspective) PLUS the full program parameters, so different parameter

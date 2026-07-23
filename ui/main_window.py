@@ -980,11 +980,32 @@ class SpinningCamWindow(tk.Tk):
             initialfile="SpinningCam_OperationSheet.pdf"
         )
         if path:
+            # #88 — export-time parameter picker. Flat union of every param used by
+            # the program's operations; the last choice is remembered globally
+            # (settings.json) so a repeat export is just OK. Cancel aborts.
+            from ui.dialogs.pdf_param_dialog import PdfParamDialog
+            _skip = {"pass_edits", "pass_overrides", "zones", "type", "name", "enabled"}
+            all_keys = sorted({k for op in self.app.params.get("operations", [])
+                               if isinstance(op, dict) and op.get("enabled", True)
+                               for k in op.keys() if k not in _skip})
+            selection = None
+            if all_keys:
+                dlg = PdfParamDialog(self, all_keys,
+                                     self.app.params.get("pdf_param_selection"))
+                if dlg.result is None:
+                    return   # user cancelled the export
+                selection = dlg.result
+                self.app.params["pdf_param_selection"] = selection
+                try:
+                    self.app.save_settings_json()
+                except Exception:
+                    pass
             paths = self.app.path_gen.last_calculated_paths
             success = ExportManager.export_pdf(self.app.params, paths, path, self.tool_library,
                                                mandrel_mgr=self.app.mandrel_mgr,
                                                tilt_angles=getattr(self.app.path_gen,
-                                                                   "last_tilt_angles", None))
+                                                                   "last_tilt_angles", None),
+                                               param_selection=selection)
             if success:
                 messagebox.showinfo(t("msg_export_complete_title"),
                                     t("msg_pdf_saved").format(os.path.basename(path)))

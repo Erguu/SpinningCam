@@ -48,7 +48,7 @@ class ExportManager:
 
     @staticmethod
     def export_pdf(params: dict, paths: list, filepath: str, tools: list = None, mandrel_mgr=None,
-                   tilt_angles: list = None) -> bool:
+                   tilt_angles: list = None, param_selection=None) -> bool:
         """
         Export an operation sheet PDF for shop floor use.
 
@@ -79,8 +79,8 @@ class ExportManager:
             pdf.cell(0, 6, f"Generated: {now}", ln=True)
             pdf.ln(5)
             
-            # Geometry Section
-            pdf.section_header("Geometry")
+            # Geometry & Process Section
+            pdf.section_header("Geometry & Process")
             pdf.info_row("Blank Radius", f"{params.get('blank_radius', 0):.1f} mm")
             pdf.info_row("Part Thickness", f"{params.get('final_part_thickness_on_mandrel', 0):.1f} mm")
             pdf.ln(3)
@@ -112,6 +112,11 @@ class ExportManager:
                 pdf.cell(0, 5, f"{pass_desc}  |  Tool: {tool_id}  |  Rr: {r_tool:.1f} mm", ln=True)
 
             pdf.ln(3)
+
+            # Full per-op parameter dump (#88): every key/value, sorted, so two
+            # exported PDFs can be diffed to compare parameter sets. The flat
+            # param_selection (from the export-time dialog) narrows it.
+            pdf.add_op_parameters(params, param_selection)
 
             # Path Summary
             pdf.section_header("Path Summary")
@@ -147,58 +152,10 @@ class ExportManager:
                     pdf.info_row(f"Pass {pi + 1}", f"B {b0:8.2f} deg  ->  {b1:8.2f} deg")
                 pdf.ln(3)
 
-            # Machine Settings
-            pdf.section_header("Machine Settings")
-            pdf.info_row("Program Start X", f"{params.get('home_x', 300):.1f} mm")
-            pdf.info_row("Program Start Z", f"{params.get('home_z', 150):.1f} mm")
-            pdf.info_row("Retract X", f"{params.get('retract_x', 50):.1f} mm (rel)")
-            pdf.info_row("Retract Z", f"{params.get('retract_z', 50):.1f} mm (rel)")
-            pdf.info_row("Invert X", "Yes" if params.get("machine_invert_x", False) else "No")
-            pdf.ln(3)
+            # (Machine Settings / Calibration / G-Code Templates sections removed
+            # 2026-07-23 per user — retract is per-operation now, and those globals
+            # aren't wanted on the sheet.)
 
-            # Calibration
-            pdf.section_header("Calibration")
-            cal = params.get("calibration_last_session", {})
-            if cal:
-                saved_at = cal.get("saved_at", "")
-                if saved_at:
-                    pdf.info_row("Calibrated", saved_at)
-                tz = cal.get("entry_z", "")
-                tx = cal.get("entry_x", "")
-                if tx and tz:
-                    pdf.info_row("Touch Point (Machine)", f"X = {tx} mm   Z = {tz} mm")
-                surface = cal.get("surface", "")
-                if surface:
-                    pdf.info_row("Touch Surface", surface.capitalize())
-                tool_var = cal.get("tool_var", "")
-                r_t = cal.get("entry_rt", "")
-                if tool_var:
-                    val = tool_var
-                    if r_t:
-                        val += f"   Rr = {r_t} mm"
-                    pdf.info_row("Tool at Calibration", val)
-                zref = cal.get("zref", "")
-                cam_z = cal.get("entry_cam_z", "")
-                if zref:
-                    pdf.info_row("Z Reference", zref.replace("_", " "))
-                if cam_z:
-                    pdf.info_row("CAM Z at Touch", f"{cam_z} mm")
-            else:
-                pdf.set_font("Helvetica", "I", 9)
-                pdf.set_text_color(120, 120, 120)
-                pdf.cell(0, 5, "No calibration data recorded.", ln=True)
-                pdf.set_text_color(0, 0, 0)
-            pdf.ln(3)
-            
-            # G-Code Header/Footer
-            pdf.section_header("G-Code Templates")
-            pdf.set_font("Courier", "", 8)
-            header = params.get("gcode_header", "")
-            footer = params.get("gcode_footer", "")
-            pdf.multi_cell(0, 4, f"Header:\n{header}")
-            pdf.ln(2)
-            pdf.multi_cell(0, 4, f"Footer:\n{footer}")
-            
             # 2D Path Diagram
             if paths and any(len(p) >= 2 for p in paths):
                 pdf.add_page()
@@ -428,6 +385,62 @@ class SpinningCamPDF(FPDF):
         self.set_font("Helvetica", "B", 9)
         self.cell(0, 5, value, ln=True)
 
+    @staticmethod
+    def _fmt_val(v):
+        """Compact, latin-1-safe string for a parameter value (core PDF fonts are
+        latin-1 only, so any stray unicode is replaced rather than crashing)."""
+        if isinstance(v, bool):
+            s = "yes" if v else "no"
+        elif isinstance(v, float):
+            s = f"{v:g}"
+        elif isinstance(v, (list, dict)):
+            s = f"<{type(v).__name__}:{len(v)}>"
+        else:
+            s = str(v)
+        if len(s) > 24:
+            s = s[:23] + "~"
+        return s.encode("latin-1", "replace").decode("latin-1")
+
+    def add_op_parameters(self, params: dict, param_selection=None):
+        """Full per-operation parameter dump — every key/value of every operation,
+        keys sorted for stable diffing so two exported PDFs can be compared
+        side-by-side to see exactly what changed between parameter sets (#88).
+
+        ``param_selection`` (a set/list of keys) limits the dump to those keys —
+        the flat selection chosen in the export-time dialog. None or empty means
+        show everything (the default / first-run behavior)."""
+        ops = params.get("operations", []) or []
+        if not ops:
+            return
+        self.section_header("Operation Parameters")
+        # Bulky/derived keys that add noise rather than comparison value.
+        _skip = {"pass_edits", "pass_overrides", "zones", "type", "name", "enabled"}
+        sel = set(param_selection) if param_selection else None
+        avail = self.w - self.l_margin - self.r_margin
+        col_w = avail / 2.0
+        for i, op in enumerate(ops):
+            if not isinstance(op, dict):
+                continue
+            title = f"{i + 1}. {str(op.get('type', '?')).capitalize()}"
+            nm = op.get("name")
+            if nm:
+                title += f'  "{self._fmt_val(nm)}"'
+            if not op.get("enabled", True):
+                title += "  [DISABLED]"
+            self.ln(1)
+            self.set_font("Helvetica", "B", 9)
+            self.set_text_color(30, 30, 30)
+            self.cell(0, 5, title.encode("latin-1", "replace").decode("latin-1"), ln=True)
+            self.set_font("Courier", "", 7)
+            self.set_text_color(0, 0, 0)
+            items = [f"{k}: {self._fmt_val(op[k])}"
+                     for k in sorted(op.keys())
+                     if k not in _skip and (sel is None or k in sel)]
+            for j in range(0, len(items), 2):
+                self.cell(col_w, 4, items[j])
+                self.cell(col_w, 4, items[j + 1] if j + 1 < len(items) else "", ln=True)
+        self.ln(2)
+
     def _draw_diagram(self, title: str, valid_paths: list, x_min_data: float, x_max_data: float,
                       z_min_data: float, z_max_data: float, draw_h: float,
                       center_x: float, mandrel_mgr, pad_factor: float = 0.06,
@@ -565,29 +578,13 @@ class SpinningCamPDF(FPDF):
         px_min, px_max = float(xs.min()), float(xs.max())
         pz_min, pz_max = float(zs.min()), float(zs.max())
 
-        # General view: start from mandrel axis, include full mandrel Z range
-        gx_min = center_x
-        gx_max = px_max
-        gz_min, gz_max = pz_min, pz_max
-        if mandrel_mgr is not None and mandrel_mgr.profile_z is not None and len(mandrel_mgr.profile_z) > 1:
-            gx_max = max(gx_max, center_x + float(mandrel_mgr.profile_r.max()))
-            gz_min = min(gz_min, float(mandrel_mgr.profile_z.min()))
-            gz_max = max(gz_max, float(mandrel_mgr.profile_z.max()))
+        draw_h = 110.0
 
-        draw_h = 85.0
-
-        # --- General view ---
+        # Close view (passes only). The old "General View" (full mandrel) was
+        # dropped (user 2026-07-23) — the passes view is the useful one; it gets
+        # the extra height freed up.
         self._draw_diagram(
-            "General View", valid_paths,
-            gx_min, gx_max, gz_min, gz_max,
-            draw_h, center_x, mandrel_mgr,
-            path_colors=path_colors,
-        )
-        self.ln(12)
-
-        # --- Close view (passes only) ---
-        self._draw_diagram(
-            "Close View - Passes", valid_paths,
+            "Passes (XZ)", valid_paths,
             px_min, px_max, pz_min, pz_max,
             draw_h, center_x, mandrel_mgr,
             path_colors=path_colors,

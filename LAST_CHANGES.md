@@ -5,7 +5,43 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
-## 2026-07-23 — SAF OPERASYON-BAŞINA PAS GERİ ÇEKİLMESİ (genel retract kaldırıldı) + BAŞLANGIÇ CHANGELOG SADELEŞTİRME
+## 2026-07-23 — KENDİNİ BELGELEYEN PDF (tam parametre dökümü) — #88
+
+**İstek:** PDF export'una (yolları aynı perspektiften gösteriyor) TAM parametreler de
+eklensin ki farklı program parametre setleri karşılaştırılabilsin.
+
+**Bulgu:** 2D yol diyagramı PDF'te ZATEN vardı (`SpinningCamPDF.add_path_diagram` — vektör
+XZ, genel + yakın görünüm, mandrel profili, op-başına renk). Eksik olan tam parametre dökümüydü.
+
+**Yapılanlar (`export_manager.py`):**
+- `SpinningCamPDF.add_op_parameters(params)` — HER operasyonun HER anahtar/değerini (sıralı →
+  iki PDF yan yana diff'lenebilir) 2 sütunlu tabloda döker. `_fmt_val` latin-1 güvenli
+  (çekirdek PDF fontları latin-1; bool→yes/no, float→%g, list/dict→`<tip:n>`, 24 kırpma).
+- "Geometry" bölümü "Geometry & Process" oldu: shell, min safety gap, safety standoff,
+  mandrel X/Z offset, clamp zone, conformal (all ops), straighten start fillet eklendi.
+- `export_pdf` akışına `add_op_parameters(params)` çağrısı (operasyon özetinden sonra).
+- Test: `_test_pdf_export.py` — geçerli PDF üretir (4895 B); sıkıştırılmış stream'ler
+  çözülünce "Operation Parameters", param anahtarları, op adı, "2D Path Diagram" İÇERİR. GEÇTİ.
+
+**Risk:** düşük (yalnızca export; yol/G-code etkilenmez). **GUI smoke + commit BEKLİYOR.**
+
+**Ek (kullanıcı isteği, aynı gün):**
+- PDF param seçimi — DIŞA AKTARIM ANINDA pencere (kullanıcı kararı: Özelleştir sütunu DEĞİL).
+  Yeni `ui/dialogs/pdf_param_dialog.py` `PdfParamDialog` — programın operasyonlarında geçen
+  TÜM param'ların düz onay listesi (union), Tümünü Seç/Hiçbiri, son seçim GLOBAL hatırlanır
+  (`params["pdf_param_selection"]` → settings.json). `main_window.export_pdf_action` dosya
+  seçildikten sonra pencereyi açar (İptal = export iptal), seçimi kaydeder ve
+  `export_pdf(..., param_selection=...)` geçirir. `add_op_parameters(params, param_selection)`
+  düz sete göre filtreler (boş/None = hepsi → ilk çalıştırma davranışı). i18n `pdfsel_*` EN/TR/ES.
+  (İlk denenen Görünümü Özelleştir "PDF" sütunu bu karar üzerine GERİ ALINDI.)
+- 2D yol diyagramı "General View" KALDIRILDI (kullanıcı isteği) — sadece "Passes (XZ)"
+  yakın görünüm kaldı, boşalan yer ona verildi (draw_h 85→110).
+- PDF SADELEŞTİRME (kullanıcı isteği): "Geometry & Process" yalnız Blank Radius + Part
+  Thickness'e indirildi (önceki genişletme geri alındı); "Machine Settings" (retract artık
+  op-başına → yanıltıcıydı), "Calibration" ve "G-Code Templates" bölümleri TAMAMEN kaldırıldı.
+  Doğrulama: bölümler PDF'te yok, Blank Radius/Part Thickness/Operation Parameters/diyagram var.
+- Test: `_test_pdf_export.py` — düz seçim filtresi (param_selection=["start_z","end_z"] →
+  start_z var, p1_x/pass_shape yok) + geçerli PDF. GEÇTİ. (genel retract kaldırıldı) + BAŞLANGIÇ CHANGELOG SADELEŞTİRME
 
 **İstek:** (#87) Açılıştaki changelog metni çok uzun/teknik — birkaç sade cümleye indir.
 (#90) Makine sekmesindeki genel pas geri-çekilme değerleri (retract_x/retract_z) artık
