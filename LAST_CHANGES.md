@@ -5,6 +5,45 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-23 — SAF OPERASYON-BAŞINA PAS GERİ ÇEKİLMESİ (genel retract kaldırıldı) + BAŞLANGIÇ CHANGELOG SADELEŞTİRME
+
+**İstek:** (#87) Açılıştaki changelog metni çok uzun/teknik — birkaç sade cümleye indir.
+(#90) Makine sekmesindeki genel pas geri-çekilme değerleri (retract_x/retract_z) artık
+operasyon başına ayrı ayrı tanımlanabilsin.
+
+**#87 — changelog sadeleştirme (`changelog.py`):** her sürüm 2–4 kısa, operatör-odaklı
+maddeye indirildi (1.009: 8→3). Özellik atılmadı, sadece kısaltıldı. Yalnızca İngilizce
+(changelog hiç çevrilmemişti). Commit `f4f6693`.
+
+**#90 — SAF OPERASYON-BAŞINA pas geri çekilmesi (genel değer KALDIRILDI — kullanıcı kararı):**
+Kullanıcı "genel bir pas geri çekilmesi olmasın, her operasyon kendi değerini taşısın" dedi.
+Önce override modeli (genel + op override) yapıldı, sonra SAF per-op'a çevrildi:
+- Çözücü `resolve_pass_retract(op, params)` (`path_generator.py`) — op'ın `retract_x`/`retract_z`'sini
+  döndürür; yoksa eski genel / 50 mm'ye düşer (HAM döner; sim abs() uygular, G-code olduğu gibi).
+- Sim (`calculate_paths`): `op_retract_x_can`/`op_retract_z` op döngüsünün BAŞINDA hesaplanır →
+  HER tip (kaba, bitirme, KESME, BÜKME) kendi değerini kullanır. Kesme/bükme yaklaşım (~438) +
+  geri çekilme (~456); şekillendirme (~991) + geri pas (~985). Eski genel `retract_x_can`/
+  `retract_z_offset` değişkenleri KALDIRILDI (artık ölü).
+- G-code (`generate_gcode`): ileri (~2386) + geri pas (~2434) geri-çekilmesi çözücüyü çağırır;
+  başlık notu "(Retract: per operation)" oldu.
+- Taşıma: `config_schema.migrate_pass_retract(params)` (migrate_clearance yanında) — her op'a
+  eski GENEL değerden `retract_x`/`retract_z` damgalar (idempotent); `main.py load_project`'te
+  çağrılır → mevcut programlar AYNEN eski geri çekilmesini korur.
+- UI: `retract_x`/`retract_z` DÖRT tipin de universe'üne eklendi; editörde kaba/bitirme (proj sonrası)
+  ve kesme/bükme (plunge sonrası) alanları; varsayılan ipucu 50; `_factory_op` iki sözlüğüne 50/50
+  eklendi (yeni op'lar açıkça taşır). Makine sekmesindeki GENEL retract spinbox'ları KALDIRILDI.
+- i18n `lbl_op_retract_x`/`lbl_op_retract_z` EN/TR/ES; help_window EN+TR notu per-op olarak yeniden yazıldı.
+- Test: `_test_pass_retract.py` — çözücü + taşıma + uçtan uca sim/G-code (override yok=50 → 169;
+  retract_x=15 → 134). GEÇTİ. Mevcut motor testleri (_test_reverse_linear/reach/progressive_reach/
+  straight_line_flatness/batch) REGRESYON YOK. (`_test_program_tab_toolbar.py` ÖNCEDEN bozuk:
+  `btn_batch` toolbar sadeleştirmesinde kaldırılmıştı — bu değişiklikle ilgisiz.)
+
+**Geriye uyumluluk:** `migrate_pass_retract` + çözücü fallback → mevcut programlar eski davranışı
+bit-bazında korur. `retract_x`/`retract_z` hâlâ MACHINE_PROFILE_KEYS'te (taşıma tohumu olarak;
+UI'sı yok, zararsız kalıntı). **GUI smoke + FİZİKSEL doğrulama BEKLİYOR; commit BEKLİYOR.**
+
+---
+
 ## 2026-07-22 — OPERASYON SÜRÜKLE-BIRAK SIRALAMA + "# KONUMUNA TAŞI" + SEÇİM PERF DÜZELTMESİ (~10×) + BÜKÜLMÜŞ SAC KAPLAMA AÇ/KAPAT
 
 **İstek:** (1) Program sekmesinde operasyonları Yukarı/Aşağı ile tek tek taşımak yavaş —

@@ -125,6 +125,30 @@ def resolve_tool_change_point(op, prev_end, home_pt, center_x=None, side=1.0):
     return np.array([home_pt[0], home_pt[1], home_pt[2]])
 
 
+def resolve_pass_retract(op, params):
+    """Per-op pass-retract offsets ``(retract_x, retract_z)`` — #90.
+
+    Falls back to the GLOBAL machine retract (``params["retract_x/z"]``) when the
+    op carries no override, so operations without the keys behave exactly as
+    before. Scope is pass-retract only: the forming-pass retract and its back
+    pass honor this; cutting/bending keep using the global (handled separately).
+
+    Returned RAW (unsigned): the 3D sim applies ``abs()`` for its canonical
+    positive-X frame exactly as it does for the global value, while the G-code
+    emitter uses the values as-is — so BOTH sites keep their existing arithmetic
+    and only the SOURCE of the number changes.
+    """
+    def _pick(k):
+        v = op.get(k, None)
+        try:
+            if v not in (None, ""):
+                return float(v)
+        except (TypeError, ValueError):
+            pass
+        return float(params.get(k, 50.0))
+    return _pick("retract_x"), _pick("retract_z")
+
+
 class PathGenerator:
     def __init__(self):
         self.last_calculated_paths = []
@@ -250,15 +274,13 @@ class PathGenerator:
         # Rapids Simulation Params (Match generate_gcode defaults)
         home_x = params.get("home_x", 300.0)
         home_z = params.get("home_z", 150.0)
-        # [NEW] Pass Retract Offset (Relative)
-        retract_x_offset = float(params.get("retract_x", 50.0))
-        retract_z_offset = float(params.get("retract_z", 50.0))
+        # Pass retract is now PER-OP (#90): resolved per operation inside the loop
+        # via resolve_pass_retract (op_retract_x_can / op_retract_z).
 
         # Roller approach side: +1 = positive X (default), -1 = negative X (roller below/behind mandrel)
         # Generation always happens in canonical (positive X) frame; mirrored at the end if side==-1.
         side = 1.0 if params.get("roller_positive_x_side", True) else -1.0
         home_x_can = center_x + abs(home_x - center_x)   # canonical safe home X (positive)
-        retract_x_can = abs(retract_x_offset)              # canonical retract offset (positive)
 
         # Convert visual_roller_pos to canonical coords if on negative side
         if visual_roller_pos is not None and side == -1:
@@ -306,6 +328,12 @@ class PathGenerator:
             count = int(op.get("count", 1))
             is_finish = (op.get("type") == "finishing")
             r_tool = float(op.get("r_tool", 25.0))
+            # Per-op pass retract (#90, pure per-op): EVERY op type (roughing,
+            # finishing, cutting, bending) carries its own retract_x/retract_z;
+            # resolve_pass_retract falls back to the legacy global / 50 mm for any
+            # un-migrated op. abs() keeps X in the canonical positive frame.
+            op_retract_x_raw, op_retract_z = resolve_pass_retract(op, params)
+            op_retract_x_can = abs(op_retract_x_raw)
             # Unified clearance = gap between the roller contact and the blank surface.
             # Single source of truth for EVERY pass type (roughing & finishing alike), so
             # the same value always yields the same contact standoff. Legacy recipes (no
@@ -405,7 +433,7 @@ class PathGenerator:
             if op_type_str in ("cutting", "bending"):
                 z_pos          = float(op.get("z_pos", 0.0))
                 plunge_x_global  = float(op.get("plunge_x", center_x + 50.0))
-                approach_x_global = plunge_x_global + retract_x_can
+                approach_x_global = plunge_x_global + op_retract_x_can
 
                 prev_paths_len = len(toolpaths)
                 path = np.array([[approach_x_global, 0.0, z_pos],
@@ -423,7 +451,7 @@ class PathGenerator:
                         sequence.append(("rapid", seg))
                     sequence.append(("cut", path, r_tool, op_tool_id,
                                      representative_feed_mm_min(op, path, params, center_x)))
-                    retract_pt = np.array([end_pt[0] + retract_x_can, 0, end_pt[2] + retract_z_offset])
+                    retract_pt = np.array([end_pt[0] + op_retract_x_can, 0, end_pt[2] + op_retract_z])
                     r_seg2 = np.array([end_pt, retract_pt])
                     rapids.append(r_seg2)
                     sequence.append(("rapid", r_seg2))
@@ -952,13 +980,13 @@ class PathGenerator:
                             sequence.append(("cut", bck_path, r_tool, op_tool_id,
                                              representative_feed_mm_min({**op, "feed": bck_feed},
                                                                         bck_path, params, center_x)))
-                            bp_ret = np.array([bp_e[0] + retract_x_can, 0, bp_e[2] + retract_z_offset])
+                            bp_ret = np.array([bp_e[0] + op_retract_x_can, 0, bp_e[2] + op_retract_z])
                             rapids.append(np.array([bp_e, bp_ret]))
                             sequence.append(("rapid", np.array([bp_e, bp_ret])))
                             current_pt = bp_ret
                         else:
                             # No back pass: retract after the forward pass as usual.
-                            retract_pt = np.array([end_pt[0] + retract_x_can, 0, end_pt[2] + retract_z_offset])
+                            retract_pt = np.array([end_pt[0] + op_retract_x_can, 0, end_pt[2] + op_retract_z])
                             r_seg2 = np.array([end_pt, retract_pt])
                             rapids.append(r_seg2)
                             sequence.append(("rapid", r_seg2))
@@ -2135,7 +2163,7 @@ class PathGenerator:
             f"(Output Mode: {'DIAMETER' if dia_mode else 'RADIUS'})",
             f"(G54 Offset: X={off_x}, Z={off_z})",
             f"(Program Start: X={params.get('home_x', 300.0)}, Z={params.get('home_z', 150.0)}) (PLC handles actual homing)",
-            f"(Retract: X={params.get('retract_x', 50.0)}, Z={params.get('retract_z', 50.0)})",
+            "(Retract: per operation)",
             "(--- PARCA / BLANK ---)",
             f"(Blank Radius: {params.get('blank_radius', 0.0)} mm)",
             f"(Blank Z Shift: {params.get('blank_z_shift', 0.0)} mm)",
@@ -2351,8 +2379,7 @@ class PathGenerator:
                 _back_follows = (global_path_idx + 1) in _bp_meta
                 if len(path) > 0 and not _back_follows:
                     last_pt = path[-1]
-                    ret_x_off = float(params.get("retract_x", 50.0))
-                    ret_z_off = float(params.get("retract_z", 50.0))
+                    ret_x_off, ret_z_off = resolve_pass_retract(op, params)  # #90 per-op
 
                     raw_ret_x = last_pt[0] + ret_x_off
                     raw_ret_z = last_pt[2] + ret_z_off
@@ -2403,8 +2430,9 @@ class PathGenerator:
                         gcode.append(f"G1 X{tx:.3f} Z{tz:.3f}{_b_word(bp_tilts, _bpi)}{f_suffix} (Op{op_idx+1} BP{i+1})")
                     if len(bp_path) > 0:
                         bl = bp_path[-1]
-                        rx, rz = transform_pt([bl[0] + float(params.get("retract_x", 50.0)), 0,
-                                               bl[2] + float(params.get("retract_z", 50.0))])
+                        _bp_rx_off, _bp_rz_off = resolve_pass_retract(op, params)  # #90 per-op
+                        rx, rz = transform_pt([bl[0] + _bp_rx_off, 0,
+                                               bl[2] + _bp_rz_off])
                         gcode.append(f"G0 X{rx:.3f} Z{rz:.3f} (Retract Op{op_idx+1} BP{i+1})")
                     gcode.append("")
                     global_path_idx += 1

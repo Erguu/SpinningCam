@@ -822,6 +822,8 @@ STRINGS = {
     "lbl_p2z_extend":       {"EN": "P2 Z Extend",                   "TR": "P2 Z Uzatma",               "ES": "Extensión Z de P2"},
     "lbl_proj_bottom":      {"EN": "Proj Extend Bottom",            "TR": "Proj Alt Uzatma",            "ES": "Extensión Inf. de Proj."},
     "lbl_proj_top":         {"EN": "Proj Extend Top",               "TR": "Proj Üst Uzatma",            "ES": "Extensión Sup. de Proj."},
+    "lbl_op_retract_x":     {"EN": "Retract X (mm)",                "TR": "Geri Çekilme X (mm)",        "ES": "Retroceso X (mm)"},
+    "lbl_op_retract_z":     {"EN": "Retract Z (mm)",                "TR": "Geri Çekilme Z (mm)",        "ES": "Retroceso Z (mm)"},
     "lbl_path_shape_hdr":   {"EN": "Path Shape  (P1 entry → P2 contact → P3 exit)",
                              "TR": "Yol Şekli  (P1 giriş → P2 temas → P3 çıkış)",
                              "ES": "Forma de Trayectoria  (P1 entrada → P2 contacto → P3 salida)"},

@@ -1930,8 +1930,9 @@ class SpinningApp:
                     if "op_view_config" not in loaded_params:
                         self.params.pop("op_view_config", None)
                     try:
-                        from config_schema import migrate_clearance
+                        from config_schema import migrate_clearance, migrate_pass_retract
                         migrate_clearance(self.params)
+                        migrate_pass_retract(self.params)   # #90 pure per-op retract
                     except Exception:
                         pass
                     # Check overrides format

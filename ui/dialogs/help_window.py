@@ -896,6 +896,19 @@ only; the toolpath is never changed. Move the point further OUT in
 X, clear of the blank in Z, or turn Simultaneous XZ off to clear it.
 
 
+PASS RETRACT (per operation)
+════════════════════════════════════════════════════════════════
+After each pass the roller retracts by an X/Z offset before the next
+move. This is set PER OPERATION — every operation (roughing,
+finishing, cutting, bending) has its own Retract X / Retract Z field.
+There is no global retract any more: each operation owns its value,
+so different operations can retract differently. New operations
+default to 50 mm; leaving a field empty also means 50 mm. Existing
+programs are migrated automatically, so every operation keeps the
+retract it had before. The 3D simulation and the exported G-code use
+the same value, so what you see is what the machine runs.
+
+
 CALCULATE
 ════════════════════════════════════════════════════════════════
 After any change to operations or parameters, press Calculate to
@@ -1375,6 +1388,19 @@ geometrik radyal bir kontroldür — taretteki DİĞER takımların tam
 bol boşluk bırakın. Uyarı yalnızca tavsiyedir; takım yolu değişmez.
 Gidermek için noktayı X'te daha DIŞARI, Z'de taslaktan uzağa taşıyın
 veya Eşzamanlı XZ'yi kapatın.
+
+
+PAS GERİ ÇEKİLMESİ (operasyon başına)
+════════════════════════════════════════════════════════════════
+Her pastan sonra rulo, bir sonraki harekete geçmeden önce bir X/Z
+ofseti kadar geri çekilir. Bu, OPERASYON BAŞINA ayarlanır — her
+operasyonun (kaba, bitirme, kesme, bükme) kendi Geri Çekilme X /
+Geri Çekilme Z alanı vardır. Artık genel bir geri çekilme değeri
+YOKTUR: her operasyon kendi değerini taşır, böylece farklı
+operasyonlar farklı geri çekilebilir. Yeni operasyonlar varsayılan
+50 mm'dir; alanı boş bırakmak da 50 mm demektir. Mevcut programlar
+otomatik taşınır, böylece her operasyon önceki geri çekilme değerini
+korur. 3D simülasyon ile dışa aktarılan G-code aynı değeri kullanır.
 
 
 HESAPLA

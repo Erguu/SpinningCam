@@ -126,7 +126,21 @@ Deliberately NOT the reverted 3D sphere-widget drag (#61 — VTK never stabilize
 `progressive_angle` (grow the exit stroke per pass) — Phase 1 should REUSE that
 machinery rather than add a parallel system.
 
-### 90. Per-operation pass-retract override (replaces the closed-out #3 slot)
+### 90. ✅ IMPLEMENTED 2026-07-23 (headless-verified; GUI smoke + physical + commit PENDING) — PURE per-operation pass retract (global removed)
+
+**Done (user decision: pure per-op, NO global):** every op type (roughing, finishing,
+cutting, bending) carries its own `retract_x`/`retract_z`. Pure `resolve_pass_retract(op,
+params)` returns the op value, else legacy global / 50 mm (RAW; sim abs()es, G-code
+uses as-is). Wired at the forming-pass + back-pass retract AND the cutting/bending
+approach+retract in BOTH `calculate_paths` and `generate_gcode`; old global
+`retract_x_can`/`retract_z_offset` vars removed. `config_schema.migrate_pass_retract`
+stamps every op from the legacy global on load (`main.py load_project`) → existing
+programs unchanged. `_factory_op` seeds new ops 50/50. Machine-tab global retract UI
+REMOVED. Universe/labels/editor for all 4 types, i18n EN/TR/ES, help EN+TR rewritten.
+`_test_pass_retract.py` PASS (resolver + migration + e2e sim/G-code parity: no value =
+50 → 169, override 15 → 134). No regression in existing engine suites. Note:
+`retract_x`/`retract_z` kept in MACHINE_PROFILE_KEYS as a vestigial migration seed (no
+UI). Detail → LAST_CHANGES 2026-07-23.
 
 **Why (user, 2026-07-23):** Machine settings have GLOBAL pass-retract offsets
 (`retract_x` / `retract_z`, Machine tab). The user wants to set them **per

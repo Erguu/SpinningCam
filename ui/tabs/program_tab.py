@@ -85,6 +85,7 @@ OP_PARAM_UNIVERSE = {
         "name", "tool_id", "count", "direction",
         "tilt_mode", "tilt_start", "tilt_end", "tilt_offset",
         "start_z", "end_z", "p2_z_extend", "proj_extend_bottom", "proj_extend_top",
+        "retract_x", "retract_z",
         "pass_shape", "p2_radius", "exit_arc_angle", "exit_bow", "exit_bow_bias",
         "exit_bow_trim", "exit_mid_rotation",
         "exit_mid_t", "conformal_clearance_operation_specific",
@@ -101,10 +102,11 @@ OP_PARAM_UNIVERSE = {
         "name", "tool_id", "count", "direction",
         "tilt_mode", "tilt_start", "tilt_end", "tilt_offset",
         "start_z", "end_z", "proj_extend_bottom", "proj_extend_top",
+        "retract_x", "retract_z",
         "clearance", "pass_shape", "straight_line_mode",
     ],
-    "cutting":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + ["name", "tool_id", "z_pos", "plunge_x"],
-    "bending":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + ["name", "tool_id", "z_pos", "plunge_x"],
+    "cutting":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + ["name", "tool_id", "z_pos", "plunge_x", "retract_x", "retract_z"],
+    "bending":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + ["name", "tool_id", "z_pos", "plunge_x", "retract_x", "retract_z"],
 }
 
 # Tilt fields only exist on tilt-arm machines; filtered out otherwise.
@@ -125,6 +127,7 @@ OP_PARAM_LABELS = {
     "start_z": "lbl_zone_start", "end_z": "lbl_zone_end",
     "p2_z_extend": "lbl_p2z_extend",
     "proj_extend_bottom": "lbl_proj_bottom", "proj_extend_top": "lbl_proj_top",
+    "retract_x": "lbl_op_retract_x", "retract_z": "lbl_op_retract_z",
     "z_pos": "lbl_z_pos", "plunge_x": "lbl_plunge_x",
     "clearance": "lbl_clearance", "pass_shape": "lbl_shape_mode",
     "straight_line_mode": "lbl_straight_line",
@@ -1928,6 +1931,15 @@ class ProgramTab:
                                  tooltip="Takımın plunge yapacağı hedef X koordinatı (mm, global koordinat). "
                                          "Mandrel merkezinden itibaren radyal mesafe. "
                                          "Takım bu X'e kadar besleme hızında ilerler.")
+            # Per-op pass retract (#90): cutting/bending own their retract too.
+            self._add_prop_entry(idx, "retract_x", t("lbl_op_retract_x"), op, is_float=True,
+                                 default_hint=50.0,
+                                 tooltip="Bu operasyonun geri çekilme / yaklaşım X ofseti (mm). "
+                                         "Yaklaşım bu kadar dışarıdan başlar ve plunge sonrası "
+                                         "bu kadar geri çekilir.")
+            self._add_prop_entry(idx, "retract_z", t("lbl_op_retract_z"), op, is_float=True,
+                                 default_hint=50.0,
+                                 tooltip="Bu operasyonun geri çekilme Z ofseti (mm).")
             self._apply_field_visibility(op_type)
             self._apply_label_highlights(op_type)   # #84
             return
@@ -2163,6 +2175,17 @@ class ProgramTab:
         self._add_prop_entry(idx, "proj_extend_top", t("lbl_proj_top"), op, is_float=True,
                              tooltip="Turkuaz projeksiyon çizgisini mandrel üst sınırının kaç mm üstüne uzat. "
                                      "Lineer şekillerde pozitif değer gir, küresel şekillerde 0 bırak.")
+
+        # Per-op pass retract (#90, pure per-op): each operation carries its own
+        # retract; there is no global value. Empty falls back to 50 mm.
+        self._add_prop_entry(idx, "retract_x", t("lbl_op_retract_x"), op, is_float=True,
+                             default_hint=50.0,
+                             tooltip="Bu operasyonun pas geri çekilmesi için X ofseti (mm). "
+                                     "Her şekillendirme pası (ve geri pası) sonrası rulo bu kadar "
+                                     "dışarı çekilir. Boş = 50 mm.")
+        self._add_prop_entry(idx, "retract_z", t("lbl_op_retract_z"), op, is_float=True,
+                             default_hint=50.0,
+                             tooltip="Bu operasyonun pas geri çekilmesi için Z ofseti (mm). Boş = 50 mm.")
 
         if op_type == "roughing":
             _hdr = self._add_section_header("path_shape", t("lbl_path_shape_hdr"))
@@ -4370,6 +4393,7 @@ class ProgramTab:
                 "r_tool": 0.0,
                 "z_pos": 0.0,
                 "plunge_x": 50.0,
+                "retract_x": 50.0, "retract_z": 50.0,   # #90 per-op retract
                 "feed": 50.0, "feed_mode": "mm_min",
                 "speed": 300.0, "speed_mode": "RPM",
             }
@@ -4411,6 +4435,7 @@ class ProgramTab:
             "step": 1.0,
             "clearance": 0.0,
             "rot": def_rot,
+            "retract_x": 50.0, "retract_z": 50.0,   # #90 per-op retract
             "feed": 100.0, "speed": 500.0,
             "pass_shape": "spline",
         }

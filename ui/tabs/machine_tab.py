@@ -239,10 +239,9 @@ class MachineTab(ScrollableTabBase):
                  font=("Arial", 8, "italic"), fg="#0055aa", wraplength=380, justify="left"
                  ).pack(anchor="w", padx=5, pady=(0, 4))
 
-        add_home_spinbox(f_home, "retract_x", t("lbl_retract_x"),
-                         "Her pas sonrası rulonun X ekseninde geri çekilme miktarı (göreceli, mm).")
-        add_home_spinbox(f_home, "retract_z", t("lbl_retract_z"),
-                         "Her pas sonrası rulonun Z ekseninde geri çekilme miktarı (göreceli, mm).")
+        # Pass retract is now PER-OPERATION (#90): set Retract X / Retract Z on each
+        # operation in the Program tab. The old global retract spinboxes were removed;
+        # existing programs are migrated so every op keeps its previous retract.
 
         # Rapid-traverse rate — drives the SIMULATION pace of G0 moves (not written
         # to the program). Changing it only re-times the sim, so no path recalc.

@@ -172,6 +172,33 @@ def migrate_clearance(params: dict) -> dict:
     return params
 
 
+def migrate_pass_retract(params: dict) -> dict:
+    """Pure per-op pass retract (#90): stamp every operation with explicit
+    ``retract_x`` / ``retract_z``, seeded from the LEGACY global retract so an
+    existing program keeps its exact retract behavior. Idempotent — only fills
+    missing keys. The global is no longer user-editable (removed from the Machine
+    tab); the per-op value is now the single source, and the path engine still
+    keeps a hard-coded 50 mm fallback for safety.
+    """
+    if not isinstance(params, dict):
+        return params
+    try:
+        gx = float(params.get("retract_x"))
+    except (TypeError, ValueError):
+        gx = 50.0
+    try:
+        gz = float(params.get("retract_z"))
+    except (TypeError, ValueError):
+        gz = 50.0
+    for op in (params.get("operations") or []):
+        if isinstance(op, dict):
+            if "retract_x" not in op:
+                op["retract_x"] = gx
+            if "retract_z" not in op:
+                op["retract_z"] = gz
+    return params
+
+
 def validate_settings(data: dict) -> tuple[bool, str]:
     """
     Validate settings.json data.
