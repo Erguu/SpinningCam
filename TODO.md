@@ -3,6 +3,174 @@
 
 ---
 
+## Features — 2026-07-23 (scoping — user session, NOT started)
+
+> Four items raised by the user. **#3 (reverse for finishing) turned out to be
+> ALREADY DONE** — it is #49 (`✅ Done — Pass Direction (Forward / Reverse) —
+> per-op, roughing & finishing`): the `direction` combobox renders for finishing
+> (`program_tab.py:2001`, in the finishing universe+basic set) and the engine
+> reverses `toolpaths[-1]` generically for ANY op incl. straight-line finishing
+> (`path_generator.py:828`). User to sanity-check in the app; no new item opened.
+> **⛔ WORKING PROGRAM — analysis/scoping only. No behavior change without explicit
+> approval. Prefer view-layer + opt-in per-op flags; keep .ssp back-compat.**
+
+### 87. ✅ DONE 2026-07-23 — Simplify the in-app changelog ("What's New")
+
+**Why (user, 2026-07-23):** the startup changelog text was too long and technical;
+wanted a couple of plain sentences per version.
+
+**Done:** the real target was the `CHANGELOG` dict in **`changelog.py`** (shown once
+per new version by `ui/dialogs/changelog_window.py`), NOT the help_window `_C` guide
+(my original note was wrong). Rewrote every version to 2–4 short, operator-facing
+bullets (was up to 8 multi-sentence paragraphs; 1.009 went 8→3). No feature dropped,
+just condensed. English-only strings (the changelog has never been translated), so
+no i18n change. `LAST_CHANGES.md` stays detailed as our dev log. Verified: file
+imports, `entries_since` still selects the right versions. Zero engine risk.
+**Commit + GUI smoke (see the dialog on a version bump) PENDING.**
+
+### 88. Comparison PDF — self-documenting export (full parameters + rendered path plot)
+
+**Why (user, 2026-07-23):** wants a PDF that shows the toolpaths (from a fixed,
+repeatable perspective) PLUS the full program parameters, so different parameter
+sets can be compared during development ("see the difference each setting makes").
+
+**DECIDED (user, 2026-07-23): self-documenting export.** Every PDF export gains
+(a) a **rendered path plot** from a fixed perspective and (b) a **full parameter
+dump**. Comparison = open two PDFs side by side; each PDF stands alone. (A
+dedicated 2-program side-by-side compare PDF was deferred — not chosen.)
+
+**Finding (code):** the current `export_manager.export_pdf()` is **text-only** —
+Geometry / Operations / Path Summary / Tilt sections, **no path image at all**.
+So BOTH pieces are new work, not a copy of an existing plot.
+
+**Agent proposal (to discuss):**
+- **Path plot:** either an offscreen PyVista screenshot of the existing 3D scene
+  (matches on-screen colors, needs a fixed camera preset for repeatability) or a
+  lightweight **2D XZ matplotlib plot** built directly from `last_calculated_paths`
+  (deterministic, no GPU/offscreen quirks in frozen exe, smaller). Lean 2D XZ for
+  repeatable dev comparison; fixed axis limits so two exports overlay 1:1.
+- **Parameter dump:** structured per-op table (all op params) + global/machine
+  params that affect geometry (blank_radius, clearances, tilt, clamp zone…).
+  Reuse `OP_PARAM_UNIVERSE`/`OP_PARAM_LABELS` so labels match the UI.
+- Keep it additive to the existing operation-sheet PDF (new pages), or a separate
+  "Detailed / Compare" export option — decide at design time.
+
+**Risks:** low (export-only, no toolpath/G-code impact). Watch frozen-exe
+rendering (prefer matplotlib 2D over offscreen VTK) and PDF size.
+
+### 89. Anchored progressive sweep for roughing (fixed start, growing end per pass) + per-pass customize window
+
+**Why (user, 2026-07-23):** today a roughing op's passes step their contact along
+Z per pass (`target_z = start_z + i/(count-1)·(end_z−start_z)`,
+`path_generator.py:530`). The user wants a mode where **every pass starts at the
+same anchor and each pass goes further per pass** (and, ideally, other params like
+clearance vary per pass too).
+
+**DECIDED (user, 2026-07-23):**
+- **Meaning = fixed `start_z`, growing `end_z` per pass** (root pinned, top of the
+  sweep advances each pass) — this is the Phase-1 hardcoded fallback.
+- **Ultimate goal = a per-op customize window where ALL per-pass parameters are
+  freely editable.** "Fixed start / grow end" is what we do IF the free window
+  isn't available yet.
+- **Build order = phased: ramp first, window later.**
+
+**Phase 1 — parametric anchored ramp (low risk):** a per-op opt-in flag (e.g.
+`sweep_anchor_start` / "anchored sweep") so all passes anchor at `start_z` and
+`end_z` grows linearly per pass from a first-pass value up to the op's `end_z`;
+optional **linear clearance ramp** (start→end) reusing the existing
+progressive-fan pattern. Stays fully parametric → **Split/Unite/Continue keep
+working** (each pass still derivable from op params). Default OFF = today's
+behavior bit-for-bit.
+
+**Phase 2 — per-op customize window (the real goal, higher effort). DECIDED
+(user, 2026-07-23): REUSE the existing pass table `ui/dialogs/pass_table.py`.**
+That dialog is ALREADY a per-op per-pass editor and provides most of the "customize
+window with visuals" the user wanted:
+- one row per pass: contact Z / effective angle / reach / exit end X,Z / value
+  SOURCE (manual/fan/follow/pin) / warnings (guard flip, near-duplicate, exit-beyond-
+  blank);
+- **staged editing + undo** already wired: double-click a cell → stage → Apply
+  writes `op["pass_edits"]` as ONE undo snapshot (`PassTableDialog._apply`); plus
+  Cancel / Unpin / Refresh;
+- **already visual:** selecting a row highlights that pass in the 3D view
+  (`_on_row_select` → `recolor_paths`).
+
+Remaining work to make it the sweeping editor (the scaffolding above is done):
+1. add editable **clearance** + **end/extent (per-pass Z)** columns (today only
+   angle & reach are double-click editable);
+2. teach the ENGINE to read the new `pass_edits` keys — it currently reads ONLY
+   `pass_angle`/`reach` (`path_generator.py:555-564`, `_edit_angle`/`_edit_reach`);
+3. mirror them in `compute_pass_rows` (pass_table.py:35 — kept in sync with the
+   engine);
+4. optional additive **2D canvas preview** in the dialog (the 3D row-highlight
+   already gives a visual, so this is polish, not required).
+Deliberately NOT the reverted 3D sphere-widget drag (#61 — VTK never stabilized).
+⚠️ Inherits the `pass_edits` Split/Unite lossiness noted above (it IS that layer).
+
+**⚠️ Risks & collisions (must design for):**
+- **Split (#64) / Unite (HANDOVER 2026-07-10b):** these rely on LINEAR per-pass
+  progression so a chunk/merge is reproducible by one parametric op. Phase-1 ramps
+  are linear → SAFE. Phase-2 arbitrary per-pass overrides are **LOSSY** under
+  Split/Unite (a single parametric op can't hold per-pass clearance/extent) — same
+  gotcha already flagged for Unite. Must warn (or block) when splitting/uniting an
+  op that carries per-pass overrides.
+- **Continue-from-previous (#61 step 2):** copies the previous op's last-pass
+  end-state; with an anchored sweep the "last pass" reaches the FARTHEST end, so
+  `last_op_end_z`/`reach`/`angle` must reflect the grown last pass (verify).
+- **Index shift:** `pass_edits` is keyed by pass index — changing `count`/reorder
+  must remap or clear+warn (mechanism already exists from #79/#80).
+- **Clearance floor / gouge guard** still applies per pass (Rr ≥ radius;
+  [[feedback-calibration-rtool]]).
+
+**Relationship to existing params:** partially overlaps `progressive_reach` /
+`progressive_angle` (grow the exit stroke per pass) — Phase 1 should REUSE that
+machinery rather than add a parallel system.
+
+### 90. Per-operation pass-retract override (replaces the closed-out #3 slot)
+
+**Why (user, 2026-07-23):** Machine settings have GLOBAL pass-retract offsets
+(`retract_x` / `retract_z`, Machine tab). The user wants to set them **per
+operation** so each op can retract differently.
+
+**Finding (code):** `retract_x`/`retract_z` are global (`machine_tab.py:242/244`)
+and consumed in SEVERAL places that must ALL honor an override or the sim and the
+NC program diverge:
+- Sim `calculate_paths`: read once before the op loop (`path_generator.py:254-255`,
+  `retract_x_can = abs(...)` `:261`); per-pass retract `:426`; back-pass retract
+  `:955/961`; cutting/bending approach `:408`.
+- G-code `generate_gcode`: `:2354-2355` and `:2406-2407`.
+- PDF header note: `:2138`.
+
+**Proposed shape (agent — mirror the per-op tool-change precedent, 2026-07-21):**
+- Optional per-op keys `retract_x` / `retract_z`; absent ⇒ fall back to the global
+  `params["retract_x/z"]` (old programs identical, .ssp back-compat free).
+- Resolve via a tiny helper (like `resolve_tool_change_point`) called from BOTH
+  the sim and the G-code emitter, so the two never drift.
+- Move the sim's read of the retract values from before the loop to **inside the
+  per-op loop** (they're currently hoisted at `:254`); re-apply the canonical
+  `abs()` per op.
+- Add `retract_x`/`retract_z` to `OP_PARAM_UNIVERSE` (roughing+finishing; decide
+  cutting/bending) + labels; advanced by default in Customize View.
+
+**DECIDED (user, 2026-07-23): pass-retract only.** The override applies to the
+forming-pass retract (`:426`) — the **cutting/bending approach** distance (`:408`)
+stays on the global. The **back-pass** retract (`:955/961`) uses the same
+pass-retract value, so it follows the same override.
+
+**Open questions / decisions needed:**
+- **MACHINE_PROFILE_KEYS gotcha:** `retract_x/z` may be machine-profile keys — a
+  per-op override must be excluded from the machine-profile save/override branch
+  (same trap handled for other machine keys, HANDOVER 2026-07-01c).
+- **Sign/frame:** keep the same real-frame sign convention as the global (and the
+  `side`/canonical mirror) so a negative-X roller still retracts outward.
+- Batch-eligible? (natural candidate for the #67 batch editor.)
+
+**Risk:** low–medium. Touch-points are known and finite, but there are MULTIPLE
+emission sites (sim + G-code + back-pass + cutting) — the whole risk is keeping
+them consistent. A single resolver + a headless sim-vs-NC parity test covers it.
+
+---
+
 ## Bug Fixes — 2026-07-07 (reach/angle audit after #68 Phase A, not started)
 
 > Found in a code audit prompted by the user ("something feels broken after the
@@ -566,10 +734,13 @@ ended**, which today requires hand-calculating that pass's end position, angle, 
 
 **Two separable pieces:**
 
-**(A) Reordering / duplication ergonomics.** There's Save-as-default + copy + Move
-Up/Down, but no drag-and-drop and copies still need manual shift/tilt. Scope:
-- Drag-and-drop reorder in the ops tree (replaces/augments Move Up/Down).
-- "Duplicate op" that clones in place, ready to edit (already partially there via default).
+**(A) Reordering / duplication ergonomics. ✅ DONE 2026-07-22 (commit 4449340) —
+drag-and-drop reorder + Move-to-# in the ops tree (same commit also: ~10× faster op
+selection + bent-sheet overlay toggle). Duplicate = #69 (done).** There's
+Save-as-default + copy + Move Up/Down, but no drag-and-drop and copies still need
+manual shift/tilt. Scope:
+- ✅ Drag-and-drop reorder in the ops tree (replaces/augments Move Up/Down).
+- ✅ "Duplicate op" that clones in place, ready to edit (delivered via #69).
 
 **(B) Derived / linked pass authoring — the real request.** Let a pass or op inherit
 computed end-state from the previous op's last pass, instead of re-deriving it by hand:
@@ -719,8 +890,8 @@ instead of two coupled offsets the operator has to reverse-engineer.
      That's where free forming actually begins, so it's the correct zero for accumulating
      formed material. If #62 isn't built yet, fall back to the **lowest program-start Z
      across ops** (or a manual offset) as the anchor.
-5. **Drag-and-drop reorder + duplicate** — ergonomics, lower priority (Move Up/Down + copy
-   already exist).
+5. **Drag-and-drop reorder + duplicate** — ✅ DONE 2026-07-22 (commit 4449340:
+   drag-reorder + Move-to-#; duplicate = #69). Ergonomics, was lower priority.
 
 **Still open (need answers before design):**
 - **DECIDED (user, 2026-07-04): end-state readout = new tree columns** (end Z / end angle /
