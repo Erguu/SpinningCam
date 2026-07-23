@@ -555,7 +555,12 @@ class PathGenerator:
 
                 # Per-pass contact target Z (moved up from below the reach block: the
                 # engine-side follow-blank reach needs this pass's Z).
-                if count <= 1:
+                _anchored_sweep = (not is_finish and count > 1
+                                   and bool(op.get("sweep_anchor_start", False)))
+                if count <= 1 or _anchored_sweep:
+                    # Anchored sweep (#89 Phase 1): every pass roots its contact at
+                    # start_h; the reach up the mandrel grows via p2_z_extend below
+                    # (fixed start, growing end), instead of the contact stepping.
                     target_z = start_h
                 else:
                     target_z = start_h + (i / (count - 1) * (end_h - start_h))
@@ -720,6 +725,10 @@ class PathGenerator:
                 # (target_z is computed above the reach block — the per-pass follow
                 # reach needs it before P3 is resolved.)
                 p2_z_extend = float(op.get("p2_z_extend", 0.0)) if not is_finish else 0.0
+                if _anchored_sweep:
+                    # Grow the contact end per pass from the fixed start_h root: pass 0
+                    # reaches start_h (+ base extend), the last pass reaches end_h.
+                    p2_z_extend += (i / (count - 1)) * (end_h - start_h)
                 contact_z   = target_z + p2_z_extend
 
                 # Start edge-fillet straightening (opt-in): below the fillet→wall

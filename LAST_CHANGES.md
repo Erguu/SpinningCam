@@ -5,6 +5,33 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-23 — SABİT BAŞLANGIÇ SÜPÜRME (anchored sweep) — #89 Faz 1 çekirdek
+
+**İstek:** Kaba operasyonda paslar normalde temas noktasını Z'de yukarı adımlar. Kullanıcı,
+her pasın AYNI başlangıçtan köklenip her pasta daha ileri gitmesini istedi (sabit başlangıç,
+büyüyen bitiş). Kararlar: opt-in bayrak (Faz 1), nihai hedef pas-tablosu editörü (Faz 2).
+
+**Yapılanlar (Faz 1 çekirdek):**
+- Opt-in per-op `sweep_anchor_start` (yalnız roughing). AÇIKken: `target_z = start_h` sabitlenir
+  ve `p2_z_extend` pas başına lineer rampalanır (`+ i/(count-1)·(end_h−start_h)`) →
+  temas start_h'ten end_h'e büyür, yaklaşım kolu HEP start_h'te köklenir. Mevcut
+  p2_z_extend/effective_p1_z mekanizmasını KULLANIR (`path_generator.py` target_z ~558 +
+  p2_z_extend ~722). Tam parametrik → Böl/Birleştir/Devam güvenli; `last_op_end_z` DEĞİŞMEZ
+  (formül aynı: end_h + base p2_z_extend).
+- Pas tablosu aynası `compute_pass_rows` (pass_table.py) eşitlendi.
+- UI: roughing editöründe onay kutusu (p2_z_extend altı), `OP_PARAM_UNIVERSE`+`OP_PARAM_LABELS`,
+  i18n `lbl_sweep_anchor` EN/TR/ES, help EN+TR ("HOW MULTIPLE PASSES WORK" / "ÇOKLU PASOLAR").
+- VARSAYILAN KAPALI = bit-bazında eski davranış (test kanıtladı).
+- Test `_test_anchored_sweep.py`: normal yaklaşım-kökleri adımlar [-40,-15,10]; anchored kökler
+  sabit [-40,-40,-40]; temas iki modda da 10→35→60 tırmanır; bayrak yok == False. GEÇTİ.
+  Mevcut motor+PDF+batch+retract suitleri REGRESYON YOK.
+
+**Faz 1 kalan ( opt.):** lineer clearance rampası (`sweep_clearance_end`) — anchored sweep
+FİZİKSEL doğrulanana kadar ertelendi (clearance ~6 yerde; ilk kesit minimal tutuldu).
+**GUI smoke + FİZİKSEL doğrulama + commit BEKLİYOR.**
+
+---
+
 ## 2026-07-23 — KENDİNİ BELGELEYEN PDF (tam parametre dökümü) — #88
 
 **İstek:** PDF export'una (yolları aynı perspektiften gösteriyor) TAM parametreler de

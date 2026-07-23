@@ -106,12 +106,19 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
     center_x = _f(params.get("mandrel_pos_x_offset"), 0.0) or 0.0
     total_off = r_tool + blank_thick + op_clearance
 
+    # Anchored sweep (#89): mirror the engine — fixed root + p2_z_extend ramp.
+    _anchored = (not is_finish and count > 1 and bool(op.get("sweep_anchor_start", False)))
+
     rows = []
     prev_end = None
     for i in range(count):
         warnings = []
-        target_z = start_h if count <= 1 else start_h + (i / (count - 1)) * (end_h - start_h)
-        contact_z = target_z + p2_ext   # engine: contact_z = target_z + p2_z_extend
+        if count <= 1 or _anchored:
+            target_z = start_h
+        else:
+            target_z = start_h + (i / (count - 1)) * (end_h - start_h)
+        _pe = p2_ext + ((i / (count - 1)) * (end_h - start_h) if _anchored else 0.0)
+        contact_z = target_z + _pe      # engine: contact_z = target_z + p2_z_extend
 
         pe = pe_all.get(str(i)) or pe_all.get(i) or {}
         st = staged.get(i) or staged.get(str(i)) or {}

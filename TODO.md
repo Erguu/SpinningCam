@@ -77,7 +77,21 @@ So BOTH pieces are new work, not a copy of an existing plot.
 **Risks:** low (export-only, no toolpath/G-code impact). Watch frozen-exe
 rendering (prefer matplotlib 2D over offscreen VTK) and PDF size.
 
-### 89. Anchored progressive sweep for roughing (fixed start, growing end per pass) + per-pass customize window
+### 89. ⏳ PHASE 1 CORE DONE 2026-07-23 (headless-verified; clearance ramp + Phase 2 pending; GUI smoke + PHYSICAL validation + commit PENDING) — Anchored progressive sweep for roughing + per-pass customize window
+
+**Phase 1 core done:** opt-in per-op `sweep_anchor_start` (roughing). When ON, every
+pass roots its contact at `start_z` and the contact grows toward `end_z` per pass —
+implemented by fixing `target_z = start_h` and ramping `p2_z_extend` linearly
+(`+ i/(count-1)·(end_h−start_h)`), reusing the existing p2_z_extend/effective_p1_z
+mechanism → fully parametric, Split/Unite/Continue-safe, `last_op_end_z` unchanged
+(still reaches end_z). Mirrored in `compute_pass_rows`. UI checkbox in the roughing
+editor (universe/label/i18n EN·TR·ES) + help EN/TR. Default OFF = bit-for-bit identical
+(test proves it). `_test_anchored_sweep.py` PASS: normal approach-roots step
+[-40,-15,10], anchored roots fixed [-40,-40,-40], contact climbs 10→35→60 both modes,
+OFF==absent. No regression in existing suites.
+**Still to do in Phase 1:** the OPTIONAL linear clearance ramp (`sweep_clearance_end`) —
+deferred until the anchored sweep is physically validated (clearance is used at ~6
+sites; wanted to keep the first cut minimal). Phase 2 (pass-table editor) unchanged.
 
 **Why (user, 2026-07-23):** today a roughing op's passes step their contact along
 Z per pass (`target_z = start_z + i/(count-1)·(end_z−start_z)`,

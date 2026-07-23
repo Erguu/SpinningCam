@@ -84,7 +84,8 @@ OP_PARAM_UNIVERSE = {
     "roughing": _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + [
         "name", "tool_id", "count", "direction",
         "tilt_mode", "tilt_start", "tilt_end", "tilt_offset",
-        "start_z", "end_z", "p2_z_extend", "proj_extend_bottom", "proj_extend_top",
+        "start_z", "end_z", "p2_z_extend", "sweep_anchor_start",
+        "proj_extend_bottom", "proj_extend_top",
         "retract_x", "retract_z",
         "pass_shape", "p2_radius", "exit_arc_angle", "exit_bow", "exit_bow_bias",
         "exit_bow_trim", "exit_mid_rotation",
@@ -126,6 +127,7 @@ OP_PARAM_LABELS = {
     "tool_change_simultaneous": "lbl_tc_simul",
     "start_z": "lbl_zone_start", "end_z": "lbl_zone_end",
     "p2_z_extend": "lbl_p2z_extend",
+    "sweep_anchor_start": "lbl_sweep_anchor",
     "proj_extend_bottom": "lbl_proj_bottom", "proj_extend_top": "lbl_proj_top",
     "retract_x": "lbl_op_retract_x", "retract_z": "lbl_op_retract_z",
     "z_pos": "lbl_z_pos", "plunge_x": "lbl_plunge_x",
@@ -2168,6 +2170,22 @@ class ProgramTab:
                                          "linear_approach modunda yaklaşım kolu bu kadar daha uzağa uzanır — "
                                          "paslar arasındaki boşluğu doldurmak için kullanılır. "
                                          "Önerilen değer: (Zone uzunluğu / pas sayısı) − P1 Z")
+            # #89 Phase 1 — Anchored sweep: all passes root at Start Z; the contact
+            # grows toward End Z per pass (fixed start, growing end) instead of the
+            # contact stepping up per pass. Default off = classic stepping.
+            f_anch = ttk.Frame(self.f_prop_editor)
+            f_anch._pkey = "sweep_anchor_start"
+            f_anch.pack(fill="x", padx=2, pady=1)
+            ttk.Label(f_anch, text=t("lbl_sweep_anchor"), width=15).pack(side="left")
+            _anch_var = tk.BooleanVar(value=bool(op.get("sweep_anchor_start", False)))
+            def _toggle_anchor(i=idx, _v=_anch_var):
+                self.app.params["operations"][i]["sweep_anchor_start"] = _v.get()
+                self._schedule_auto_calc()
+            ttk.Checkbutton(f_anch, variable=_anch_var, command=_toggle_anchor).pack(side="right")
+            self.helper.bind_tooltip(f_anch,
+                "Tüm paslar Başlangıç Z'sinde köklenir; temas noktası her pasta Bitiş Z'sine "
+                "doğru büyür (sabit başlangıç, büyüyen bitiş) — normalde temas her pasta yukarı "
+                "adımlar. Kapalı = klasik adımlama. p2_z_extend ile aynı mekanizmayı kullanır.")
 
         self._add_prop_entry(idx, "proj_extend_bottom", t("lbl_proj_bottom"), op, is_float=True,
                              tooltip="Turkuaz projeksiyon çizgisini mandrel alt sınırının kaç mm altına uzat. "

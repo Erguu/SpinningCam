@@ -364,6 +364,16 @@ the pass count. Pass 1 makes the lightest contact; the last pass
 reaches the target depth. Increasing the count means smaller
 steps — less force per pass, better surface quality, slower cycle.
 
+Anchored Sweep (roughing option): normally each roughing pass's
+contact steps UP the mandrel — pass 1 works near Start Z, the last
+near End Z, each a separate slice. Tick "Anchored Sweep" and every
+pass instead ROOTS at Start Z and reaches progressively further up
+per pass (pass 1 a little past Start Z, the last all the way to End
+Z) — so the passes grow from a fixed start rather than marching
+along. It reuses the P2 Z Extend mechanism, stays fully parametric
+(Split / Unite / Continue keep working) and is off by default, so
+existing programs are unchanged.
+
 For finishing: each pass traces the mandrel profile at a defined
 standoff. Multiple finishing passes step down that standoff to
 zero (the actual part thickness). Use 1–3 finishing passes
@@ -942,6 +952,17 @@ Kaba için: toplam yaklaşma derinliği paso sayısına eşit bölünür.
 1. paso en hafif temaşı yapar; son paso hedef derinliğe ulaşır.
 Sayıyı artırmak daha küçük adımlar demektir — paso başına daha az
 kuvvet, daha iyi yüzey kalitesi, daha uzun çevrim.
+
+Sabit Başlangıç Süpürme (kaba seçeneği): normalde her kaba pasın
+temas noktası mandrelde YUKARI adımlar — 1. paso Başlangıç Z
+yakınında, son paso Bitiş Z yakınında, her biri ayrı bir dilim.
+"Sabit Başlangıç Süpürme"yi işaretleyin; her paso bunun yerine
+Başlangıç Z'sinde KÖKLENİR ve her pasta yukarı doğru giderek daha
+uzağa uzanır (1. paso Başlangıç Z'yi biraz geçer, son paso Bitiş
+Z'ye kadar) — yani paslar sabit bir başlangıçtan büyür. P2 Z Uzatma
+mekanizmasını kullanır, tam parametriktir (Böl / Birleştir / Devam
+çalışmaya devam eder) ve varsayılan kapalıdır (mevcut programlar
+değişmez).
 
 Bitirme için: her paso mandrel profilini belirli bir boşlukta takip
 eder. Birden fazla bitirme pasası bu boşluğu sıfıra (gerçek parça

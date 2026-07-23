@@ -828,6 +828,7 @@ STRINGS = {
     "lbl_zone_start":       {"EN": "Zone Start Z",                  "TR": "Bölge Başlangıç Z",          "ES": "Inicio de Zona Z"},
     "lbl_zone_end":         {"EN": "Zone End Z",                    "TR": "Bölge Bitiş Z",              "ES": "Fin de Zona Z"},
     "lbl_p2z_extend":       {"EN": "P2 Z Extend",                   "TR": "P2 Z Uzatma",               "ES": "Extensión Z de P2"},
+    "lbl_sweep_anchor":     {"EN": "Anchored Sweep",                "TR": "Sabit Başlangıç Süpürme",   "ES": "Barrido Anclado"},
     "lbl_proj_bottom":      {"EN": "Proj Extend Bottom",            "TR": "Proj Alt Uzatma",            "ES": "Extensión Inf. de Proj."},
     "lbl_proj_top":         {"EN": "Proj Extend Top",               "TR": "Proj Üst Uzatma",            "ES": "Extensión Sup. de Proj."},
     "lbl_op_retract_x":     {"EN": "Retract X (mm)",                "TR": "Geri Çekilme X (mm)",        "ES": "Retroceso X (mm)"},
