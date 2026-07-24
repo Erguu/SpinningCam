@@ -5,6 +5,96 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-24 — SÜRÜM 1.010
+
+`version.APP_VERSION` 1.009 → **1.010**. `changelog.py`'ye 1.010 girişi eklendi (operatör-odaklı,
+4 madde): per-op pas geri çekilmesi (#90), Pas Tablosu per-pass editör + doldurma + 2B önizleme (#89),
+kendini belgeleyen PDF + export seçici (#88), sade changelog (#87). Açılış "What's New" penceresi
+1.009 kullanıcısına yalnız 1.010'u gösterir (`entries_since` doğrulandı).
+
+---
+
+## 2026-07-24b — PAS TABLOSU: 2B ÖNİZLEME + P1_Z/P2_Z/P3_Z adları + yardım satırı — #89
+
+**İstek (kullanıcı):** Contact Z→P2_Z (yapıldı), Kök Z→**P1_Z**, End Z→**P3_Z**; pencereye
+BASİT bir yardım satırı; ve düzenlerken **2B görselleştirme**.
+
+**Yapılanlar:**
+- Sütun adları: `pt_col_z`→"P2_Z", `pt_col_anchor`→"P1_Z", `pt_col_endz`→"P3_Z" (EN/TR/ES).
+- Yardım satırı (`pt_help`, pencere üstünde soluk mavi): tek-tık düzenle + Doldur (Hepsine ata /
+  Kademeli) sade anlatım; "P1_Z = başlangıç, P2_Z = P1_Z + Uzatma (temas), P3_Z = çıkış".
+- **2B önizleme** (`PassTableDialog._draw_preview`, alt tk.Canvas): her pas P1→P2→P3 şematik
+  polyline (renk, seçili kalın), mandrel profili soluk, Z yatay / X dikey. `compute_pass_rows`
+  satırına `p1x/p1z/p2x` eklendi (P1 şematik olarak P1_Z kökünde çizilir → sütunlarla TUTARLI).
+  refresh() + satır-seçiminde yeniden çizilir → STAGED düzenlemeler canlı görünür (Apply gerekmez).
+  Motor DEĞİŞMEDİ (yalnız görsel; last_calculated_paths/G-code etkilenmez).
+- **3D ORYANTASYON EŞLEŞMESİ (kullanıcı):** önizleme, motorun negatif-X rulo tarafında yaptığı
+  mandrel-merkezi aynalamasını (`2·cx − x`) uygular — `roller_positive_x_side` False ise passes +
+  mandrel profili Z ekseni etrafında aynalanır. Böylece 2B önizleme 3D simülasyonla aynı tarafta
+  görünür, kolay karşılaştırılır. Yalnız görsel.
+- help_window pinning bölümü P1_Z/P2_Z/P3_Z + önizleme notuyla güncellendi (EN+TR).
+- Doğrulama: önizleme koordinatları tutarlı (anchored: P1_z sabit 10, P2_z 10→35→60); tüm
+  motor+PDF+batch suitleri GEÇTİ. **Canvas'ın kendisi GUI smoke BEKLİYOR** (Tk headless test edilemez).
+
+---
+
+## 2026-07-24 — PAS TABLOSU PER-PASS EDİTÖR YENİDEN TASARIM: Kök Z + Uzatma + doldurma yardımcıları — #89 (checkbox KALDIRILDI)
+
+**İstek (kullanıcı):** Anchored sweep'i checkbox'la değil, Pas Tablosunda "hepsinin başlangıcını
+aynı yap + p2 uzatmayı değiştir + progressive gibi otomatik hesap" ile yapabilmek.
+
+**Kararlar:** Kök Z (target_z) + Uzatma (p2_z_extend) düzenlenebilir sütunlar; Contact Z salt-okunur;
+Set-all + Progressive doldurma; **`sweep_anchor_start` checkbox'ı KALDIRILDI** (dün eklenip
+commit'lenen Faz-1 91a0913 geri alındı — artık el ile pas tablosundan yapılıyor).
+
+**Yapılanlar:**
+- Motor (`path_generator.py`): pass_edits YENİ okuma — `target_z` (kök) + `p2_z_extend` (uzatma)
+  per-pass override (eski `contact_z` pini bunlarla değiştirildi). Pinler target_z'den ÖNCE okunuyor.
+  `contact_z = target_z + p2_z_extend`. `eff_clearance` per-pass korundu. Son pas için `last_op_end_z`
+  = gerçek pinli contact. `_anchored_sweep` mantığı silindi.
+- Ayna `compute_pass_rows`: per-pass anchor/extend override; satıra `anchor`+`extend` eklendi.
+- Diyalog `PassTableDialog`: sütunlar pas·**Kök Z**·**Uzatma**·Contact Z(ro)·Klerens·Açı·Reach·EndZ·src·warn
+  (End X düştü). Kök Z/Uzatma/Klerens/Açı/Reach çift-tık düzenlenebilir; Contact Z salt-okunur.
+  YENİ **doldurma çubuğu**: alan seçici + **Hepsine ata…** (tek değer tüm paslara) + **Kademeli…**
+  (ilk→son lineer rampa). Hepsi staged → Apply (mevcut undo/Cancel/Pin-temizle).
+- UI temizlik: `sweep_anchor_start` universe/label/editor checkbox + `lbl_sweep_anchor` i18n KALDIRILDI.
+  Yeni i18n `pt_col_anchor`/`pt_col_extend`/`pt_fill_*` EN/TR/ES. Help EN+TR "anchored sweep" paragrafı
+  pas-tablosu iş akışına yeniden yazıldı.
+- Testler: `_test_anchored_sweep.py` YENİDEN yazıldı (Set-all anchor + progressive extend → kökler sabit
+  [-40,-40,-40], contact 10→35→60; normal kökler adımlar). `_test_pass_pins.py` target_z/p2_z_extend'e
+  güncellendi (pas1 anchor=45 extend=10 → contact=55, izole). GEÇTİ. Tüm suitler REGRESYON YOK.
+
+**GUI smoke + FİZİKSEL doğrulama + commit BEKLİYOR.**
+
+---
+
+## 2026-07-23 — PAS-BAŞINA EDİTÖR: Z TEMAS + KLERENS PİNLERİ (Pas Tablosu) — #89 Faz 2 çekirdek (2026-07-24'te KÖK Z+UZATMA'ya dönüştürüldü)
+
+**İstek:** #89 nihai hedef = seçili op için her pasın parametrelerini serbest düzenleyebilen
+pencere. Mevcut Pas Tablosu bunun için kullanıldı (staged edit + undo + 3B vurgu zaten vardı).
+
+**Yapılanlar:**
+- Motor (`path_generator.py`): iki YENİ `pass_edits` anahtarı okunuyor — `clearance` (pas-başına
+  klerens) ve `contact_z` (pas-başına Z temas / erişim). `eff_clearance` = pin varsa o, yoksa
+  `op_clearance`; roughing'in HER klerens yerinde kullanılıyor (P2 total_off ~743, P3 anchoring
+  ~775-781, `_create_and_store_pass` ~849, geri pas ~913/927). `_edit_contact_z` contact_z'yi
+  override ediyor (~732). Yalnız roughing (`not is_finish`); pin yoksa AYNEN eski.
+- Ayna `compute_pass_rows` (pass_table.py): pas-başına `eff_clr`/`edit_cz`, per-pass `total_off`,
+  anchoring `eff_clr` ile; satıra `clr` eklendi.
+- Diyalog `PassTableDialog`: YENİ **Clear.** sütunu; **Z temas (#2) ve Klerens (#3) artık çift-tık
+  düzenlenebilir** (roughing; finishing'te bilgi mesajı) ✎ staged işaretiyle → Apply `pass_edits`e
+  yazar (mevcut undo/Cancel/Pin-temizle akışı). Sütun sırası: pas·z·clr·açı·reach·endx·endz·src·warn.
+- i18n `pt_col_clr`/`pt_edit_rough_only` EN/TR/ES; help EN+TR pinning bölümü güncellendi (Böl/Birleştir
+  özet uyarısı dahil).
+- Test `_test_pass_pins.py`: ayna pinleri yansıtır (pas1 z=45 clr=10); motor SADECE pinli pası
+  değiştirir (pas0/pas2 aynen); pin yok = bit-aynı. GEÇTİ. Tüm suitler REGRESYON YOK.
+
+**Kalan:** Faz 1 opsiyonel clearance rampası (`sweep_clearance_end`) hâlâ ertelenmiş (artık per-pass
+clearance altyapısı var → kolaylaştı). Finishing per-pass clearance kapsam dışı. **GUI smoke +
+FİZİKSEL doğrulama + commit BEKLİYOR.**
+
+---
+
 ## 2026-07-23 — SABİT BAŞLANGIÇ SÜPÜRME (anchored sweep) — #89 Faz 1 çekirdek
 
 **İstek:** Kaba operasyonda paslar normalde temas noktasını Z'de yukarı adımlar. Kullanıcı,

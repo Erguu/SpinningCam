@@ -553,17 +553,37 @@ class PathGenerator:
                 # convenience but _create_and_store_pass now uses it signed (+ = forward in Z).
                 p3_z = abs(p3_z)
 
-                # Per-pass contact target Z (moved up from below the reach block: the
-                # engine-side follow-blank reach needs this pass's Z).
-                _anchored_sweep = (not is_finish and count > 1
-                                   and bool(op.get("sweep_anchor_start", False)))
-                if count <= 1 or _anchored_sweep:
-                    # Anchored sweep (#89 Phase 1): every pass roots its contact at
-                    # start_h; the reach up the mandrel grows via p2_z_extend below
-                    # (fixed start, growing end), instead of the contact stepping.
+                # ── Per-pass pins (pass_edits) — read BEFORE target_z: the per-pass
+                # Anchor Z pin overrides target_z, and the follow-blank reach needs
+                # this pass's Z. #89 Phase 2 per-pass editor keys: target_z (anchor),
+                # p2_z_extend (extend), clearance, plus the existing pass_angle / reach.
+                # LENGTH priority : pass pin > follow-blank > progressive fan > reach > |p3|.
+                # DIRECTION prio. : pass pin > progressive angle fan > pass_angle.
+                # All roughing-only; absent by default → identical to before.
+                _pe_all = op.get("pass_edits") or {}
+                _pe = _pe_all.get(str(i)) or _pe_all.get(i) or {}
+                def _pe_f(_k, _d=_pe):
+                    _v = _d.get(_k, None)
+                    try:
+                        return float(_v) if _v not in (None, "") else None
+                    except (TypeError, ValueError):
+                        return None
+                _edit_angle     = _pe_f("pass_angle") if not is_finish else None
+                _edit_reach     = _pe_f("reach") if not is_finish else None
+                _edit_clearance = _pe_f("clearance") if not is_finish else None
+                _edit_target_z  = _pe_f("target_z") if not is_finish else None
+                _edit_p2ext     = _pe_f("p2_z_extend") if not is_finish else None
+                eff_clearance = _edit_clearance if _edit_clearance is not None else op_clearance
+
+                # Per-pass contact anchor (target Z). Normally stepped start_h→end_h; a
+                # per-pass Anchor Z pin overrides it — set every pass equal (pass-table
+                # Set-all) and ramp Extend (Progressive) to build an anchored sweep by hand.
+                if count <= 1:
                     target_z = start_h
                 else:
                     target_z = start_h + (i / (count - 1) * (end_h - start_h))
+                if _edit_target_z is not None:
+                    target_z = _edit_target_z
 
                 # Reach (#61): single authoritative exit-stroke magnitude |P2→P3|. Unset or
                 # <=0 keeps the legacy behavior EXACTLY (magnitude implied by p3_x/p3_z).
@@ -576,25 +596,6 @@ class PathGenerator:
                     _reach_v = None
                 if _reach_v is not None and _reach_v <= 0:
                     _reach_v = None
-
-                # ── Per-pass value sources (PROPOSAL_REACH_ANGLE_PRIORITY R1/R2) ──
-                # LENGTH priority : pass pin (pass_edits) > follow-blank (per pass,
-                #                   engine-side) > progressive reach fan > reach > |p3|.
-                # DIRECTION prio. : pass pin > progressive angle fan > pass_angle.
-                # Follow-blank now lives HERE: reach is recomputed from the flange
-                # model at THIS pass's Z on every calculation — the op dict is never
-                # auto-rewritten, so manual values underneath stay untouched (R2) and
-                # every calc entry point gets identical results (R3).
-                _pe_all = op.get("pass_edits") or {}
-                _pe = _pe_all.get(str(i)) or _pe_all.get(i) or {}
-                def _pe_f(_k, _d=_pe):
-                    _v = _d.get(_k, None)
-                    try:
-                        return float(_v) if _v not in (None, "") else None
-                    except (TypeError, ValueError):
-                        return None
-                _edit_angle = _pe_f("pass_angle") if not is_finish else None
-                _edit_reach = _pe_f("reach") if not is_finish else None
 
                 _follow_reach = None
                 if not is_finish and op.get("reach_follow_blank", False):
@@ -725,11 +726,15 @@ class PathGenerator:
                 # (target_z is computed above the reach block — the per-pass follow
                 # reach needs it before P3 is resolved.)
                 p2_z_extend = float(op.get("p2_z_extend", 0.0)) if not is_finish else 0.0
-                if _anchored_sweep:
-                    # Grow the contact end per pass from the fixed start_h root: pass 0
-                    # reaches start_h (+ base extend), the last pass reaches end_h.
-                    p2_z_extend += (i / (count - 1)) * (end_h - start_h)
+                if _edit_p2ext is not None:
+                    # #89 per-pass Extend pin (pass table): overrides p2_z_extend for
+                    # THIS pass, so its contact reaches target_z + this extend.
+                    p2_z_extend = _edit_p2ext
                 contact_z   = target_z + p2_z_extend
+                # Keep Real End Z correct when the LAST pass's anchor/extent is pinned
+                # (Continue-from-previous reads this). Same value as before when unpinned.
+                if not is_finish and i == count - 1:
+                    self.last_op_end_z[op_index] = contact_z
 
                 # Start edge-fillet straightening (opt-in): below the fillet→wall
                 # transition, follow the extrapolated straight wall instead of the
@@ -740,7 +745,7 @@ class PathGenerator:
                 else:
                     r_contact = mandrel_mgr.get_radius_fast(contact_z) + shell_offset
                     nx, nz = mandrel_mgr.get_normal_at_z(contact_z)
-                total_off = r_tool + blank_thick + op_clearance
+                total_off = r_tool + blank_thick + eff_clearance
                 # Per-op conformal flag: normal-projected P2 placement. Falls back to global conformal_clearance_all_operations.
                 conformal = op.get("conformal_clearance_operation_specific", params.get("conformal_clearance_all_operations", False))
                 if conformal:
@@ -772,13 +777,13 @@ class PathGenerator:
                     # slightly clearance-dependent at those extreme angles (accepted:
                     # distinctness/geometry wins over exact anchoring there).
                     if conformal:
-                        if p3_x - op_clearance * nx >= 0.0:
-                            p3_x -= op_clearance * nx
-                        if p3_z - op_clearance * nz >= 0.0:
-                            p3_z -= op_clearance * nz
+                        if p3_x - eff_clearance * nx >= 0.0:
+                            p3_x -= eff_clearance * nx
+                        if p3_z - eff_clearance * nz >= 0.0:
+                            p3_z -= eff_clearance * nz
                     else:
-                        if p3_x - op_clearance >= 0.0:
-                            p3_x -= op_clearance
+                        if p3_x - eff_clearance >= 0.0:
+                            p3_x -= eff_clearance
 
                 # [PARAM_DEBUG2] Consolidated FINAL per-pass geometry (read-only trace):
                 # contact radius, resolved P2, effective angle, and the final P3 offset
@@ -846,7 +851,7 @@ class PathGenerator:
                     # effective_p1_z extends the approach arm so its START stays at target_z - p1_z
                     # while its END reaches contact_z = target_z + p2_z_extend.
                     effective_p1_z = p1_z + p2_z_extend
-                    self._create_and_store_pass(p1_x, effective_p1_z, p3_z, p3_x, gp_Pnt(p2_x, 0, p2_z), base_rot, auto_align, toolpaths, projections, control_points, deviations, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_label, params, debug_lines, op=op, op_clearance=op_clearance)
+                    self._create_and_store_pass(p1_x, effective_p1_z, p3_z, p3_x, gp_Pnt(p2_x, 0, p2_z), base_rot, auto_align, toolpaths, projections, control_points, deviations, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_label, params, debug_lines, op=op, op_clearance=eff_clearance)
                 
                 # Check newly added path for Rapids
                 if len(toolpaths) > prev_paths_len:
@@ -910,7 +915,7 @@ class PathGenerator:
                                 # principle the forward spline pass uses (segment-aware, no
                                 # Z-range blind spot), so the back pass obeys the exact same
                                 # clearance guarantee even after a bp_arc bow.
-                                _bp_target_clearance = op_clearance
+                                _bp_target_clearance = eff_clearance
                                 _bp_path = self._correct_clearance_uniform(
                                     _bp_path, mandrel_mgr, center_x, r_tool, blank_thick,
                                     shell_offset, _bp_target_clearance)
@@ -924,7 +929,7 @@ class PathGenerator:
                                     _w  = 4.0 * _tt * (1.0 - _tt)
                                     _bp_path = _bp_path + np.outer(_w, np.array([bp_arc_x, 0.0, bp_arc_z]))
 
-                                _bp_target_clearance = op_clearance
+                                _bp_target_clearance = eff_clearance
                                 _bp_path = self._correct_clearance_uniform(
                                     _bp_path, mandrel_mgr, center_x, r_tool, blank_thick,
                                     shell_offset, _bp_target_clearance)

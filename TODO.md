@@ -77,7 +77,42 @@ So BOTH pieces are new work, not a copy of an existing plot.
 **Risks:** low (export-only, no toolpath/G-code impact). Watch frozen-exe
 rendering (prefer matplotlib 2D over offscreen VTK) and PDF size.
 
-### 89. ⏳ PHASE 1 CORE DONE 2026-07-23 (headless-verified; clearance ramp + Phase 2 pending; GUI smoke + PHYSICAL validation + commit PENDING) — Anchored progressive sweep for roughing + per-pass customize window
+### 89. ⏳ PER-PASS EDITOR DONE 2026-07-24 (headless-verified; GUI smoke + PHYSICAL + commit PENDING) — Anchored sweep via pass-table per-pass editor (checkbox removed)
+
+**2026-07-24 redesign (user):** the anchored sweep is now built in the PASS TABLE, not a
+checkbox. The `sweep_anchor_start` checkbox (committed 91a0913) was REMOVED. The pass table
+gained editable **Anchor Z** (target_z) + **Extend** (p2_z_extend) columns (Contact Z now
+read-only = Anchor+Extend), plus **Clearance/Angle/Reach** pins, plus **fill helpers**:
+**Set all** (one value to every pass) and **Progressive** (linear first→last ramp) on a
+chosen field. Recipe: Set-all Anchor Z + Progressive Extend = anchored sweep, by hand, then
+tune any pass. Engine reads pass_edits `target_z`/`p2_z_extend`/`clearance` (roughing-only;
+`contact_z` pin replaced); `eff_clearance` at every roughing site; `last_op_end_z` reflects a
+pinned last pass. Mirror + dialog + i18n (`pt_col_anchor`/`pt_col_extend`/`pt_fill_*`) + help
+EN/TR redone. `_test_anchored_sweep.py` (manual anchored sweep) + `_test_pass_pins.py` PASS;
+no regressions. ⚠️ per-pass pins = summary under Split/Unite (in help). Deferred:
+finishing per-pass clearance.
+
+**2026-07-24b:** columns renamed to the control points — **P1_Z** (was Anchor Z),
+**P2_Z** (was Contact Z), **P3_Z** (was End Z). Added a plain-language help line at the
+top of the window (`pt_help`), and an embedded **2D preview** (`_draw_preview`, bottom
+canvas): each pass P1→P2→P3 schematic + faint mandrel, selected pass highlighted, redraws
+from the current rows (staged edits live). `compute_pass_rows` gained `p1x/p1z/p2x`; P1 is
+drawn at the P1_Z anchor so the picture matches the columns. Visual only — engine untouched.
+Preview coords verified headless; the canvas rendering itself still needs a GUI smoke.
+
+**Phase 2 core done (per-pass editor via the existing Pass Table):** the engine now
+reads two new `pass_edits` keys — `clearance` (per-pass clearance override) and
+`contact_z` (per-pass extent, the exact contact Z) — alongside the existing
+`pass_angle`/`reach`. `eff_clearance` replaces `op_clearance` at every roughing site
+(P2 placement total_off, P3 clearance anchoring, `_create_and_store_pass`, back-pass);
+`contact_z` overrides the stepped/anchored contact. Mirrored in `compute_pass_rows`
+(new `clr` column + contact-Z override). Pass Table dialog: new **Clear.** column,
+**Contact Z + Clearance are now double-click editable** (roughing only; finishing shows
+an info) with staged ✎ markers → `pass_edits` on Apply (existing undo/Cancel/Unpin flow).
+i18n `pt_col_clr`/`pt_edit_rough_only`; help EN/TR updated (incl. the Split/Unite summary
+caveat). `_test_pass_pins.py` PASS (mirror reflects pins; engine applies to the pinned
+pass ONLY; no-pins bit-identical). No regression across all suites. Roughing-only for now
+(finishing per-pass clearance would need threading through the sweeping/adaptive branches).
 
 **Phase 1 core done:** opt-in per-op `sweep_anchor_start` (roughing). When ON, every
 pass roots its contact at `start_z` and the contact grows toward `end_z` per pass —

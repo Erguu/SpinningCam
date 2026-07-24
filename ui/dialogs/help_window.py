@@ -364,15 +364,15 @@ the pass count. Pass 1 makes the lightest contact; the last pass
 reaches the target depth. Increasing the count means smaller
 steps — less force per pass, better surface quality, slower cycle.
 
-Anchored Sweep (roughing option): normally each roughing pass's
-contact steps UP the mandrel — pass 1 works near Start Z, the last
-near End Z, each a separate slice. Tick "Anchored Sweep" and every
-pass instead ROOTS at Start Z and reaches progressively further up
-per pass (pass 1 a little past Start Z, the last all the way to End
-Z) — so the passes grow from a fixed start rather than marching
-along. It reuses the P2 Z Extend mechanism, stays fully parametric
-(Split / Unite / Continue keep working) and is off by default, so
-existing programs are unchanged.
+Anchored sweep (build it in the Pass Table): normally each roughing
+pass's contact steps UP the mandrel — pass 1 near Start Z, the last
+near End Z, each a separate slice. To make the passes instead grow
+from a FIXED start, open the Pass Table (right-click the op) and use
+the fill helpers: "Set all → Anchor Z" pins every pass's start to the
+same Z, then "Progressive → Extend" ramps each pass a bit further out
+than the last. The result is a fixed-start, growing sweep — and you
+can then hand-tune any single pass. (These are per-pass pins, so a
+pinned op becomes a summary under Split/Unite — see the Pass Table.)
 
 For finishing: each pass traces the mandrel profile at a defined
 standoff. Multiple finishing passes step down that standoff to
@@ -540,14 +540,23 @@ legitimately appear/disappear when blank size, reach or angles
 change. The endpoint column ignores the iterative safety-floor
 push, so the 3D path can sit a few mm further out in X.
 
-PINNING: double-click an Angle or Reach cell to stage a per-pass
-value (✎). Staged edits touch NOTHING until [Apply], which
-writes them as ONE undo step; [Cancel] discards them. A pinned
-pass (⭑) keeps its value against fans and follow mode — the
-highest-priority source. "Unpin" removes pins AND any legacy
-hidden per-pass overrides on the selected rows (also undoable).
-Pins live inside the operation, so they survive copy, move and
-split (split remaps them to the right chunk).
+EDITING: double-click a cell to stage a per-pass value (✎). You can
+pin P1_Z (the pass's start), Extend (how far its P2 contact reaches
+past the start), Clearance, Angle and Reach individually. P2_Z is the
+resulting contact (P1_Z + Extend) and P3_Z the exit — both read-only.
+(P1_Z, Extend and Clearance are for roughing operations.) To change
+many passes at once use the Fill bar: pick a field, then "Set all"
+(same value everywhere) or "Progressive" (smooth ramp first→last) —
+e.g. Set all P1_Z + Progressive Extend = an anchored sweep. The 2D
+preview at the bottom shows the passes as you edit.
+Staged edits touch NOTHING until [Apply], which writes them as ONE
+undo step; [Cancel] discards them. A pinned pass (⭑) keeps its values
+against fans and follow mode — the highest-priority source. "Unpin"
+removes pins AND any legacy hidden per-pass overrides on the selected
+rows (also undoable). Pins live inside the operation, so they survive
+copy, move and split (split remaps them to the right chunk). NOTE: a
+pass carrying pins can't be reproduced by a single parametric
+operation, so Split/Unite of a pinned op is a summary — review it.
 
 
 PASS DIRECTION (FORWARD / REVERSE)
@@ -953,16 +962,16 @@ Kaba için: toplam yaklaşma derinliği paso sayısına eşit bölünür.
 Sayıyı artırmak daha küçük adımlar demektir — paso başına daha az
 kuvvet, daha iyi yüzey kalitesi, daha uzun çevrim.
 
-Sabit Başlangıç Süpürme (kaba seçeneği): normalde her kaba pasın
-temas noktası mandrelde YUKARI adımlar — 1. paso Başlangıç Z
-yakınında, son paso Bitiş Z yakınında, her biri ayrı bir dilim.
-"Sabit Başlangıç Süpürme"yi işaretleyin; her paso bunun yerine
-Başlangıç Z'sinde KÖKLENİR ve her pasta yukarı doğru giderek daha
-uzağa uzanır (1. paso Başlangıç Z'yi biraz geçer, son paso Bitiş
-Z'ye kadar) — yani paslar sabit bir başlangıçtan büyür. P2 Z Uzatma
-mekanizmasını kullanır, tam parametriktir (Böl / Birleştir / Devam
-çalışmaya devam eder) ve varsayılan kapalıdır (mevcut programlar
-değişmez).
+Sabit başlangıç süpürme (Pas Tablosunda oluştur): normalde her kaba
+pasın temas noktası mandrelde YUKARI adımlar — 1. paso Başlangıç Z,
+son paso Bitiş Z yakınında, her biri ayrı bir dilim. Pasların
+SABİT bir başlangıçtan büyümesi için Pas Tablosunu açın (op'a sağ
+tık) ve doldurma yardımcılarını kullanın: "Hepsine ata → Kök Z" her
+pasın başlangıcını aynı Z'ye sabitler, sonra "Kademeli → Uzatma" her
+pası bir öncekinden biraz daha uzağa çıkarır. Sonuç: sabit başlangıç,
+büyüyen süpürme — ve istediğiniz tek pası elle ince ayarlayabilirsiniz.
+(Bunlar pas-başına pinlerdir; pinli op Böl/Birleştir'de bir özet olur —
+Pas Tablosuna bakın.)
 
 Bitirme için: her paso mandrel profilini belirli bir boşlukta takip
 eder. Birden fazla bitirme pasası bu boşluğu sıfıra (gerçek parça
@@ -1047,15 +1056,24 @@ reach veya açılar değişince görünüp kaybolmaları normaldir. Uç
 noktası sütunu yinelemeli güvenlik-tabanı itmesini içermez; 3B
 yol X'te birkaç mm daha dışarıda olabilir.
 
-PİNLEME: Açı veya Reach hücresine çift tıkla → pas-başına değer
-BEKLEMEYE alınır (✎). Beklemedekiler [Uygula]'ya kadar HİÇBİR
+DÜZENLEME: bir hücreye çift tıkla → pas-başına değer BEKLEMEYE alınır
+(✎). P1_Z (pasın başlangıcı), Uzatma (P2 temasının başlangıçtan ne
+kadar uzağa ulaştığı), Klerens, Açı ve Reach ayrı ayrı pinlenebilir.
+P2_Z sonuçtaki temastır (P1_Z + Uzatma), P3_Z çıkıştır — ikisi de
+salt-okunur. (P1_Z, Uzatma ve Klerens kaba operasyonlar içindir.)
+Birçok pası birden değiştirmek için Doldur çubuğunu kullan: alan seç,
+sonra "Hepsine ata" veya "Kademeli" — örn. Hepsine ata P1_Z + Kademeli
+Uzatma = sabit başlangıç süpürme. Alttaki 2B önizleme pasları gösterir. Beklemedekiler
+[Uygula]'ya kadar HİÇBİR
 ŞEYE dokunmaz; Uygula hepsini TEK Ctrl+Z adımı olarak yazar,
-[İptal] atar. Pinli pas (⭑) değerini yelpazeye ve sac takibine
+[İptal] atar. Pinli pas (⭑) değerlerini yelpazeye ve sac takibine
 karşı korur — en yüksek öncelikli kaynaktır. "Pin temizle"
 seçili satırlardaki pinleri VE eski tip gizli override'ları
 kaldırır (o da geri alınabilir). Pinler operasyonun içinde
 yaşar: kopyala, taşı ve böl'de korunurlar (böl, pinleri doğru
-parçaya yeniden eşler).
+parçaya yeniden eşler). NOT: pin taşıyan bir pas tek bir parametrik
+operasyonla üretilemez → pinli op'un Böl/Birleştir'i bir özettir,
+sonucu gözden geçir.
 
 
 PAS YÖNÜ (İLERİ / TERS)

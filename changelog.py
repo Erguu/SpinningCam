@@ -6,6 +6,12 @@ here with short, operator-facing bullet lines (what changed, not how it was code
 """
 
 CHANGELOG = {
+    "1.010": [
+        "Pass retract is now per operation (Program tab → Retract X/Z): every operation — roughing, finishing, cutting, bending — can retract by its own amount. The old global retract on the Machine tab was removed; existing programs are migrated so each operation keeps the retract it had before.",
+        "New per-pass editor in the Pass Table (right-click an operation → Pass Table): edit P1_Z, Extend, Clearance, Angle and Reach for each pass. Use the Fill bar to change many at once — 'Set all' puts one value on every pass, 'Progressive' ramps smoothly from the first pass to the last. Set all P1_Z + Progressive Extend builds an anchored sweep (every pass starts at the same place and reaches a bit further). A live 2D preview at the bottom shows the passes as you edit.",
+        "PDF export is now self-documenting: it lists the full operation parameters next to the toolpath plot, so you can compare two parameter sets side by side. When you export, a dialog lets you pick which parameters to include and remembers your choice for next time.",
+        "The startup 'What's New' text is shorter and clearer.",
+    ],
     "1.009": [
         "Tool-change position can now be set per operation (Program tab → Tool Change): retract to home (default), to an exact X/Z point, or to an offset from the last pass. Only affects operations whose tool differs from the one before.",
         "New 'Simultaneous XZ' option retracts both axes together in one diagonal move; the retract path is collision-checked and warns if a tool could strike the part (advisory only).",
