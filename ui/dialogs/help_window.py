@@ -790,12 +790,22 @@ which you rarely touch. Two controls tame this:
     parameters that matter for this program. It borders only the
     label text, never the input box, and never changes any value.
 
+  - A "Column Order" tab sets the LEFT-TO-RIGHT order of the
+    operations table. It is a single global order (the table is
+    shared by all operation types), shown as a strip of column
+    chips reading left-to-right exactly like the real table. Click
+    a chip, then move it with the ◀ / ▶ buttons; "Reset Order"
+    restores the natural order. Use it to bring the columns you
+    watch most (e.g. Clearance) to the front instead of scrolling
+    right to them. The ☑ tick column always stays first, because
+    the tick handling identifies it by position.
+
   - The "Advanced" checkbox in the toolbar is a global view switch.
     Off: the editor shows only the parameters NOT marked advanced —
     a short, clean form. On: every parameter is shown (the classic
     behaviour). It affects the view only.
 
-Column choices and basic/advanced tags are saved WITH the program
+Column choices, column order and basic/advanced tags are saved WITH the program
 (.ssp), so each program remembers its own layout; the Advanced
 switch is a single app-wide setting. IMPORTANT: hiding a parameter
 never changes its value and never changes the toolpath — a hidden
@@ -1300,12 +1310,22 @@ nadiren dokunursunuz. İki kontrol bunu düzenler:
     parametreleri sunacağını seçer (yalnız sayısal parametreler;
     "—" = o parametre toplu düzenlenemez).
 
+  - "Sütun Sırası" sekmesi operasyon tablosunun SOLDAN SAĞA
+    sırasını belirler. Tek bir genel sıradır (tablo tüm operasyon
+    tipleri tarafından paylaşılır) ve gerçek tablo gibi soldan sağa
+    okunan sütun etiketleri şeridi olarak gösterilir. Bir etikete
+    tıklayın, sonra ◀ / ▶ düğmeleriyle taşıyın; "Sırayı Sıfırla"
+    doğal sıraya döndürür. En çok izlediğiniz sütunları (örn.
+    Emniyet Payı) sağa kaydırmadan öne almak için kullanın. ☑
+    işaret sütunu daima ilk sırada kalır, çünkü işaretleme onu
+    konumuna göre tanır.
+
   - Araç çubuğundaki "Gelişmiş" kutusu genel bir görünüm anahtarıdır.
     Kapalı: editör yalnızca gelişmiş işaretlenmemiş parametreleri
     gösterir — kısa, sade bir form. Açık: tüm parametreler görünür
     (klasik davranış). Yalnızca görünümü etkiler.
 
-Sütun seçimleri ve temel/gelişmiş etiketleri programla (.ssp)
+Sütun seçimleri, sütun sırası ve temel/gelişmiş etiketleri programla (.ssp)
 BİRLİKTE kaydedilir; her program kendi düzenini hatırlar. Gelişmiş
 anahtarı ise uygulama genelinde tek bir ayardır. ÖNEMLİ: bir
 parametreyi gizlemek değerini ASLA değiştirmez ve takım yolunu ASLA

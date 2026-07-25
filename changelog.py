@@ -3,14 +3,56 @@
 
 Keyed by version string. When you bump ``version.APP_VERSION``, add the matching entry
 here with short, operator-facing bullet lines (what changed, not how it was coded).
+
+An entry line is either:
+
+* ``"plain string"`` — one bullet, rendered as it always was (versions up to 1.009);
+* ``(title, detail, where)`` — preferred. ``title`` is a short bold headline (aim for
+  one line), ``detail`` a sentence or two of grey text, ``where`` the click path to
+  the thing (``"Program List ▸ right-click an operation ▸ Passes ▦"``). ``detail`` and
+  ``where`` are optional, so ``(title,)`` and ``(title, detail)`` are valid.
+
+One idea per line: prefer three short entries over one paragraph. Keep to BMP
+characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.011": [
+        ("The operation table columns can be reordered",
+         "Click a column, then move it left or right with the ◀ / ▶ buttons — "
+         "bring the ones you watch most to the front instead of scrolling right "
+         "to reach them. The order is saved with the program. The ☑ tick column "
+         "always stays first.",
+         "Program List ▸ Customize… ▸ Column Order"),
+        ("This window is easier to read",
+         "Each change is now a short headline, a plain sentence, and the place "
+         "to click for it.",
+         "Shown once after every update"),
+    ],
     "1.010": [
-        "Pass retract is now per operation (Program tab → Retract X/Z): every operation — roughing, finishing, cutting, bending — can retract by its own amount. The old global retract on the Machine tab was removed; existing programs are migrated so each operation keeps the retract it had before.",
-        "New per-pass editor in the Pass Table (right-click an operation → Pass Table): edit P1_Z, Extend, Clearance, Angle and Reach for each pass. Use the Fill bar to change many at once — 'Set all' puts one value on every pass, 'Progressive' ramps smoothly from the first pass to the last. Set all P1_Z + Progressive Extend builds an anchored sweep (every pass starts at the same place and reaches a bit further). A live 2D preview at the bottom shows the passes as you edit.",
-        "PDF export is now self-documenting: it lists the full operation parameters next to the toolpath plot, so you can compare two parameter sets side by side. When you export, a dialog lets you pick which parameters to include and remembers your choice for next time.",
-        "The startup 'What's New' text is shorter and clearer.",
+        ("Retract is now set per operation",
+         "Roughing, finishing, cutting and bending each retract by their own "
+         "amount. The old global retract on the Machine tab is gone — existing "
+         "programs are migrated and keep the retract they had before.",
+         "Program List ▸ select an operation ▸ Retract X / Retract Z"),
+        ("Every pass can be edited on its own",
+         "Change P1_Z, Extend, Clearance, Angle and Reach for any single pass.",
+         "Program List ▸ right-click an operation ▸ Passes ▦"),
+        ("Fill many passes at once",
+         "\"Set all…\" gives every pass the same value. \"Progressive…\" ramps "
+         "smoothly from the first pass to the last. Set all on P1_Z plus "
+         "Progressive on Extend builds an anchored sweep — every pass starts in "
+         "the same place and reaches a little further.",
+         "Passes ▦ ▸ Fill"),
+        ("A 2D preview draws the passes as you edit",
+         "The picture at the bottom of the pass table updates while you type, "
+         "before you apply anything.",
+         "Passes ▦ ▸ bottom of the window"),
+        ("The exported PDF now lists the parameters",
+         "Full operation parameters are printed next to the toolpath plot, so "
+         "two parameter sets can be compared side by side. On export you pick "
+         "which parameters to include, and the choice is remembered.",
+         "Process & Visual ▸ Export PDF"),
     ],
     "1.009": [
         "Tool-change position can now be set per operation (Program tab → Tool Change): retract to home (default), to an exact X/Z point, or to an offset from the last pass. Only affects operations whose tool differs from the one before.",

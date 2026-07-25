@@ -722,6 +722,45 @@ class ProgramTab:
             return _fmt_num(val)
         return str(val)
 
+    # Base columns whose headings are fixed text (extras are labelled from the
+    # parameter universe). Order here is the DEFAULT display order, not a
+    # constraint — the user can reorder via Customize View (see _display_order).
+    _BASE_COL_LABELS = (
+        ("Sel", None), ("Idx", None), ("On", "col_on"), ("Type", "col_type"),
+        ("Count", "col_count"), ("Tool", "col_tool"),
+        ("RealEndZ", "col_real_end_z"), ("EndReach", "col_end_reach"),
+        ("EndAngle", "col_end_angle"),
+    )
+
+    def _col_label(self, cid):
+        """Human label for a tree column id — used by the order editor."""
+        for key, ikey in self._BASE_COL_LABELS:
+            if key == cid:
+                if cid == "Sel":
+                    return "☑"
+                if cid == "Idx":
+                    return "#"
+                return t(ikey)
+        if cid.startswith("x_"):
+            return self._param_label(cid[2:])
+        return cid
+
+    def _display_order(self, cols):
+        """Display order for the ops table: the saved order, repaired.
+
+        'Sel' is PINNED first — the ☑ click handlers identify that cell by
+        display position ("#1"), so letting it move would silently redirect
+        ticks to whatever column landed there. Ids that no longer exist are
+        dropped and ids the saved order never knew about are appended, so a
+        stale/hand-edited config degrades to a sane table instead of a broken
+        one. Purely visual: the data columns and the value order written by
+        refresh_ops_tree are untouched.
+        """
+        saved = [c for c in self.app.params.get("op_view_col_order", [])
+                 if c in cols and c != "Sel"]
+        rest = saved + [c for c in cols if c not in saved and c != "Sel"]
+        return ("Sel",) + tuple(rest)
+
     def rebuild_tree_columns(self):
         """(Re)configure the ops-table columns: fixed base + configured extras."""
         extra = self._column_union()
@@ -740,6 +779,8 @@ class ProgramTab:
         for k in extra:
             self.tree_ops.heading(f"x_{k}", text=self._param_label(k))
             self.tree_ops.column(f"x_{k}", width=75, anchor="center")
+        # Display-only reordering, applied last so it sees the final column set.
+        self.tree_ops.configure(displaycolumns=self._display_order(cols))
         self._extra_cols = list(extra)
 
     def after_view_config_changed(self):

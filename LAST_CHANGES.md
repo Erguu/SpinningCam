@@ -5,6 +5,82 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-25b — "YENİLİKLER" PENCERESİ: OKUNABİLİR DEĞİŞİKLİK KAYDI (renk + font hiyerarşisi)
+
+**İstek (kullanıcı):** Değişiklik kaydı daha basit ve anlaşılır olsun; önemli kısımlar
+renk/font ile ayrışsın. (Görsel/ekran görüntüsü ve "ok ile gösteren overlay" fikirleri
+tartışıldı → BAKIM MALİYETİ nedeniyle ERTELENDİ; bkz. aşağıdaki not.)
+
+**Yapılanlar:**
+- `changelog.py` girdileri artık `(title, detail, where)` demeti olabilir; `detail`/`where`
+  opsiyonel. **Eski sürümler (1.004–1.009) DÜZ METİN olarak KALDI** — renderer iki biçimi de
+  destekler (`isinstance(ln, str)`), yani geçmiş yeniden yazılmadı.
+- 1.010 girdileri yeniden yazıldı: 4 uzun paragraf → **5 kısa madde**, her biri tek fikir +
+  **"nerede" kırıntısı** (menü yolu). Yollar koddan DOĞRULANDI: "Program List ▸ Retract X/Z"
+  (`lbl_op_retract_x`), "right-click ▸ Passes ▦" (`btn_pass_table`, program_tab.py:1692),
+  "Passes ▦ ▸ Fill" (`pt_fill_field`), "Process & Visual ▸ Export PDF" (process_tab.py:455).
+- `changelog_window.py`: `title` (beyaz kalın) / `detail` (gri) / `where` (soluk gri, 9pt)
+  etiketleri. **`lmargin2` = ASILI GİRİNTİ** — satır kaydığında devamı metnin altına hizalanır
+  (eskiden 0. sütuna düşüyordu; ESKİ girdiler de bundan faydalandı).
+- **Kaydırma çubuğu eklendi + kutu 16→25 satır.** Ekran görüntüsüyle YAKALANDI: 1.010'un 5
+  maddesi 16 satıra sığmıyordu, 4. ve 5. maddeye ULAŞILAMIYORDU (çubuk yoktu). Fare tekerleği
+  pencereye bağlandı (Text `state="disabled"` olduğu için odak almıyor).
+
+**Doğrulama:** `_test_changelog_window.py` (`--check` = headless: demet geçişi, karışık
+eski/yeni geçmiş, alan sayısı, boş başlık, **BMP-dışı karakter yasağı** — Tk 8.6 emoji'yi
+bozar, `entries_since` davranışı). GEÇTİ. Ayrıca gerçek pencere ekran görüntüsüyle görsel
+doğrulandı (hem 1.009→1.010 hem 1.008→1.010 karışık render).
+
+**Kullanıcı testi:** `python _test_changelog_window.py` → pencereyi AÇAR; `settings.json`
+veya `changelog_seen_version` YAZILMAZ (güvenli).
+
+**ERTELENEN (tartışıldı, yapılmadı):** (a) ekran görüntüleri — her sürümde elle yeniden
+çekilmeli + `packaging_manifest.py` girdisi gerekir, bayat görsel yoktan KÖTÜ; (b) "Show me →"
+spot ışığı overlay'i — canlı widget'ı gösterdiği için bayatlamaz (#84 `_apply_label_highlights`
+halka tekniği yeniden kullanılabilir) ANCAK widget kayıt defteri gerekir ve 3B görünüm (VTK
+native pencere) üzerine Tk overlay çizilemez. (c) **Girdi metinleri hâlâ SADECE İNGİLİZCE**
+(pencere çerçevesi çevrili) — TR/ES operatör için en büyük anlama açığı, `title`+`where`
+çevirisi ucuz olur.
+
+---
+
+## 2026-07-25 — OPERASYON TABLOSU SÜTUN SIRASI (◀ ▶ ile taşıma) — #91
+
+**İstek (kullanıcı):** Program sekmesindeki operasyon listesinde sütunların YERİNİ de
+değiştirebilmek (örn. Emniyet Payı sütununu en başa almak). Kullanıcı isteği: yukarı/aşağı
+değil, **yan ok düğmeleri**. Ek şart: **seçim (☑) dinamiğini riske atmamak.**
+
+**Yapılanlar:**
+- `program_tab._display_order(cols)` (YENİ): kaydedilmiş sırayı ONARARAK uygular — bilinmeyen
+  id'ler atılır, sırada olmayan yeni sütunlar sona eklenir. Yalnız `displaycolumns` ayarlanır;
+  **veri sütunları ve `refresh_ops_tree`'nin pozisyonel değer yazımı DEĞİŞMEDİ** (görsel-only).
+- `rebuild_tree_columns` sonuna tek satır: `configure(displaycolumns=self._display_order(cols))`.
+- `program_tab._col_label(cid)` + `_BASE_COL_LABELS` (YENİ): sıra editörü için sütun etiketleri.
+- `view_customizer`: YENİ **"Sütun Sırası"** sekmesi (op tipine değil TABLOYA ait olduğu için
+  ayrı sekme). Gerçek tablo gibi soldan-sağa okunan yatay etiket şeridi; etikete tıkla + **◀ / ▶**
+  ile taşı; "Sırayı Sıfırla". `_apply` → `params["op_view_col_order"]`, `.ssp` ile kaydedilir.
+- `main.py`: `.ssp` yüklenirken `op_view_col_order` yoksa bayat bellek temizlenir
+  (`op_view_config` ile aynı desen).
+- Yardım penceresi (EN+TR) "CUSTOMIZE VIEW" bölümü güncellendi.
+
+**GÜVENLİK — ☑ sütunu SABİTLENDİ (kritik):** `_on_check_click`/`:1137`/`:4614` ☑ hücresini
+**görüntü konumuna** göre tanır (`identify_column(...) == "#1"`). Bu yüzden `Sel` her zaman
+1. sıradadır: `_display_order` onu zorla başa koyar (elle düzenlenmiş `.ssp` bile taşıyamaz) VE
+`_move_col` hem `Sel` seçiliyken hem de 0. yuvaya taşımayı reddeder (çift kilit). Böylece
+seçim/işaretleme kodunda **tek satır değişiklik yok**.
+
+**Testler:** `_test_col_order.py` (9 durum: doğal sıra, clearance başa, Sel pinned, bayat id,
+yeni id, küme/tekillik korunumu) + `_test_col_order_gui.py` (gerçek Tk: şerit kurulumu, ◀ ile
+yürütme, doğrudan handler çağrısıyla bile Sel oynamaz, `displaycolumns` uygulanır, **değerler
+hizalı kalır** ve `column("#1","id") == "Sel"`, Sıfırla). HEPSİ GEÇTİ. `_test_batch`,
+`_test_reorder`, `_test_pdf_export`, `_test_split`, `_test_op_library` PASS.
+ÖNCEDEN BOZUK (bu değişiklikle ilgisiz): `_test_program_tab_toolbar` (`btn_batch` 2026-07-10
+araç çubuğu sadeleştirmesinde kaldırıldı, test bayat), `_test_pass_table` (HANDOVER_2026-07-08).
+
+**GUI SMOKE BEKLİYOR.** Geri alma: `rebuild_tree_columns`'daki tek `displaycolumns` satırını sil.
+
+---
+
 ## 2026-07-24 — SÜRÜM 1.010
 
 `version.APP_VERSION` 1.009 → **1.010**. `changelog.py`'ye 1.010 girişi eklendi (operatör-odaklı,

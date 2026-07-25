@@ -1929,6 +1929,8 @@ class SpinningApp:
                     # the resolver falls back to sensible defaults.
                     if "op_view_config" not in loaded_params:
                         self.params.pop("op_view_config", None)
+                    if "op_view_col_order" not in loaded_params:
+                        self.params.pop("op_view_col_order", None)
                     try:
                         from config_schema import migrate_clearance, migrate_pass_retract
                         migrate_clearance(self.params)

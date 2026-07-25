@@ -323,6 +323,7 @@ pasif op'lar hesaplamaya/G-code'a girmez (zaten `op.get("enabled")` ile atlanıy
 | Gizlenecek anahtarlar (grup bağımlılığı genişletir) | `program_tab.py` | `_hidden_keys()` |
 | Editör görünürlük uygula (alan + boş başlık gizle) | `program_tab.py` | `_apply_field_visibility()`, `_add_section_header()` |
 | Dinamik tablo sütunları | `program_tab.py` | `rebuild_tree_columns()`, `_column_union()`, `_cell_value()` |
+| **#91 Sütun SIRASI** (görsel-only) | `program_tab.py` + `view_customizer.py` | `_display_order()` (Sel PINNED — ☑ handler'ları `"#1"` konumuna bakar), `_col_label()`; dialog: `_build_order_tab()`/`_move_col()`; config `op_view_col_order` (.ssp) |
 | Alan satırı etiketleri | `program_tab.py` | helper'larda `f._pkey`, inline blok'larda `_pkey`, başlıklarda `_section` |
 | Araç çubuğu düğme + Gelişmiş kutusu | `program_tab.py` | `_create_widgets` (`btn_customize`, `var_show_adv`) |
 | Özelleştir diyaloğu | `ui/dialogs/view_customizer.py` | `ViewCustomizerDialog` (Column/Advanced/Batch/**Border** sütunları) |

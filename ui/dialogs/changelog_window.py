@@ -23,14 +23,48 @@ class ChangelogWindow(tk.Toplevel):
         tk.Label(wrap, text=t("changelog_heading").format(v=current_version),
                  bg="#1b232e", fg="#eaeaea", font=("Segoe UI", 12, "bold")).pack(anchor="w")
 
-        body = tk.Text(wrap, width=70, height=16, wrap="word", bg="#0e141b", fg="#dfe6ee",
+        # Text + scrollbar in their own frame: a release with many entries (or a
+        # user who skipped several versions) overflows the box, and without a
+        # visible bar the entries below the fold are simply never found.
+        f_body = tk.Frame(wrap, bg="#1b232e")
+        f_body.pack(fill="both", expand=True, pady=(8, 8))
+        body = tk.Text(f_body, width=70, height=25, wrap="word", bg="#0e141b", fg="#dfe6ee",
                        relief="flat", padx=10, pady=8, font=("Segoe UI", 10))
-        body.pack(fill="both", expand=True, pady=(8, 8))
-        body.tag_config("ver", foreground="#5cc8ff", font=("Segoe UI", 10, "bold"))
+        sb = tk.Scrollbar(f_body, orient="vertical", command=body.yview)
+        body.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        body.pack(side="left", fill="both", expand=True)
+        # The Text is disabled (read-only), which also stops it taking focus, so
+        # bind the wheel on the window rather than relying on focus-follows.
+        self.bind("<MouseWheel>", lambda e: body.yview_scroll(int(-e.delta / 120), "units"))
+        # An entry is either a plain string (legacy — rendered as one bullet, the
+        # way every version up to 1.010 was written) or a (title, body, where)
+        # tuple, where the last two are optional. The tuple form is typeset in
+        # three weights so the operator can skim the bold titles alone and read
+        # the grey detail only for the change they care about.
+        # lmargin2 gives every style a HANGING indent: wrapped lines line up
+        # under the text instead of falling back to the left edge.
+        body.tag_config("ver", foreground="#5cc8ff", font=("Segoe UI", 10, "bold"),
+                        spacing1=4, spacing3=4)
+        body.tag_config("title", foreground="#ffffff", font=("Segoe UI", 10, "bold"),
+                        lmargin1=14, lmargin2=30, spacing1=8, spacing3=2)
+        body.tag_config("detail", foreground="#c9d4e0", font=("Segoe UI", 10),
+                        lmargin1=30, lmargin2=30, spacing3=2)
+        body.tag_config("where", foreground="#8fa3b8", font=("Segoe UI", 9),
+                        lmargin1=30, lmargin2=42, spacing3=2)
+        body.tag_config("legacy", lmargin1=14, lmargin2=30, spacing3=3)
         for ver, lines in sections:
             body.insert("end", f"v{ver}\n", "ver")
             for ln in lines:
-                body.insert("end", f"   •  {ln}\n")
+                if isinstance(ln, str):
+                    body.insert("end", f"•  {ln}\n", "legacy")
+                    continue
+                title, detail, where = (list(ln) + ["", ""])[:3]
+                body.insert("end", f"•  {title}\n", "title")
+                if detail:
+                    body.insert("end", f"{detail}\n", "detail")
+                if where:
+                    body.insert("end", f"▸ {where}\n", "where")
             body.insert("end", "\n")
         body.config(state="disabled")
 

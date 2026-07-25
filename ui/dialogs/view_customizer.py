@@ -75,6 +75,12 @@ class ViewCustomizerDialog(tk.Toplevel):
             nb.add(tab, text=t(label_key))
             self._build_type_tab(tab, op_type)
 
+        # Column order is a property of the single ops table, not of an op
+        # type, so it gets its own tab rather than living in each type's tab.
+        tab_ord = ttk.Frame(nb)
+        nb.add(tab_ord, text=t("vc_tab_order"))
+        self._build_order_tab(tab_ord)
+
         # --- Buttons ---
         f_btn = ttk.Frame(self)
         f_btn.pack(fill="x", padx=10, pady=(4, 10))
@@ -179,6 +185,105 @@ class ViewCustomizerDialog(tk.Toplevel):
                     row=gr + 1, column=0, columnspan=5, sticky="ew")
 
     # ------------------------------------------------------------------
+    # Column order tab (#91) — display-only reordering of the ops table.
+    # ------------------------------------------------------------------
+
+    def _build_order_tab(self, parent):
+        ttk.Label(parent, text=t("vc_order_info"), foreground="#555",
+                  wraplength=640, justify="left").pack(fill="x", padx=10, pady=(10, 6))
+
+        # Current live order straight off the tree, so this always mirrors what
+        # the user is looking at. Columns ticked on in another tab but not yet
+        # applied simply appear at the end after Apply (_display_order appends
+        # ids the saved order doesn't know).
+        tree = self.pt.tree_ops
+        disp = tree.cget("displaycolumns")
+        if isinstance(disp, str):
+            disp = (disp,) if disp else ()
+        cols = tree.cget("columns")
+        if isinstance(cols, str):
+            cols = tuple(cols.split())
+        if not disp or "#all" in disp:
+            disp = tuple(cols)
+        self._order_list = [c for c in disp]
+        self._order_sel = self._order_list[1] if len(self._order_list) > 1 else None
+
+        # Horizontal strip of chips, left-to-right exactly like the real table.
+        # Many configured columns overflow the dialog, hence the x-scrollbar.
+        wrap = ttk.Frame(parent)
+        wrap.pack(fill="x", padx=10)
+        self._ord_canvas = tk.Canvas(wrap, height=44, highlightthickness=0)
+        sbx = ttk.Scrollbar(wrap, orient="horizontal", command=self._ord_canvas.xview)
+        self._ord_canvas.configure(xscrollcommand=sbx.set)
+        self._ord_canvas.pack(fill="x")
+        sbx.pack(fill="x")
+        self._ord_strip = ttk.Frame(self._ord_canvas)
+        self._ord_canvas.create_window((0, 0), window=self._ord_strip, anchor="nw")
+        self._ord_strip.bind("<Configure>", lambda e: self._ord_canvas.configure(
+            scrollregion=self._ord_canvas.bbox("all")))
+
+        f_btn = ttk.Frame(parent)
+        f_btn.pack(fill="x", padx=10, pady=(10, 4))
+        ttk.Button(f_btn, text="◀", width=4,
+                   command=lambda: self._move_col(-1)).pack(side="left")
+        ttk.Button(f_btn, text="▶", width=4,
+                   command=lambda: self._move_col(1)).pack(side="left", padx=(6, 0))
+        ttk.Button(f_btn, text=t("vc_order_reset"),
+                   command=self._reset_order).pack(side="left", padx=(16, 0))
+
+        ttk.Label(parent, text=t("vc_order_pinned"), foreground="#888",
+                  wraplength=640, justify="left").pack(fill="x", padx=10, pady=(8, 0))
+        self._redraw_order()
+
+    def _redraw_order(self):
+        for w in self._ord_strip.winfo_children():
+            w.destroy()
+        for cid in self._order_list:
+            pinned = (cid == "Sel")
+            selected = (cid == self._order_sel)
+            lbl = tk.Label(self._ord_strip, text=self.pt._col_label(cid),
+                           relief="raised", bd=1, padx=6, pady=4,
+                           bg=("#1976d2" if selected else
+                               "#e0e0e0" if pinned else "#f5f5f5"),
+                           fg=("white" if selected else
+                               "#9e9e9e" if pinned else "black"))
+            lbl.pack(side="left", padx=2, pady=4)
+            if not pinned:
+                lbl.bind("<Button-1>", lambda e, c=cid: self._select_col(c))
+        self._ord_strip.update_idletasks()
+        self._ord_canvas.configure(scrollregion=self._ord_canvas.bbox("all"))
+
+    def _select_col(self, cid):
+        self._order_sel = cid
+        self._redraw_order()
+
+    def _move_col(self, delta):
+        """Shift the selected column one slot left/right. Index 0 is Sel and is
+        never a valid destination — the ☑ click handlers identify that cell by
+        display position, so it stays pinned."""
+        if self._order_sel is None or self._order_sel == "Sel":
+            return      # Sel is pinned: it can neither be displaced nor moved
+        try:
+            i = self._order_list.index(self._order_sel)
+        except ValueError:
+            return
+        j = i + delta
+        if j < 1 or j >= len(self._order_list):
+            return      # off the end, or into Sel's pinned slot
+        self._order_list[i], self._order_list[j] = \
+            self._order_list[j], self._order_list[i]
+        self._redraw_order()
+
+    def _reset_order(self):
+        """Back to the natural order: base columns, then extras as configured."""
+        cols = self.pt.tree_ops.cget("columns")
+        if isinstance(cols, str):
+            cols = tuple(cols.split())
+        self._order_list = list(cols)
+        self._order_sel = self._order_list[1] if len(self._order_list) > 1 else None
+        self._redraw_order()
+
+    # ------------------------------------------------------------------
     def _reset_defaults(self):
         for op_type, _ in _OP_TYPES:
             d = _default_cfg(op_type)
@@ -189,6 +294,7 @@ class ViewCustomizerDialog(tk.Toplevel):
                 if bat_var is not None:
                     bat_var.set(k in bat)
                 bdr_var.set(self._bdr_disp[""])   # #84 — no highlights by default
+        self._reset_order()
 
     def _apply(self):
         cfg = {}
@@ -206,5 +312,9 @@ class ViewCustomizerDialog(tk.Toplevel):
                               if self._bdr_rev.get(vars_[k][3].get())},
             }
         self.app.params["op_view_config"] = cfg
+        # Sel is pinned by _display_order and never stored, so the saved order
+        # can't be edited into a state that moves it.
+        self.app.params["op_view_col_order"] = [c for c in getattr(self, "_order_list", [])
+                                                if c != "Sel"]
         self.pt.after_view_config_changed()
         self.destroy()
