@@ -223,6 +223,12 @@ class SpinningCamWindow(tk.Tk):
         tools_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label=t("menu_tools"), menu=tools_menu)
         tools_menu.add_command(label=t("menu_tool_library"), command=self.open_tool_library)
+        # SCL Inspector — the .nc is always full resolution, so a G-code viewer
+        # shows intent, not what the PLC receives. Gated to machines whose adapter
+        # actually has the SCL pipeline, same rule as the export entry above.
+        if "scl" in formats:
+            tools_menu.add_command(label=t("menu_scl_inspector"),
+                                   command=self.open_scl_inspector)
 
         # View Menu
         view_menu = tk.Menu(menubar, tearoff=0)
@@ -966,6 +972,16 @@ class SpinningCamWindow(tk.Tk):
                  webbrowser.open("https://ncviewer.com/")
                  try: os.startfile(path)
                  except: pass
+
+    def open_scl_inspector(self):
+        """Read-only view of what PLC decimation does to the calculated paths."""
+        if hasattr(self, 'ui_machine'):
+            self.ui_machine.sync_params()
+        if not getattr(self.app.path_gen, 'last_calculated_paths', None):
+            messagebox.showwarning(t("msg_no_paths_title"), t("msg_no_paths"))
+            return
+        from ui.dialogs.scl_inspector import SclInspectorDialog
+        SclInspectorDialog(self, self.app)
 
     def export_pdf_action(self):
         from export_manager import ExportManager

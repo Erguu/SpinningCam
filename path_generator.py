@@ -1550,6 +1550,304 @@ class PathGenerator:
                 f"{float(bow_mm):+.1f} → {amp:+.1f}mm (clearance {clearance:.2f}mm)")
         return curve
 
+    # Fold guard for the exit curl: the tangent arc may never sweep past this.
+    # Same failure mode exit_arc_angle has above ~90° (it folds back on itself);
+    # here the LENGTH is the invariant (see _make_curl_leg), so the cap grows the
+    # radius instead of shortening the pass.
+    CURL_SWEEP_CAP_DEG = 90.0
+
+    def _curl_penetration(self, pts, mandrel_mgr, center_x, r_tool,
+                          blank_thick, shell_offset, clearance, skip_first=True):
+        """Worst clearance violation (mm, >=0) of a curl leg against the
+        clearance-offset surface. Same radial test as `_bow_penetration`, but the
+        LAST point is included: unlike a bow, the curl's end is a free output
+        (the pass no longer has to land on the planned P3), so it must be checked
+        too. `skip_first` keeps M — the junction with the straight leg — pinned."""
+        pts = np.asarray(pts, dtype=float)
+        if len(pts) < 2:
+            return 0.0
+        m_min_z = mandrel_mgr.props.get("min_z", float('-inf'))
+        m_top_z = mandrel_mgr.props.get("top_z", float('inf'))
+        worst = 0.0
+        for i in range(1 if skip_first else 0, len(pts)):
+            sx, sz = pts[i, 0], pts[i, 2]
+            zc = min(max(sz, m_min_z), m_top_z)
+            m_rad = max(0.0, mandrel_mgr.get_radius_fast(zc))
+            required = m_rad + blank_thick + shell_offset + r_tool + clearance
+            pen = required - abs(sx - center_x)
+            if pen > worst:
+                worst = pen
+        return worst
+
+    def _tangent_arc(self, M, tan_dir, radius_mm, arc_len, check_res):
+        """Dense point run starting at M, leaving along `tan_dir`, curving at
+        EXACTLY radius |radius_mm| for up to `arc_len` mm of arc. The start point
+        and start TANGENT are exact, so a straight leg feeding into this has no
+        corner at the junction.
+
+        Returns (points, sweep_rad, leftover_len, end_dir). The turn is capped at
+        CURL_SWEEP_CAP_DEG; when the cap bites, the arc simply stops there and
+        `leftover_len` is the length that did not fit — the caller runs it on as a
+        straight tangent (see `_curl_tail`). The RADIUS IS NEVER ALTERED to make
+        the length fit: doing that made every radius below arc_len·2/π collapse to
+        one identical shape, so only the sign of the field had any effect
+        (user-reported 2026-07-26).
+
+        SIGN / HANDEDNESS — deliberately identical to `_bezier_bow`: the normal is
+        the chord rotated a fixed +90° in XZ, `perp = (−dir_z, 0, +dir_x)`, with the
+        side carried by the sign of `radius_mm`. It is tempting to instead pick
+        "whichever perpendicular points away from the axis (+X)", but that rule
+        flips its Z-sign exactly where the exit direction sweeps through radial —
+        which is the bug that made the first pass of a progressive-angle fan bow
+        opposite to the rest (see `_bezier_bow`). A fixed handedness rotates
+        smoothly with the direction and never flips, so every pass in a fan curls
+        the same way: **+R curls toward the mandrel top (+Z), −R toward the base.**
+
+        Total tail length is still preserved — see `_curl_tail`."""
+        M = np.asarray(M, dtype=float)
+        d = np.asarray(tan_dir, dtype=float)
+        d_norm = np.linalg.norm(d)
+        R = abs(float(radius_mm))
+        if d_norm < 1e-9 or arc_len <= 1e-6 or R < 1e-6:
+            return np.array([M]), 0.0, max(arc_len, 0.0), (d / d_norm if d_norm > 1e-9
+                                                           else np.array([0.0, 0.0, 1.0]))
+        d   = d / d_norm
+        sgn = 1.0 if float(radius_mm) >= 0 else -1.0
+        cap = math.radians(self.CURL_SWEEP_CAP_DEG)
+        sweep = min(arc_len / R, cap)                  # radius exact; turn capped
+        used  = R * sweep
+        perp   = np.array([-d[2], 0.0, d[0]])          # fixed +90° handedness
+        center = M + sgn * R * perp
+        u0     = M - center
+        n      = max(10, int(used / max(check_res, 1e-3)))
+        phi    = np.linspace(0.0, sgn * sweep, n)
+        cos_p, sin_p = np.cos(phi), np.sin(phi)
+        pts = np.stack([
+            center[0] + u0[0] * cos_p - u0[2] * sin_p,
+            np.zeros(n),
+            center[2] + u0[0] * sin_p + u0[2] * cos_p,
+        ], axis=1)
+        # Unit tangent where the arc ends = the start direction turned by the sweep.
+        c_e, s_e = math.cos(sgn * sweep), math.sin(sgn * sweep)
+        end_dir = np.array([d[0] * c_e - d[2] * s_e, 0.0, d[0] * s_e + d[2] * c_e])
+        return pts, sweep, max(arc_len - used, 0.0), end_dir
+
+    def _spiral_tail(self, M, tan_dir, k0, k1, sgn, total_len, check_res):
+        """Variable-curvature tail: curvature runs LINEARLY in arc length from k0
+        at M to k1 at the end (a clothoid — the transition curve used for road and
+        rail easements). Turn is capped at CURL_SWEEP_CAP_DEG exactly as the plain
+        arc is; leftover length runs on straight and tangent.
+
+        Why this exists (#92 mid phase): a constant-radius arc has a CURVATURE
+        JUMP where it meets the straight leg — heading is continuous (no corner)
+        but curvature snaps from 0 to 1/R. The tool slams into the bend and the
+        material takes it at one spot. Starting near-straight and tightening
+        toward the blank edge spreads that bend into the wall.
+
+        Returns (points, turn_rad, leftover_len, end_dir)."""
+        M = np.asarray(M, dtype=float)
+        d = np.asarray(tan_dir, dtype=float)
+        d = d / max(np.linalg.norm(d), 1e-12)
+        cap = math.radians(self.CURL_SWEEP_CAP_DEG)
+
+        n  = max(40, int(total_len / max(check_res, 1e-3)))
+        s  = np.linspace(0.0, total_len, n)
+        ds = float(s[1] - s[0])
+        kap = k0 + (k1 - k0) * (s / total_len)
+        # Heading = running integral of curvature (trapezoid).
+        turn = np.concatenate([[0.0], np.cumsum(0.5 * (kap[:-1] + kap[1:])) * ds])
+
+        # Fold guard: stop where the accumulated turn reaches the cap.
+        over = np.nonzero(turn > cap)[0]
+        if len(over):
+            cut  = max(int(over[0]), 1)
+            s, turn = s[:cut + 1], turn[:cut + 1]
+        leftover = total_len - float(s[-1])
+
+        phi = sgn * turn
+        dx  = d[0] * np.cos(phi) - d[2] * np.sin(phi)
+        dz  = d[0] * np.sin(phi) + d[2] * np.cos(phi)
+        px  = M[0] + np.concatenate([[0.0], np.cumsum(0.5 * (dx[:-1] + dx[1:])) * ds])
+        pz  = M[2] + np.concatenate([[0.0], np.cumsum(0.5 * (dz[:-1] + dz[1:])) * ds])
+        pts = np.stack([px, np.zeros(len(px)), pz], axis=1)
+        end_dir = np.array([float(dx[-1]), 0.0, float(dz[-1])])
+        return pts, float(turn[-1]), max(leftover, 0.0), end_dir
+
+    def _curl_tail(self, M, tan_dir, radius_mm, total_len, check_res,
+                   radius_end_mm=None):
+        """The whole post-M tail: a constant-radius arc of EXACTLY |radius_mm|,
+        turning at most CURL_SWEEP_CAP_DEG, followed by a straight tangent run
+        spending whatever length is left.
+
+        This keeps BOTH promises at once — the radius the operator typed is the
+        radius they get (a tight R makes a tight hook), and the tail still runs
+        the full leftover |M→P3| length, so reach keeps deciding how far the pass
+        goes. Large radii never reach the cap, so their shape is a pure arc,
+        exactly as before.
+
+        `radius_end_mm` (optional) makes the curvature VARY along the tail — see
+        `_spiral_tail`. Empty/None/equal ⇒ the analytic constant-radius arc above
+        is used unchanged, so leaving the field alone is byte-identical.
+
+        DIRECTION comes from whichever radius is set first (start, else end); the
+        end radius contributes its MAGNITUDE only, so mixed signs can never fold
+        the tail into an S mid-curve. If only the end radius is given, the tail
+        leaves M perfectly straight (curvature 0) and eases into that radius.
+
+        Returns (points, sweep_rad, straight_len)."""
+        _r0 = abs(float(radius_mm)) if radius_mm not in (None, "") else 0.0
+        try:
+            _r1 = abs(float(radius_end_mm)) if radius_end_mm not in (None, "") else None
+        except (TypeError, ValueError):
+            _r1 = None
+        k0 = 1.0 / _r0 if _r0 > 1e-6 else 0.0
+        k1 = k0 if (_r1 is None) else (1.0 / _r1 if _r1 > 1e-6 else 0.0)
+
+        if abs(k1 - k0) > 1e-9:
+            sgn = 1.0 if (float(radius_mm or 0) or float(radius_end_mm or 0)) >= 0 else -1.0
+            arc, sweep, leftover, end_dir = self._spiral_tail(
+                M, tan_dir, k0, k1, sgn, total_len, check_res)
+            if leftover <= 1e-6 or len(arc) < 2:
+                return arc, sweep, 0.0
+            tail_end = arc[-1] + leftover * (end_dir / max(np.linalg.norm(end_dir), 1e-12))
+            n_run    = max(2, int(leftover / max(check_res, 1e-3)))
+            run      = np.linspace(arc[-1], tail_end, n_run)
+            return np.vstack([arc, run[1:]]), sweep, leftover
+
+        arc, sweep, leftover, end_dir = self._tangent_arc(
+            M, tan_dir, radius_mm, total_len, check_res)
+        if leftover <= 1e-6 or len(arc) < 2:
+            return arc, sweep, 0.0
+        tail_end = arc[-1] + leftover * end_dir
+        n_run    = max(2, int(leftover / max(check_res, 1e-3)))
+        run      = np.linspace(arc[-1], tail_end, n_run)
+        return np.vstack([arc, run[1:]]), sweep, leftover
+
+    def _make_curl_leg(self, A, B, t_frac, radius_mm, check_res, mandrel_mgr,
+                       center_x, r_tool, blank_thick, shell_offset,
+                       clearance, do_trim, pass_name="", radius_end_mm=None):
+        """Exit leg A→(curl): DEAD STRAIGHT from A to M, then a constant-radius arc
+        tangent at M. `t_frac` places M along the straight A→B CHORD (not along the
+        point array — see PROPOSAL_exit_mid_spline.md Q3), and the arc runs the
+        length that is left over, |M→B|, so reach still decides how far the pass
+        goes while the radius decides only how hard it curls.
+
+        The end point is a free output: once the tail curls away from the blank
+        edge there is nothing left for follow-blank to follow, so B is a length
+        budget rather than a target.
+
+        Clearance is handled exactly like `exit_bow_trim`:
+          • do_trim=True  → TRIM: full arc, then any point crossing the `clearance`
+            surface is pushed radially back out to it and rides the contour.
+          • do_trim=False → FLATTEN: an arc has no amplitude to shrink, so its
+            equivalent is curvature — the radius is GROWN until nothing violates,
+            giving a gentler but perfectly smooth curl.
+        M stays pinned in both modes, so the straight leg never moves."""
+        A = np.asarray(A, dtype=float)
+        B = np.asarray(B, dtype=float)
+        chord = B - A
+        L = float(np.linalg.norm(chord))
+        try:
+            _t = min(max(float(t_frac), 0.05), 0.95)
+        except (TypeError, ValueError):
+            _t = 0.5
+        if L < 1e-6:
+            return np.linspace(A, B, 2)
+        d       = chord / L
+        M       = A + _t * chord
+        arc_len = (1.0 - _t) * L
+
+        n_str    = max(2, int((_t * L) / max(check_res, 1e-3)))
+        straight = np.linspace(A, M, n_str)
+
+        R_eff = abs(float(radius_mm or 0.0))
+        arc, sweep, run_len = self._curl_tail(M, d, radius_mm, arc_len, check_res,
+                                              radius_end_mm=radius_end_mm)
+        if run_len > 0.05:
+            logger.info(
+                f"[PARAM_DEBUG] '{pass_name}' exit curl turn-capped at "
+                f"{self.CURL_SWEEP_CAP_DEG:.0f}°: R{R_eff:.1f}mm arc "
+                f"{arc_len - run_len:.1f}mm + straight run-out {run_len:.1f}mm "
+                f"(radius kept exact, total length {arc_len:.1f}mm kept)")
+
+        if do_trim:
+            m_min_z = mandrel_mgr.props.get("min_z", float('-inf'))
+            m_top_z = mandrel_mgr.props.get("top_z", float('inf'))
+            side  = 1.0 if (float(np.mean(arc[:, 0])) - center_x) >= 0 else -1.0
+            moved = 0
+            for i in range(1, len(arc)):          # M pinned; the free end IS checked
+                sx, sz = arc[i, 0], arc[i, 2]
+                zc = min(max(sz, m_min_z), m_top_z)
+                m_rad = max(0.0, mandrel_mgr.get_radius_fast(zc))
+                required = m_rad + blank_thick + shell_offset + r_tool + clearance
+                if abs(sx - center_x) < required - 1e-6:
+                    arc[i, 0] = center_x + side * required     # ride the contour
+                    moved += 1
+            if moved:
+                logger.info(
+                    f"[PARAM_DEBUG] '{pass_name}' exit curl TRIMMED: {moved} pt(s) "
+                    f"rode the clearance contour ({clearance:.2f}mm)")
+        else:
+            # FLATTEN: grow the radius (the curl's analogue of the bow's ×0.85
+            # amplitude shrink) until nothing violates. Length is preserved, so
+            # this degenerates toward a straight leg in the worst case.
+            R_try = R_eff
+            for _ in range(24):
+                pen = self._curl_penetration(arc, mandrel_mgr, center_x, r_tool,
+                                             blank_thick, shell_offset, clearance)
+                if pen <= 0.05 or sweep < math.radians(0.5):
+                    break
+                R_try *= 1.5
+                # Scale BOTH radii together so the spiral keeps its shape while
+                # every part of it gets gentler.
+                _re_try = (None if radius_end_mm in (None, "")
+                           else math.copysign(abs(float(radius_end_mm)) * (R_try / max(R_eff, 1e-9)),
+                                              float(radius_end_mm)))
+                arc, sweep, run_len = self._curl_tail(
+                    M, d, math.copysign(R_try, float(radius_mm or 1.0)), arc_len,
+                    check_res, radius_end_mm=_re_try)
+            if R_try - R_eff > 0.05:
+                logger.info(
+                    f"[PARAM_DEBUG] '{pass_name}' exit curl FLATTENED: R "
+                    f"{R_eff:.1f} → {R_try:.1f}mm (clearance {clearance:.2f}mm)")
+            R_eff = R_try
+            # BACKSTOP (deliberately stronger than exit_bow's CLAMP): flattening can
+            # only undo the violation the CURL causes. If the leg's own direction
+            # already runs inside the clearance surface, a perfectly straight curl
+            # still violates — and `exit_bow_trim=False` would hand that gouge
+            # downstream. Push whatever is left out to the contour so the clearance
+            # contract holds in BOTH modes; only these leftover points get a kink.
+            pen = self._curl_penetration(arc, mandrel_mgr, center_x, r_tool,
+                                         blank_thick, shell_offset, clearance)
+            if pen > 0.05:
+                m_min_z = mandrel_mgr.props.get("min_z", float('-inf'))
+                m_top_z = mandrel_mgr.props.get("top_z", float('inf'))
+                side  = 1.0 if (float(np.mean(arc[:, 0])) - center_x) >= 0 else -1.0
+                moved = 0
+                for i in range(1, len(arc)):
+                    sx, sz = arc[i, 0], arc[i, 2]
+                    zc = min(max(sz, m_min_z), m_top_z)
+                    m_rad = max(0.0, mandrel_mgr.get_radius_fast(zc))
+                    required = m_rad + blank_thick + shell_offset + r_tool + clearance
+                    if abs(sx - center_x) < required - 1e-6:
+                        arc[i, 0] = center_x + side * required
+                        moved += 1
+                logger.info(
+                    f"[PARAM_DEBUG] '{pass_name}' exit curl FLATTEN backstop: "
+                    f"{moved} pt(s) trimmed to the contour — the leg direction "
+                    f"itself runs inside the {clearance:.2f}mm clearance surface")
+
+        _r_txt = (f"R{math.copysign(R_eff, float(radius_mm or 1.0)):+.1f}mm"
+                  if radius_end_mm in (None, "") else
+                  f"R{R_eff:.1f}→{abs(float(radius_end_mm)):.1f}mm (spiral)")
+        logger.info(
+            f"[PARAM_DEBUG] '{pass_name}' exit curl: straight {(_t * L):.1f}mm "
+            f"(t={_t:.2f}) + tail {arc_len:.1f}mm @ {_r_txt} "
+            f"turn={math.degrees(sweep):.1f}°"
+            + (f" + run-out {run_len:.1f}mm" if run_len > 0.05 else "")
+            + f" | end=({arc[-1][0]:.2f}, Z={arc[-1][2]:.2f})")
+        return np.vstack([straight[:-1], arc])
+
     def _create_and_store_pass(self, p1_x_offset, p1_z_offset, p3_z_offset, p3_x_offset, initial_p2, base_rot, auto_align, t_list, p_list, c_list, d_list, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_name, params, debug_lines=None, op=None, op_clearance=0.0):
             # --- Smart Spline Optimization V6 (Morphing) ---
             # Instead of rigid shifting, independently adjust control points based on where collision occurs.
@@ -1699,12 +1997,54 @@ class PathGenerator:
                             T2, p3_arr,
                             max(10, int(max(np.linalg.norm(p3_arr - T2), 0.1) / check_res)))
                     else:
+                        # #92 EXIT CURL (exit_mid_radius, mm, signed) — highest
+                        # priority exit shape. Straight T2→M (M at exit_mid_t along
+                        # the CHORD), then a constant-radius arc tangent at M running
+                        # the leftover |M→P3| length. The straight part is what makes
+                        # the machine smooth and collapses to 2 lines under PLC RDP;
+                        # the curl is the forming work near the blank edge.
+                        # The end point is a free output (follow-blank has nothing
+                        # left to follow once the tail leaves the edge).
+                        # Empty/0 → every branch below behaves exactly as before.
+                        _curl_src = (op or {}).get("exit_mid_radius", None)
+                        try:
+                            _curl_r = float(_curl_src) if _curl_src not in (None, "") else 0.0
+                        except (TypeError, ValueError):
+                            _curl_r = 0.0
+                        # Mid phase: optional END radius makes the curvature vary along
+                        # the tail (clothoid). Setting ONLY the end radius is valid and
+                        # means "leave M straight, ease into this radius" — so either
+                        # field alone switches the curl on.
+                        _curl_end_src = (op or {}).get("exit_mid_radius_end", None)
+                        try:
+                            _curl_re = (float(_curl_end_src)
+                                        if _curl_end_src not in (None, "") else 0.0)
+                        except (TypeError, ValueError):
+                            _curl_re = 0.0
+                        _curl_end_arg = None if abs(_curl_re) <= 1e-4 else _curl_re
+
+                        if abs(_curl_r) > 1e-4 or abs(_curl_re) > 1e-4:
+                            # Curl supersedes exit_bow / exit_arc_angle on this leg —
+                            # they curve the whole leg, which is exactly what the curl
+                            # exists to avoid. Logged, never silent.
+                            if ((op or {}).get("exit_bow") not in (None, "", 0) or
+                                    (op or {}).get("exit_arc_angle") not in (None, "", 0)):
+                                logger.info(
+                                    f"[PARAM_DEBUG] '{pass_name}' exit curl active "
+                                    f"(R={_curl_r:+.1f}mm) → exit_bow / exit_arc_angle "
+                                    f"IGNORED on the exit leg")
+                            exit_portion = self._make_curl_leg(
+                                T2, p3_arr, (op or {}).get("exit_mid_t", 0.5),
+                                _curl_r, check_res, mandrel_mgr,
+                                center_x, r_tool, blank_thick, shell_offset,
+                                _bow_clear, bool((op or {}).get("exit_mid_trim", True)),
+                                pass_name, radius_end_mm=_curl_end_arg)
                         # Exit curve T2 → P3. exit_bow (mm) wins when set: a
                         # bow-height Bézier that keeps P3 fixed and never folds.
                         # Otherwise the tangent-chord arc — exit_arc_angle (°):
                         # positive = bow outward (larger X), negative = inward,
                         # 0 = straight line (default).
-                        if abs(_exit_bow) > 1e-4:
+                        elif abs(_exit_bow) > 1e-4:
                             exit_portion = self._make_bow_leg(
                                 T2, p3_arr, _exit_bow, check_res, mandrel_mgr,
                                 center_x, r_tool, blank_thick, shell_offset,
@@ -1717,7 +2057,10 @@ class PathGenerator:
                         # XZ plane). Whatever the exit shape currently is, this just swings
                         # the M→P3 tail to a new orientation around M — T2→M is untouched.
                         # P3 moves with the tail. Clearance correction (below) still applies.
-                        _emid_rot = float((op or {}).get("exit_mid_rotation", 0.0))
+                        # #92: mutually exclusive with the curl — radius wins, and the
+                        # editor greys the Rot field out so this is visible, not silent.
+                        _emid_rot = (0.0 if (abs(_curl_r) > 1e-4 or abs(_curl_re) > 1e-4)
+                                     else float((op or {}).get("exit_mid_rotation", 0.0)))
                         if abs(_emid_rot) > 0.01 and len(exit_portion) >= 3:
                             _emid_t = min(max(float((op or {}).get("exit_mid_t", 0.5)), 0.05), 0.95)
                             _k = int(round(_emid_t * (len(exit_portion) - 1)))

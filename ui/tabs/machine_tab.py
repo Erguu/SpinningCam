@@ -462,8 +462,13 @@ class MachineTab(ScrollableTabBase):
         cb_plc = ttk.Checkbutton(f_plc_en, text=t("cb_plc_enable"), variable=var_plc, command=on_plc_toggle)
         cb_plc.pack(anchor="w")
         self.helper.bind_tooltip(cb_plc,
-            "Etkinleştirildiğinde G-code her pas için RDP algoritması ile sadeleştirilmiş nokta listesi üretir.\n"
-            "CNC çıktısı (normal G-code kaydetme) bundan etkilenmez.")
+            "SADECE SCL EXPORT'U ETKİLER. Açıkken SCL reçetesi, her pas RDP ile "
+            "sadeleştirilerek üretilir (PLC nokta sayısı sınırlı olduğu için).\n"
+            "G-code (.nc) kaydetme bundan ETKİLENMEZ — .nc her zaman TAM "
+            "ÇÖZÜNÜRLÜKTEDİR. PLC dosyasını SCL export'undan alır.\n"
+            "(2026-07-26 düzeltmesi: önceden bu kutu .nc'yi de sadeleştiriyordu — "
+            "bu tooltip'in ta baştan söylediğinin tersi. NCViewer'da eğriler düz "
+            "görünüyordu; 0.5 mm tolerans 1971 satırı 128'e indiriyordu.)")
 
         f_tol = ttk.Frame(f_plc)
         f_tol.pack(fill="x", padx=5, pady=2)

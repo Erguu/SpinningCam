@@ -1889,7 +1889,16 @@ class SpinningApp:
     def save_gcode(self, v, filepath=None):
         if v:
             try:
-                code = self.path_gen.generate_gcode(params=self.params)
+                # The .nc file is the CNC program and is ALWAYS full resolution.
+                # PLC mode / auto-tune decimate for the PLC recipe, and the PLC is
+                # fed by the SCL export — not by this file (user decision
+                # 2026-07-26). Before this, exporting with PLC mode on wrote a
+                # decimated .nc, so the file inspected in a G-code viewer was a
+                # flattened preview of the PLC recipe rather than the real path
+                # (a 0.5 mm tolerance cut 1971 lines to 128 and erased exit curls).
+                _p = dict(self.params)
+                _p["plc_mode"] = False
+                code = self.path_gen.generate_gcode(params=_p)
 
                 if filepath:
                     out_path = filepath

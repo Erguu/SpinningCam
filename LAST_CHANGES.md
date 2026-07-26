@@ -5,6 +5,257 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-26d — YENİ: SCL İNCELEYİCİ (Araçlar ▸ SCL İnceleyici) — PLC'ye gerçekte ne gidiyor
+
+**İstek (kullanıcı):** *"we need a separate scl viewer program where we can inspect how the
+PLC mode effected the output while PLC mode and auto tune is on. something like ncviewer"*
+Kullanıcı kararları: TAM pencere (sadece .nc önizleme değil) + **SCL export'unun GERÇEKTEN
+kullanacağı tolerans** (auto-tune açıksa oturmuş değer, kapalıysa elle girilen).
+
+**Neden gerekli:** 2026-07-26c'den sonra `.nc` HER ZAMAN tam çözünürlük — yani G-code
+görüntüleyici artık NİYETİ gösteriyor, PLC'nin aldığını değil. Aradaki farkı görmenin
+başka yolu yoktu (parça makineden çıkana kadar).
+
+**Yeni dosya `ui/dialogs/scl_inspector.py`:**
+- `analyze_plc_output(path_gen, params)` — **Tk'siz saf fonksiyon** (headless test edilebilir):
+  toleransı çözer (auto-tune → `auto_fit_plc_tolerance`, değilse `plc_tolerance`), yolları
+  `decimate_all_paths` ile seyreltir, gerçek SCL satır sayısını `GCodeToSCLConverter` ile
+  sayar, pas başına metrikleri hesaplar. `params`'a ve saklı yollara DOKUNMAZ (test edildi).
+- `SclInspectorDialog` — 2B tuval: **niyet yolu gri**, **PLC reçetesi renkli + korunan her
+  nokta işaretli**; üstte tolerans/kaynak/satır-bütçe; altta pas tablosu; satır seçince o
+  pas vurgulanır. Salt-okunur.
+
+**⚠ METRİK DÜZELTMESİ (ilk deneme yanlıştı, test yakaladı):** başta çıkış bölümünün
+TAMAMININ (düz kol + kıvrım) kirişten sapmasını ölçüyordum — bu çoğunlukla DÜZ KOLUN
+sapmasını ölçer, kıvrımın hayatta kalıp kalmayacağını DEĞİL. Eklenen `_curved_part()`
+başlangıç yönünden ayrılma noktasını bulup yalnızca **kıvrımın kendi kavisini** ölçüyor.
+
+**Durum ölçütü (RDP'nin doğasına göre):** RDP hatası TANIMI GEREĞİ ≤ tolerans, bu yüzden
+"hata büyük mü" diye bakmak anlamsızdır. Doğru soru "özellik hayatta kalabilir mi":
+- **⚠ düzleşti (flat)** — kıvrımın kavisi ≤ çıkış toleransı → RDP onu TAMAMEN silebilir.
+- **kaba (coarse)** — hayatta ama 1–3 kirişle temsil ediliyor (tanınır, hassas değil).
+- **tamam (ok)**
+
+**Menü:** Araçlar ▸ SCL İnceleyici — `"scl" in formats` ile kapılı (SCL export'uyla aynı
+kural, ID112'de görünmez). i18n EN/TR/ES ×22 anahtar.
+
+**Küçük sağlamlaştırma:** tuval `winfo_width()==1` (henüz map edilmemiş) durumunda artık
+istenen boyuta düşüyor — önceden sessizce hiç çizmiyordu.
+
+**Test (`_test_scl_inspector.py`, YENİ, 23/23 GEÇTİ):** kiriş/sapma yardımcıları sagitta
+formülüne karşı doğrulandı; yol yokken çökmüyor; kaba toleransta kıvrım "flat" işaretleniyor,
+ince toleransta hepsi "ok"; **FLAT bayrağı ≡ (kavis ≤ çıkış toleransı)** her paste;
+worst_dev asla toleransı aşmıyor (RDP garantisi); düz çıkışlı paslar asla işaretlenmiyor;
+auto-tune açıkken oturmuş tolerans raporlanıyor ve bütçeye sığıyor; **params ve yollar
+mutasyona uğramıyor**; + gerçek Tk pencere smoke'u (satırlar, başlık, tuval çizimi,
+tekrarlanabilir refresh). Regresyon: 14 paket GEÇTİ.
+
+**BEKLEYENLER:** gerçek pencerede görsel kontrol · commit EDİLMEDİ.
+
+**Geri almak için:** `ui/dialogs/scl_inspector.py` + `_test_scl_inspector.py` sil,
+`main_window.py`'deki `open_scl_inspector` ve Araçlar menüsü satırını kaldır, i18n
+anahtarlarını sil.
+
+---
+
+## 2026-07-26c — DÜZELTME: G-code (.nc) export'u artık PLC MODUNDAN ETKİLENMİYOR
+
+**Kullanıcı raporu:** *"exporting gcode should NOT be effected by plc mode or auto tune.
+this is PLC MODE. and plc gets its file from scl export."* — NCViewer'da PLC modu AÇIKken
+mükemmel eğriler 3 noktaya iniyordu; KAPALIyken düzgündü (1971 satır → 128 satır).
+
+**Bu bir tercih değil, BELGELENMİŞ DAVRANIŞ HATASIYDI:** Makine sekmesindeki PLC kutusunun
+tooltip'i ta başından beri *"CNC çıktısı (normal G-code kaydetme) bundan etkilenmez"*
+diyordu. Ama `SpinningApp.save_gcode` (`main.py`) `self.params`'ı olduğu gibi
+`generate_gcode`'a veriyordu; `generate_gcode` ise `plc_mode` True ise yolları RDP ile
+seyreltiyor. Sonuç: kutu işaretliyken kaydedilen `.nc`, CNC programı değil PLC reçetesinin
+düzleştirilmiş bir ÖNİZLEMESİYDİ. 0.5 mm tolerans çıkış kıvrımlarını (kirişten sapma
+R60'ta 0.79 mm) tamamen siliyordu.
+
+**Düzeltme (`main.py`, `save_gcode`):** `.nc` **HER ZAMAN TAM ÇÖZÜNÜRLÜK**. Fonksiyon
+artık params'ın bir kopyasını alıp `plc_mode=False` zorluyor. Motor (`generate_gcode`)
+DEĞİŞMEDİ — `plc_mode` istendiğinde hâlâ seyreltiyor; sadece `.nc` yolu artık istemiyor.
+
+**SCL yolu DEĞİŞMEDİ:** SCL, G-code'dan üretilir (`export_scl` girdi olarak G-code alır),
+bu yüzden seyreltme `generate_gcode` içinde kalmalı. `export_scl_action` kendi G-code'unu
+`plc_mode`/`plc_tolerance` (ve auto-tune açıksa oturmuş toleransla, `plc_mode=True`
+zorlanarak) üretmeye devam ediyor. **PLC dosyasını SCL export'undan alır — .nc'den değil.**
+
+**AYRICA (auto-tune hakkında not):** `auto_fit_plc_tolerance` SADECE `export_scl_action`
+tarafından çağrılır, G-code export'u ona hiç uğramıyordu. Algoritmanın kendisi DOĞRU:
+bütçeye sığan EN KÜÇÜK toleransı arar (yani bütçeyi doldurur, fidelity'yi korur) ve tam
+çözünürlük zaten sığıyorsa `no_reduction_needed` ile hiç seyreltmez. Yani kullanıcının
+gördüğü bozulmada auto-tune'un payı YOKTU; suçlu elle girilen `plc_tolerance` (vars. 0.5).
+
+**Tooltip** (`ui/tabs/machine_tab.py`) artık net: kutu SADECE SCL export'unu etkiler.
+
+**Test (`_test_gcode_not_plc.py`, YENİ, 7/7 GEÇTİ):** `.nc` PLC AÇIK/KAPALI **bit-aynı**
+(2.0 mm gibi çok kaba toleransla bile), `.nc` tam çözünürlük (101 satır vs seyreltilmiş
+33), kıvrım `.nc`'de yaşıyor (84 G1 hareketi), motor istendiğinde hâlâ seyreltiyor,
+SCL auto-tune hâlâ bütçeye oturuyor. Regresyon: 11 paket GEÇTİ.
+
+**BEKLEYENLER:** GUI smoke · commit EDİLMEDİ.
+
+**Geri almak için:** `save_gcode`'daki `_p = dict(self.params); _p["plc_mode"] = False`
+satırlarını sil, tekrar `params=self.params` ver.
+
+---
+
+## 2026-07-26b — #92 ARA FAZ: `exit_mid_radius_end` — kuyruk boyunca DEĞİŞEN eğrilik (klotoid)
+
+**İstek (kullanıcı):** *"can we have a mid phase where we have more parameters to control
+automaticly the curve but not the full manual point definition like in phase 2"* →
+FAZ 2 (elle nokta editörü) RAFTA KALDI; önce bu denenecek (kullanıcı kararı).
+
+**Neden tek bir alan seçildi:** FAZ 1'in yapısal olarak YAPAMADIĞI tek şey eğriliğin
+kuyruk boyunca DEĞİŞMESİYDİ. Sabit yarıçaplı yayın düz kolla birleştiği M noktasında
+**EĞRİLİK SIÇRAMASI** vardır: yön sürekli (köşe yok) ama eğrilik tek adımda 0 → 1/R
+atlar; takım büküme çarparak girer ve sac bükümü tek noktada toplar. Eğriliği kademeli
+değiştirmek bu bükümü duvara yayar. Değerlendirilip ELENENLER: kıvrım uzunluğu override'ı
+(reach'in "ne kadar gider" yetkisiyle çakışır), düzenlenebilir dönüş sınırı (katlanmayı
+mümkün kılan bir düğme verilmemeli), eğrilik tepe konumu (bitiş yarıçapıyla büyük ölçüde
+örtüşür — tek etki için iki düğme kafa karıştırır).
+
+**Yeni alan:** `exit_mid_radius_end` (mm) — BOŞ = sabit yarıçap = FAZ 1 birebir.
+
+**Motor (`path_generator.py`):**
+- `_spiral_tail()` (YENİ) — eğrilik yay boyunca DOĞRUSAL değişir (κ: k0→k1), yön =
+  eğriliğin integrali, konum = yönün integrali (yamuk kuralı). Klotoid/Euler spirali —
+  karayolu-demiryolu geçiş eğrisiyle aynı matematik.
+- `_curl_tail()` — `radius_end_mm` parametresi eklendi. **k0 == k1 ise ESKİ ANALİTİK yay
+  yolu aynen kullanılır** → boş/eşit bitiş yarıçabı BİT-AYNI (sayısal integrasyon hatası
+  sızmaz).
+- **Yalnız bitiş yarıçapı doluysa** kuyruk M'den eğrilik 0 ile, yani DÜMDÜZ çıkar ve o
+  yarıçapa yumuşakça girer (eğrilik sıçraması TAMAMEN yok olur) — önerilen kullanım.
+- **YÖN:** işaret dolu olan ilk alandan (başlangıç, yoksa bitiş); bitiş alanının yalnız
+  BÜYÜKLÜĞÜ kullanılır → ters işaretle kuyruk ortada S YAPAMAZ.
+- 90° dönüş sınırı, düz koşu-çıkışı, KIRP/DÜZLEŞTİR + backstop koruması aynen geçerli.
+  DÜZLEŞTİR iki yarıçabı BİRLİKTE ölçekler (spiral şeklini korur, hepsi yayvanlaşır).
+
+**UI/i18n/yardım:** `exit_mid_radius_end` alanı (rebuild=True), `OP_PARAM_UNIVERSE`/
+`LABELS`/`SECTION_KEYS`/`_BATCH_ELIGIBLE`, i18n EN/TR/ES, yardım EN+TR bölümleri.
+Kıvrım aç/kapa artık İKİ alandan HERHANGİ BİRİ doluysa aktif (rot griye alma dâhil).
+
+**Test:** `_test_exit_mid_curve.py` **73/73 GEÇTİ** — eklenen §3c: boş/eşit bitiş
+yarıçapı bit-aynı (+2 HEAD regresyonu), R100→R20 sıkılaşıyor (yerel R 59→21mm),
+R20→R100 yayvanlaşıyor, yalnız-bitiş yarıçapı düz başlayıp sıkılaşıyor, spiralde hiç
+köşe yok, ters işaret S yapmıyor, agresif spiral kendini kesmiyor, 4 spiral clearance
+senaryosu, rot'un yalnız-bitiş halinde de ezilmesi. Komşu 8 paket GEÇTİ.
+
+**BEKLEYENLER:** GUI smoke · FİZİKSEL doğrulama · commit EDİLMEDİ.
+
+**Geri almak için:** `_spiral_tail`'i sil, `_curl_tail`'den `radius_end_mm` dalını
+çıkar, UI alanını + i18n anahtarını + yardım paragraflarını kaldır. FAZ 1 aynen kalır.
+
+---
+
+## 2026-07-26 — #92 DÜZELTME: kıvrım yarıçapının BÜYÜKLÜĞÜ etkisizdi (saha raporu)
+
+**Kullanıcı raporu (ilk fiziksel/GUI denemesi):** *"magnitude doesn't make any changes,
+sign is changing the curve direction. -1 and -10 looks same. 1 and 10 also looks same."*
+
+**Kök neden:** İlk sürümde 90° sweep sınırı, "yay uzunluğu = kalan \|M→P3\|" değişmezini
+korumak için **YARIÇAPI EZİYORDU**: `R_eff = arc_len / (π/2)`. Yani `|R| < arc_len·2/π`
+olan HER değer aynı `R_eff`'e düşüyordu → aynı yol. Tipik geometride eşik ~12 mm, yani
+kullanıcının yazacağı 1–12 arası tüm değerler birebir aynı eğriyi veriyordu; sadece
+işaret etkiliydi. Teşhis çıktısı: R=1,2,5,10,12 → bitiş noktası hepsinde `(86.592, 60.007)`.
+
+**Düzeltme (`path_generator.py`):** yarıçap artık **kullanıcının otoritesi, asla
+değiştirilmez**. Sınır DÖNÜŞE uygulanır:
+- `_tangent_arc()` — tam `|radius_mm|` yarıçapında, en fazla `CURL_SWEEP_CAP_DEG` dönen
+  yay üretir; sığmayan uzunluğu `leftover` olarak ve bitiş teğetini `end_dir` olarak döner.
+- `_curl_tail()` (YENİ) — yay + kalan uzunluğu bitiş teğeti yönünde **DÜZ koşan** kuyruk.
+  Böylece İKİ söz de tutulur: yazılan yarıçap birebir uygulanır (R1 = sıkı kanca) VE
+  toplam kuyruk uzunluğu korunur (reach hâlâ "ne kadar gider"i belirler).
+- Yay→düz geçişi teğettir → köşe yok. Büyük yarıçaplar sınıra hiç dayanmaz → şekilleri
+  ÖNCEKİ SÜRÜMLE BİREBİR AYNI (R≥15 için bitiş noktaları değişmedi).
+- Clearance koruması (KIRP/DÜZLEŞTİR + backstop) kuyruğun TAMAMINA uygulanır.
+
+**Testteki boşluk (dürüst kayıt):** ilk test paketi yarıçap doğruluğunu yalnız
+R=40/60/120 ile (eşiğin ÜSTÜ) ölçüyor, R=2'yi de sadece "sınır çalışıyor mu" diye
+kullanıyordu — **iki KÜÇÜK yarıçapı birbiriyle hiç karşılaştırmıyordu**. Eklenen §3b:
+8 farklı yarıçapın 8 FARKLI bitiş noktası vermesi, (1 vs 10), (−1 vs −10), (2 vs 5)
+çiftlerinin ayrışması, R'de monotonluk, sınır altında yarıçapın BİREBİR kalması
+(fit 5.000/5.0), toplam uzunluğun korunması ve yay→düz teğetliği.
+
+**Sonuç:** `_test_exit_mid_curve.py` **60/60 GEÇTİ** (10 HEAD-bit-aynı regresyon dâhil).
+Yardım (EN+TR), tooltip ve CODE_NAVIGATION'daki "yarıçap büyütülür" ifadeleri düzeltildi.
+
+**BEKLEYENLER:** yeniden GUI/fiziksel deneme · commit EDİLMEDİ.
+
+---
+
+## 2026-07-25c — #92 FAZ 1: ÇIKIŞ KIVRIMI (`exit_mid_radius`) — M'ye kadar düz, sonra teğet yay
+
+**İstek (kullanıcı, kendi sözleriyle):** *"we usually don't need spline in the first part
+after p2's radius. making it straight with only 2 points make our machine more smooth and
+fast. But we need a spline after some point while approaching to the blank edge. to curve
+the sides so it can be more strong."* + *"we are more flexible about the x and z locks of
+p3. we are more interested in the curve between M and P3."*
+
+Tasarım + kullanıcı kararları: `PROPOSAL_exit_mid_spline.md` (Q1–Q7 kapalı).
+**Bu FAZ 1'dir.** FAZ 2 (kullanıcının serbest çizdiği `exit_mid_points` spline'ı) YAPILMADI.
+
+**Yeni op alanları (sadece roughing + `pass_shape="linear_approach"` + ileri yön):**
+
+| Alan | Varsayılan | Anlamı |
+|------|-----------|--------|
+| `exit_mid_radius` | boş = KAPALI | Kıvrım yarıçapı (mm, işaretli). + = mandrel tepesine (+Z), − = tabana |
+| `exit_mid_trim` | `True` | Clearance davranışı — `exit_bow_trim` ile aynı model |
+
+**Motor (`path_generator.py`):**
+- `_tangent_arc()` — M'den başlayan, başlangıç TEĞETİ birebir korunan sabit-yarıçap yay.
+  İşaret/el-yönü `_bezier_bow` ile AYNI SABİT kural (`perp = (−d_z, 0, +d_x)`).
+  ⚠ "+X'e (eksenden uzağa) bakan dikeyi seç" kuralı BİLEREK KULLANILMADI: o kural çıkış
+  yönü radyali geçerken Z-işaretini ters çevirir — yelpazede ilk pasın ters yöne
+  kavislenmesi hatası tam olarak budur (bkz. `_bezier_bow` docstring).
+- `_make_curl_leg()` — T2→M DÜZ + M'den sonra yay. M, T2→P3 **KİRİŞİ** üzerinde `exit_mid_t`
+  oranında (Q3). Yay UZUNLUĞU = kalan |M→P3| → pas boyu değişmez, bitiş noktası SERBEST.
+- **Katlanma koruması:** yay 90°'yi (`CURL_SWEEP_CAP_DEG`) aşacaksa UZUNLUK korunur,
+  YARIÇAP büyütülür. `exit_arc_angle`'ın ~90° sonrası katlanma hatası imkânsız.
+- `_curl_penetration()` — `_bow_penetration`'ın kıvrım sürümü; SON noktayı da kontrol eder
+  (kıvrımın ucu serbest çıktı olduğu için). `_bow_penetration` DEĞİŞTİRİLMEDİ.
+- **Öncelik:** `exit_mid_radius` doluysa çıkış bacağında `exit_bow`, `exit_arc_angle` ve
+  `exit_mid_rotation`'ın YERİNE geçer (hepsi loglanır, sessiz değil).
+
+**⚠ exit_bow'dan BİLEREK AYRILAN NOKTA — DÜZLEŞTİR modunda emniyet ağı:**
+`exit_bow_trim=False` (CLAMP) sadece KAVİSİN sebep olduğu ihlali geri alır; bacağın kendi
+yönü zaten clearance yüzeyinin içindeyse genlik sıfırlansa bile ihlal SÜRER ve gouge aşağı
+devredilir. Kıvrımda bu açık KAPATILDI: yarıçap büyütme yetmezse kalan noktalar kontura
+kırpılır ("FLATTEN backstop" log satırı). Yani **kıvrım her iki modda da clearance'ı korur.**
+(`exit_bow`'un kendi CLAMP davranışı DEĞİŞTİRİLMEDİ — dokunulmadı.)
+
+**UI (`ui/tabs/program_tab.py`):** iki yeni alan + `exit_mid_rotation` yarıçap doluyken
+`readonly` + altında soluk "devre dışı — kıvrım yarıçapı yerine geçti" notu (`rebuild=True`
+ile anında). `OP_PARAM_UNIVERSE` / `OP_PARAM_LABELS` / `SECTION_KEYS` / `_BATCH_ELIGIBLE`
+güncellendi. i18n EN/TR/ES ×3 anahtar. Yardım penceresi EN + TR bölümü eklendi.
+
+**Test (`_test_exit_mid_curve.py`, 48/48 GEÇTİ):** 1. numaralı test GERÇEK regresyondur —
+`git show HEAD:path_generator.py` ile ESKİ motor belleğe yüklenir ve yeni anahtarları
+kullanmayan programlarda çıktı **bit-aynı** doğrulanır (düz / bow / arc / rot / bow+rot /
+ters pas / linear_full + boş-string ve 0 değerleri). Ayrıca: M'de köşe yok (0.096°),
+yarıçap <%1 hata, t kiriş oranı, işaret kuralı, 90° sınırı + kendini kesmeme + uzunluk
+korunumu, iki clearance modu + backstop, PLC seyreltme kazancı (kıvrım 8 nokta / tam-bacak
+kavis 19), Q2/Q3/Q6/Q7 kapsam testleri.
+
+**Komşu paketler:** `_test_reverse_linear`, `_test_anchored_sweep`, `_test_split`,
+`_test_reach`, `_test_plc_autotune`, `_test_straight_line_flatness`, `_test_straighten_fillet`,
+`_test_pass_pins` GEÇTİ. `_test_pass_table`, `_test_pass_edits`, `_test_real_end_z`
+BAŞARISIZ — ancak **HEAD worktree'de birebir aynı hatayla başarısız** (ÖNCEDEN BOZUK,
+bu değişiklikle ilgisi yok; `_test_real_end_z` sütun listesi HEAD ile birebir aynı →
+yeni alanlar tablo sütunlarını KAYDIRMADI).
+
+**BEKLEYENLER:** GUI smoke testi YAPILMADI · **FİZİKSEL DOĞRULAMA YAPILMADI** (kıvrım
+takımın parçadan ayrıldığı yeri değiştirir) · commit EDİLMEDİ.
+
+**Geri almak için:** `path_generator.py`'de çıkış bacağındaki `if abs(_curl_r) > 1e-4:`
+dalını ve `_tangent_arc`/`_make_curl_leg`/`_curl_penetration`/`CURL_SWEEP_CAP_DEG`
+yardımcılarını sil, `_emid_rot` satırını eski haline döndür; UI'daki iki alanı, i18n
+anahtarlarını ve yardım bölümlerini kaldır. Eski `.ssp`'ler yeni anahtarları taşısa bile
+yüklenmeye devam eder (bilinmeyen anahtar yok sayılır).
+
+---
+
 ## 2026-07-25b — "YENİLİKLER" PENCERESİ: OKUNABİLİR DEĞİŞİKLİK KAYDI (renk + font hiyerarşisi)
 
 **İstek (kullanıcı):** Değişiklik kaydı daha basit ve anlaşılır olsun; önemli kısımlar
@@ -33,6 +284,7 @@ doğrulandı (hem 1.009→1.010 hem 1.008→1.010 karışık render).
 
 **Kullanıcı testi:** `python _test_changelog_window.py` → pencereyi AÇAR; `settings.json`
 veya `changelog_seen_version` YAZILMAZ (güvenli).
+**GUI SMOKE TESTİ GEÇTİ** (kullanıcı, 2026-07-25 — commit `7db176b` sonrası doğruladı).
 
 **ERTELENEN (tartışıldı, yapılmadı):** (a) ekran görüntüleri — her sürümde elle yeniden
 çekilmeli + `packaging_manifest.py` girdisi gerekir, bayat görsel yoktan KÖTÜ; (b) "Show me →"
@@ -77,7 +329,8 @@ hizalı kalır** ve `column("#1","id") == "Sel"`, Sıfırla). HEPSİ GEÇTİ. `_
 ÖNCEDEN BOZUK (bu değişiklikle ilgisiz): `_test_program_tab_toolbar` (`btn_batch` 2026-07-10
 araç çubuğu sadeleştirmesinde kaldırıldı, test bayat), `_test_pass_table` (HANDOVER_2026-07-08).
 
-**GUI SMOKE BEKLİYOR.** Geri alma: `rebuild_tree_columns`'daki tek `displaycolumns` satırını sil.
+**GUI SMOKE TESTİ GEÇTİ** (kullanıcı, 2026-07-25 — commit `7db176b` sonrası doğruladı).
+Geri alma: `rebuild_tree_columns`'daki tek `displaycolumns` satırını sil.
 
 ---
 

@@ -518,6 +518,90 @@ Follow-blank or the Progressive-Angle fan:
       a smaller but perfectly smooth bow (no kink).
 
 
+EXIT CURL — straight first, curve only near the edge (#92)
+════════════════════════════════════════════════════════════════
+Exit Bow and Exit Arc Angle curve the WHOLE P2→P3 leg. Often you
+only want curvature near the blank edge: the first stretch should
+be dead straight, because a straight run is smoother and faster on
+the machine and collapses to 2 lines under PLC decimation, leaving
+the line budget for the part that matters. The curve near the edge
+is the forming work — a curved side is stiffer than a straight one.
+
+  • Curl Radius (mm, signed) — turns the feature on. The exit runs
+    DEAD STRAIGHT from P2 to M, then curls away at this constant
+    radius, tangent at M, so there is NO corner. Empty/0 = off, and
+    the toolpath is then byte-identical to before.
+  • Exit Mid t — places M along the P2→P3 chord (0.05–0.95). Small
+    = curl starts early (short straight run); large = long straight
+    run, short curl.
+  • Sign — like Exit Bow, a FIXED handedness: + curls toward the
+    mandrel top (+Z), − toward the base. Every pass in a
+    progressive-angle fan curls the same way; no first-pass flip.
+  • Curl R End (mm) — OPTIONAL second radius, for the far end of
+    the tail. Empty = constant radius (the plain arc above). Set it
+    and the curvature interpolates smoothly from one to the other,
+    so the curl can TIGHTEN toward the blank edge or ease out.
+
+WHY A SECOND RADIUS: a constant-radius arc has a CURVATURE JUMP
+where it meets the straight leg. The direction is continuous (no
+corner), but the curvature snaps from 0 to 1/R in one step — the
+tool slams into the bend and the material takes the whole bend at
+one spot. Interpolating the radius spreads that bend into the
+wall. It is the same trick a road uses: you never go from a
+straight into a fixed-radius bend, you ease into it. (The maths is
+a clothoid — the standard road/rail transition curve.)
+
+  TYPICAL USE: leave Curl Radius EMPTY and set only Curl R End
+  (e.g. −30). The tail then leaves M perfectly straight and eases
+  into that radius at the edge — the smoothest option, and the one
+  that puts the forming where you want it.
+
+  Direction comes from Curl Radius when set, otherwise from Curl R
+  End; the end field contributes its MAGNITUDE only, so opposite
+  signs can never fold the tail into an S mid-curve.
+
+WHERE THE PASS ENDS: the curl runs the arc length that is left over
+(the old straight |M→P3| distance), so reach still decides HOW FAR
+the pass goes and the radius decides only HOW MUCH it curls. The
+END POINT ITSELF MOVES — that is what makes it a flare rather than
+a bulge, and it is intentional: once the tail leaves the blank edge
+there is no edge left for follow-blank to follow, so P3 stops being
+a target. Real End Z is unaffected (it reports the contact Z), but
+the Pass Table's endpoint column shows the PLANNED P3, not the
+curled end.
+
+THE RADIUS IS EXACT: R1 gives a tight hook, R60 a wide flare. The
+turn is limited to 90° so the tail can never fold back on itself
+(the failure Exit Arc Angle has past ~90°) — and when a tight radius
+hits that limit the ARC STOPS THERE and the leftover length simply
+runs on STRAIGHT in the new direction, tangent, no corner. So the
+radius you type is never quietly replaced and the pass still runs
+its full length.
+
+Curl Trim works exactly like Bow Trim to Clr:
+    • ON (default) — TRIM: full arc, and only the points that come
+      too close ride the clearance contour.
+    • OFF — FLATTEN: an arc has no amplitude, so its equivalent is
+      curvature — the RADIUS is grown until nothing violates: a
+      gentler but perfectly smooth curl. If the leg's own direction
+      already runs inside the clearance surface, curvature cannot
+      fix it, so the remainder is trimmed as a backstop — the curl
+      NEVER hands a gouge downstream in either mode.
+Only an inward curl can dig in; an outward curl leaves the guard
+inert and both modes give the identical shape.
+
+PRECEDENCE: when Curl Radius is set it replaces Exit Bow, Exit Arc
+Angle AND Exit Mid Rot on the exit leg (Exit Mid Rot is greyed out
+in the editor so this is visible, not silent). Forward-direction
+linear_approach roughing passes only — reverse passes and
+linear_full ignore it.
+
+⚠ Exit Mid t has TWO readings, deliberately, so old programs stay
+byte-identical: the CURL measures it along the P2→P3 chord, while
+the older Exit Mid Rot measures it along the point array. With a
+bow or arc also set, those two land in different places.
+
+
 PASS TABLE (Paslar ▦ — see every pass before you run)
 ════════════════════════════════════════════════════════════════
 The Pass Table action (operation right-click menu) opens one row per
@@ -1043,6 +1127,86 @@ noktasını clearance'tan bağımsız kılar (aynı reach + farklı
 clearance = aynı mutlak bitiş konumu). Pass Diagram penceresi
 (formül paneli) bu zinciri seçili operasyonun canlı değerleriyle
 gösterir.
+
+
+ÇIKIŞ KIVRIMI — önce düz, kavis sadece kenara yakın (#92)
+════════════════════════════════════════════════════════════════
+Çıkış Kavisi ve Çıkış Yay Açısı P2→P3 bacağının TAMAMINI eğer.
+Çoğu zaman kavis sadece sac kenarına yakın gerekir: ilk kısım
+DÜMDÜZ olmalı — düz hareket makinede daha akıcı ve hızlıdır, PLC
+seyreltmesinde 2 satıra iner ve satır bütçesini asıl işe bırakır.
+Kenardaki kavis ise şekillendirme işidir: kıvrık bir yan duvar,
+düz koni duvardan daha SAĞLAMdır.
+
+  • Kıvrım Yarıçapı (mm, işaretli) — özelliği açar. Çıkış P2'den
+    M'ye DÜMDÜZ gider, sonra bu sabit yarıçapta, M'de TEĞET olarak
+    kıvrılır — yani KÖŞE OLUŞMAZ. Boş/0 = kapalı; o durumda yol
+    eskisiyle bit-aynıdır.
+  • Çıkış Orta t — M'yi P2→P3 KİRİŞİ üzerine yerleştirir
+    (0.05–0.95). Küçük = kıvrım erken başlar (kısa düz kol),
+    büyük = uzun düz kol, kısa kıvrım.
+  • İşaret — Çıkış Kavisi ile aynı SABİT el-yönü: + mandrel
+    tepesine (+Z), − tabana. Kademeli açı yelpazesinde tüm paslar
+    aynı yöne kıvrılır; ilk pas ters dönmez.
+  • Kıvrım R Bitiş (mm) — İSTEĞE BAĞLI ikinci yarıçap, kuyruğun
+    UCU için. Boş = sabit yarıçap (yukarıdaki düz yay). Doldurursan
+    eğrilik ikisi arasında yumuşakça geçer; kıvrım sac kenarına
+    doğru SIKILAŞABİLİR ya da yayvanlaşabilir.
+
+NEDEN İKİNCİ YARIÇAP: sabit yarıçaplı yayın düz kolla birleştiği
+yerde bir EĞRİLİK SIÇRAMASI vardır. Yön süreklidir (köşe yoktur)
+ama eğrilik tek adımda 0'dan 1/R'ye atlar — takım büküme çarparak
+girer, sac bükümün tamamını tek noktada yer. Yarıçapı kademeli
+değiştirmek bu bükümü duvara yayar. Karayolundaki mantığın aynısı:
+düz yoldan sabit yarıçaplı viraja asla birden girilmez, geçiş
+eğrisiyle girilir. (Matematiği klotoid — standart geçiş eğrisi.)
+
+  TİPİK KULLANIM: Kıvrım Yarıçapı'nı BOŞ bırak, sadece Kıvrım R
+  Bitiş'i doldur (örn. −30). Kuyruk M'den DÜMDÜZ çıkar ve kenarda
+  o yarıçapa yumuşakça girer — en akıcı seçenek ve şekillendirmeyi
+  tam istediğin yere koyar.
+
+  Yön, doluysa Kıvrım Yarıçapı'ndan, değilse Kıvrım R Bitiş'ten
+  gelir; bitiş alanının yalnız BÜYÜKLÜĞÜ kullanılır → ters
+  işaretle kuyruk ortada S yapamaz.
+
+PAS NEREDE BİTER: kıvrım, geriye kalan yay UZUNLUĞUNU koşar (eski
+düz |M→P3| mesafesi). Yani reach hâlâ "ne kadar gider"i, yarıçap
+"ne kadar kıvrılır"ı belirler. BİTİŞ NOKTASI OYNAR — bu bilerek
+böyledir ve kıvrımı "şişkinlik" değil "açılma" yapan şeydir:
+kuyruk sac kenarından ayrıldıktan sonra takip edilecek kenar
+kalmaz, P3 artık bir hedef değildir. Gerçek Bitiş Z etkilenmez
+(o temas Z'sini bildirir); ancak Pas Tablosu'ndaki bitiş sütunu
+PLANLANAN P3'ü gösterir, kıvrılmış ucu değil.
+
+YARIÇAP AYNEN UYGULANIR: R1 sıkı bir kanca, R60 yayvan bir açılma
+verir. Dönüş 90° ile sınırlıdır — kuyruk asla kendi üstüne
+katlanamaz (Çıkış Yay Açısı'nın ~90° sonrası hatası) — ve sıkı bir
+yarıçap bu sınıra dayandığında YAY ORADA DURUR, kalan uzunluk yeni
+yönde TEĞET olarak DÜZ devam eder (köşe oluşmaz). Yani yazdığın
+yarıçap sessizce değiştirilmez ve pas yine tam boyunu koşar.
+
+Kıvrım Kırp, Kavis Kırp ile birebir aynı çalışır:
+    • AÇIK (varsayılan) — KIRP: yay tam boyunda üretilir, sadece
+      fazla yaklaşan noktalar clearance konturuna biner.
+    • KAPALI — DÜZLEŞTİR: yayın genliği yoktur, karşılığı
+      EĞRİLİKTİR — hiçbir nokta ihlal etmeyene kadar YARIÇAP
+      büyütülür (daha yayvan ama tamamen pürüzsüz kıvrım). Bacağın
+      kendi yönü zaten clearance yüzeyinin içinden geçiyorsa
+      eğrilikle düzeltilemez; kalan kısım emniyet için kırpılır —
+      yani kıvrım HİÇBİR modda aşağıya gouge devretmez.
+Sadece İÇE kıvrım parçaya girebilir; dışa kıvrımda koruma boştadır
+ve iki mod birebir aynı şekli verir.
+
+ÖNCELİK: Kıvrım Yarıçapı doluyken çıkış bacağında Çıkış Kavisi,
+Çıkış Yay Açısı VE Çıkış Orta Rot'un yerine geçer (Çıkış Orta Rot
+editörde griye alınır — sessizce yok sayılmaz). Sadece ileri yönlü
+linear_approach kaba paslarda; ters paslar ve linear_full yok sayar.
+
+⚠ Çıkış Orta t'nin BİLEREK İKİ ANLAMI vardır (eski programlar
+bit-aynı kalsın diye): KIVRIM onu P2→P3 kirişi üzerinde, eski
+Çıkış Orta ROT ise nokta dizisi üzerinde ölçer. Kavis/Yay Açısı da
+doluyken bu ikisi farklı yerlere düşer.
 
 
 PAS TABLOSU (Paslar ▦ — çalıştırmadan önce her pası gör)

@@ -17,6 +17,30 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.012": [
+        ("Roughing passes can curl at the end instead of running straight",
+         "The exit stays dead straight until a point you choose, then curls away "
+         "at the radius you set. The straight part runs smoother and faster on the "
+         "machine; the curl near the sheet edge forms a curved side, which is "
+         "stiffer than a straight one. Leave the radius empty and nothing changes.",
+         "Program List ▸ a roughing operation ▸ Curl Radius"),
+        ("The curl can ease in instead of bending all at once",
+         "Set an end radius as well and the curve tightens gradually toward the "
+         "sheet edge. Leaving the first radius empty starts the curl perfectly "
+         "straight and eases into the bend — smoothest on the machine and on the part.",
+         "Program List ▸ a roughing operation ▸ Curl R End"),
+        ("Saved G-code is no longer affected by PLC mode",
+         "The .nc file is now always full resolution, so a G-code viewer shows the "
+         "real path. Before, switching PLC mode on also simplified the saved .nc, "
+         "which made curves look like straight lines. The PLC still gets its "
+         "simplified program from the SCL export, as it always did.",
+         "File ▸ Save G-Code"),
+        ("New: see exactly what the PLC will receive",
+         "Shows the intended path and the PLC recipe on top of each other, with "
+         "every point the PLC gets marked, the tolerance and line count in use, and "
+         "a warning for any curve too small to survive simplification.",
+         "Tools ▸ SCL Inspector"),
+    ],
     "1.011": [
         ("The operation table columns can be reordered",
          "Click a column, then move it left or right with the ◀ / ▶ buttons — "

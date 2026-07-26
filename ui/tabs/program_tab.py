@@ -34,6 +34,8 @@ OP_PARAM_DEFAULTS = {
     "exit_bow_bias": 0.5,
     "exit_mid_t": 0.5,
     "exit_mid_rotation": 0,
+    "exit_mid_radius": "off",       # empty = exit curl disabled (#92)
+    "exit_mid_radius_end": "off",   # empty = constant radius (no spiral)
     "proj_extend_bottom": 0,
     "proj_extend_top": 0,
     "contact_zone_mm": 0,
@@ -89,7 +91,8 @@ OP_PARAM_UNIVERSE = {
         "retract_x", "retract_z",
         "pass_shape", "p2_radius", "exit_arc_angle", "exit_bow", "exit_bow_bias",
         "exit_bow_trim", "exit_mid_rotation",
-        "exit_mid_t", "conformal_clearance_operation_specific",
+        "exit_mid_t", "exit_mid_radius", "exit_mid_radius_end", "exit_mid_trim",
+        "conformal_clearance_operation_specific",
         "approach_follow_surface", "p1_x", "p1_z", "p3_x", "p3_z", "reach",
         "reach_follow_blank", "reach_blank_factor", "reach_blank_offset",
         "pass_angle", "progressive_angle_enabled", "progressive_angle_end",
@@ -136,6 +139,8 @@ OP_PARAM_LABELS = {
     "exit_bow": "lbl_exit_bow", "exit_bow_bias": "lbl_exit_bow_bias",
     "exit_bow_trim": "lbl_exit_bow_trim",
     "exit_mid_rotation": "lbl_exit_mid_rot", "exit_mid_t": "lbl_exit_mid_t",
+    "exit_mid_radius": "lbl_exit_mid_radius", "exit_mid_trim": "lbl_exit_mid_trim",
+    "exit_mid_radius_end": "lbl_exit_mid_radius_end",
     "conformal_clearance_operation_specific": "lbl_conformal_clr",
     "approach_follow_surface": "lbl_approach_surf",
     "p1_x": "lbl_p1x", "p1_z": "lbl_p1z", "p3_x": "lbl_p3x", "p3_z": "lbl_p3z",
@@ -171,6 +176,7 @@ SECTION_KEYS = {
     "speed_feed": ["speed_mode", "speed", "feed_mode", "feed"],
     "path_shape": ["pass_shape", "p2_radius", "exit_arc_angle", "exit_bow",
                    "exit_bow_bias", "exit_bow_trim", "exit_mid_rotation", "exit_mid_t",
+                   "exit_mid_radius", "exit_mid_radius_end", "exit_mid_trim",
                    "conformal_clearance_operation_specific",
                    "approach_follow_surface", "p1_x", "p1_z", "p3_x", "p3_z", "reach",
                    "reach_follow_blank", "reach_blank_factor", "reach_blank_offset",
@@ -211,6 +217,7 @@ _BATCH_ELIGIBLE = {
     "speed", "feed", "count", "start_z", "end_z", "p2_z_extend",
     "proj_extend_bottom", "proj_extend_top", "p2_radius",
     "exit_bow", "exit_bow_bias", "exit_mid_rotation", "exit_mid_t",
+    "exit_mid_radius", "exit_mid_radius_end",
     "p1_x", "p1_z", "p3_x", "p3_z", "reach", "reach_blank_factor",
     "pass_angle", "progressive_angle_end", "progressive_reach_end",
     "clearance", "rot", "contact_zone_mm", "feed_contact",
@@ -2323,17 +2330,104 @@ class ProgramTab:
                     "Her iki modda da P3 ve P1→P2 kolu YERİNDE kalır (clearance ihlali yok).")
 
             if pass_shape_val == "linear_approach":
+                # #92 Çıkış Kıvrımı: M'ye kadar DÜZ, M'den sonra teğet yay.
+                # Yarıçap doluyken Çıkış Orta Rot devre dışı kalır (karşılıklı dışlayan).
+                def _num_set(_k):
+                    try:
+                        return abs(float(str(op.get(_k, "")).strip() or 0)) > 1e-4
+                    except (TypeError, ValueError):
+                        return False
+                # Either radius alone switches the curl on (yalnız bitiş yarıçapı =
+                # M'de düz başla, o yarıçapa yumuşakça gir).
+                _curl_on = _num_set("exit_mid_radius") or _num_set("exit_mid_radius_end")
+
+                self._add_prop_entry(idx, "exit_mid_radius", t("lbl_exit_mid_radius"), op,
+                                     is_float=True, rebuild=True,
+                                     tooltip="ÇIKIŞ KIVRIMI (mm, işaretli). T2→M arası DÜZ kalır, "
+                                             "M'den sonrası bu yarıçapta SABİT bir yayla kıvrılır.\n"
+                                             "Neden: düz kısım makinede daha akıcı/hızlıdır ve PLC "
+                                             "seyreltmesinde 2 satıra iner; kavis sadece sac kenarına "
+                                             "yakın, işe yaradığı yerde harcanır (kenarı kıvırarak "
+                                             "parçayı SAĞLAMLAŞTIRIR).\n"
+                                             "M'nin yeri = Çıkış Orta t (T2→P3 KİRİŞİ üzerinde oran).\n"
+                                             "Kuyruk UZUNLUĞU = kalan |M→P3| — yani pas boyu değişmez, "
+                                             "reach 'ne kadar gider'i, yarıçap 'ne kadar kıvrılır'ı belirler.\n"
+                                             "Yarıçap AYNEN uygulanır: R1 sıkı bir kanca, R60 yayvan bir açılma.\n"
+                                             "Bitiş noktası SERBEST: kuyruk kenardan ayrıldıktan sonra "
+                                             "takip edilecek sac kenarı kalmaz (P3 artık hedef değil).\n"
+                                             "İşaret: + = mandrel tepesine (+Z), − = tabana (−Z) — "
+                                             "exit_bow ile AYNI sabit el-yönü, yelpazede ilk pas ters dönmez.\n"
+                                             "Dönüş 90° ile SINIRLI (asla katlanmaz): sıkı bir yarıçapta yay "
+                                             "90°'de durur ve kalan uzunluk o yönde DÜZ devam eder — yarıçap "
+                                             "bozulmaz, toplam boy korunur.\n"
+                                             "BOŞ/0 = kapalı (eski davranış birebir). DOLUYSA Çıkış Kavisi, "
+                                             "Çıkış Yay Açısı ve Çıkış Orta Rot'un YERİNE geçer.\n"
+                                             "Sadece ileri yönlü linear_approach paslarda geçerli.")
+
+                # Bitiş yarıçapı — eğrilik kuyruk boyunca DEĞİŞİR (klotoid/ara faz).
+                self._add_prop_entry(idx, "exit_mid_radius_end", t("lbl_exit_mid_radius_end"), op,
+                                     is_float=True, rebuild=True,
+                                     tooltip="Kuyruğun SONUNDAKİ yarıçap (mm). BOŞ = sabit yarıçap "
+                                             "(yukarıdaki değer boyunca aynı) = eski davranış birebir.\n"
+                                             "Doluysa eğrilik M'den uca doğru DOĞRUSAL değişir (klotoid — "
+                                             "karayolu/demiryolu geçiş eğrisiyle aynı matematik).\n"
+                                             "NEDEN: sabit yarıçapta düz kolun bittiği M noktasında bir "
+                                             "EĞRİLİK SIÇRAMASI vardır (yön sürekli ama eğrilik 0'dan 1/R'ye "
+                                             "anında atlar) — takım büküme çarparak girer, sac bükümü tek "
+                                             "noktada toplanır. Değişken yarıçap bu bükümü duvara yayar.\n"
+                                             "TİPİK KULLANIM: üstteki Kıvrım Yarıçapı'nı BOŞ bırak "
+                                             "(M'de dümdüz başlar) ve buraya kenardaki sıkı değeri yaz "
+                                             "(örn. −30) → yumuşak giriş, kenarda sıkı büküm.\n"
+                                             "YÖN: işaret üstteki alandan gelir (o boşsa buradan); "
+                                             "bu alanın yalnız BÜYÜKLÜĞÜ kullanılır → ters işaretle "
+                                             "kuyruk ortada S yapamaz.\n"
+                                             "90° dönüş sınırı ve clearance koruması aynen geçerlidir.")
+
+                # Kıvrım clearance davranışı — exit_bow_trim ile aynı model.
+                f_emt = ttk.Frame(self.f_prop_editor)
+                f_emt._pkey = "exit_mid_trim"
+                f_emt.pack(fill="x", padx=2, pady=1)
+                ttk.Label(f_emt, text=t("lbl_exit_mid_trim"), width=15).pack(side="left")
+                emt_var = tk.BooleanVar(value=bool(op.get("exit_mid_trim", True)))
+                def toggle_emt(i=idx, _v=emt_var):
+                    self.app.params["operations"][i]["exit_mid_trim"] = _v.get()
+                    self._schedule_auto_calc()
+                ttk.Checkbutton(f_emt, variable=emt_var, command=toggle_emt).pack(side="right")
+                self.helper.bind_tooltip(f_emt,
+                    "Çıkış Kıvrımı clearance'ı nasıl korusun (sadece Kıvrım Yarıçapı doluyken).\n"
+                    "AÇIK (varsayılan) = KIRP: yay tam boyunda üretilir; parçaya fazla yaklaşan "
+                    "noktalar op'un KENDİ clearance yüzeyine itilir (o bölgede yüzeye paralel gider). "
+                    "M sabit kalır, düz kol asla oynamaz.\n"
+                    "KAPALI = DÜZLEŞTİR: yayın GENLİĞİ yoktur, karşılığı EĞRİLİKTİR — hiçbir nokta "
+                    "clearance'ı ihlal etmeyene kadar YARIÇAP BÜYÜTÜLÜR (daha yayvan ama tamamen "
+                    "pürüzsüz kıvrım; en kötü halde düze yaklaşır).\n"
+                    "Sadece İÇE kıvrım (−R) parçaya girebilir; dışa kıvrımda bu koruma zaten boştadır.")
+
                 # Exit Mid Rotation — M noktasından sonrasını M etrafında döndürür
                 self._add_prop_entry(idx, "exit_mid_rotation", t("lbl_exit_mid_rot"), op, is_float=True,
+                                     readonly=_curl_on,
                                      tooltip="P2→P3 çıkış eğrisi üzerinde bir M noktası seçip, M'den SONRASINI "
                                              "(M→P3 kuyruğu) M etrafında bu açıda döndürür (derece, XZ düzlemi).\n"
                                              "T2→M kısmı değişmez; P3 kuyrukla birlikte döner.\n"
                                              "0 veya boş = etkisiz (düz çıkış eğrisi). Pozitif/negatif yönü değiştirir.\n"
-                                             "Sadece linear_approach modunda geçerli. Clearance düzeltmesi yine uygulanır.")
+                                             "Sadece linear_approach modunda geçerli. Clearance düzeltmesi yine uygulanır.\n"
+                                             "⚠ Çıkış Kıvrım Yarıçapı doluyken DEVRE DIŞIDIR (kıvrım onun yerine geçer).")
+                if _curl_on:
+                    _lbl_off = tk.Label(self.f_prop_editor, text=t("note_rot_off_curl"),
+                                        fg=self.helper.HINT_COLOR, font=self.helper.HINT_FONT,
+                                        anchor="w")
+                    _lbl_off._pkey = "exit_mid_rotation"
+                    _lbl_off.pack(fill="x", padx=(120, 2))
+
                 self._add_prop_entry(idx, "exit_mid_t", t("lbl_exit_mid_t"), op, is_float=True,
-                                     tooltip="M noktasının çıkış eğrisi üzerindeki konumu (oran, 0–1, varsayılan 0.5).\n"
-                                             "Küçük = M P2'ye yakın (daha uzun kuyruk döner), büyük = P3'e yakın.\n"
-                                             "0.05–0.95 arasına sınırlanır. Sadece Exit Mid Rot ≠ 0 iken etkilidir.")
+                                     tooltip="M noktasının çıkış üzerindeki konumu (oran, 0–1, varsayılan 0.5).\n"
+                                             "Küçük = M P2'ye yakın (kıvrım erken başlar, düz kısım kısa), "
+                                             "büyük = P3'e yakın (uzun düz kol, kısa kıvrım).\n"
+                                             "0.05–0.95 arasına sınırlanır.\n"
+                                             "⚠ İKİ ANLAMI VARDIR (bilerek — eski programlar bit-aynı kalsın diye):\n"
+                                             "  • Çıkış KIVRIMI için: T2→P3 KİRİŞİ üzerinde oran (nokta yoğunluğundan bağımsız).\n"
+                                             "  • Çıkış Orta ROT için: nokta DİZİSİ üzerinde oran (eski davranış).\n"
+                                             "Çıkış Kavisi/Yay Açısı da doluyken bu ikisi FARKLI yerlere düşer.")
 
             f_conf = ttk.Frame(self.f_prop_editor)
             f_conf._pkey = "conformal_clearance_operation_specific"
