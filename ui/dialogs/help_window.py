@@ -2137,6 +2137,43 @@ PDF raporu        Operasyon listesi, paso özeti ve takım yollarının
 
     "trouble": {
         "EN": """\
+ONE PASS BEHAVES DIFFERENTLY AND I CAN'T FIND WHY
+════════════════════════════════════════════════════════════════
+A pass gets its numbers from a priority chain, and only the FIRST
+link is visible in the operation panel:
+
+   operation setting  →  progressive fan  →  follow blank edge
+                      →  value set by hand on that one pass
+
+A value set by hand on a single pass beats everything above it and
+does not appear in the operation panel at all. That is the usual
+reason "the operation says 95 but this pass clearly runs longer".
+
+Two ways to see it:
+
+1. Help ▸ Why is my pass weird?
+   Lists every value in the whole program that did NOT come from
+   the operation panel, most serious first. It separates a field
+   set by hand on EVERY pass (a deliberate ramp you built) from a
+   field set by hand on only SOME passes — the second is almost
+   always the surprise you are hunting, and it is shown in RED
+   with a ◆ marker. Grey lines are deliberate, nothing to do.
+   Double-click a line to jump to that operation; Copy report to
+   send it to support.
+
+2. Program List ▸ right-click the operation ▸ Passes ▦
+   Click any cell in the table. The line under the table names
+   where that one number came from and what it overrode, e.g.
+   "Reach mm = 118 ← set by hand on this pass. It overrode:
+   follow blank edge 62.3 · the operation setting 95.26".
+
+To remove a hand-set value: open the pass table, double-click the
+cell, clear it (submit an empty box), then press Apply.
+
+Values shown as "leftover data" are ignored by the machine — they
+come from older versions of the program and are safe to ignore.
+
+
 PATHS DON'T APPEAR AFTER A CHANGE
 ════════════════════════════════════════════════════════════════
 Press Calculate. Some parameters do not trigger an automatic
@@ -2249,6 +2286,45 @@ and this warning does not appear. The popup is shown once per
 recipe; the same details are always written to the log.
 """,
         "TR": """\
+BİR PAS FARKLI DAVRANIYOR AMA NEDENİNİ BULAMIYORUM
+════════════════════════════════════════════════════════════════
+Bir pasın sayıları bir ÖNCELİK ZİNCİRİNDEN gelir ve bu zincirin
+sadece İLK halkası operasyon panelinde görünür:
+
+   operasyon ayarı  →  kademeli yelpaze  →  sac kenarını takip
+                    →  o TEK pasta elle ayarlanmış değer
+
+Tek bir pasta elle ayarlanmış bir değer üstündeki her şeyi geçersiz
+kılar ve operasyon panelinde hiç görünmez. "Operasyon 95 diyor ama
+bu pas belli ki daha uzun gidiyor" durumunun olağan sebebi budur.
+
+Görmenin iki yolu:
+
+1. Yardım ▸ Pasım neden tuhaf?
+   Tüm programda operasyon panelinden GELMEYEN her değeri, en
+   ciddisi üstte olacak şekilde listeler. HER pasta elle ayarlı bir
+   alanı (bilerek kurduğunuz bir rampa) yalnızca BAZI paslarda elle
+   ayarlı bir alandan ayırır — ikincisi neredeyse her zaman
+   aradığınız sürprizdir ve KIRMIZI renkte, ◆ işaretiyle gösterilir.
+   Gri satırlar bilinçlidir, yapılacak bir şey yoktur. Satıra çift
+   tıklayınca o operasyona gider; "Raporu kopyala" ile desteğe
+   gönderebilirsiniz.
+
+2. Program Listesi ▸ operasyona sağ tık ▸ Paslar ▦
+   Tablodaki herhangi bir hücreye tıklayın. Tablonun altındaki
+   satır o sayının nereden geldiğini ve neyi geçersiz kıldığını
+   söyler, örn. "Reach mm = 118 ← bu pasta elle ayarlandı.
+   Şunları geçersiz kıldı: sac kenarını takip 62.3 · operasyon
+   ayarı 95.26".
+
+Elle ayarlanmış bir değeri kaldırmak için: pas tablosunu açın,
+hücreye çift tıklayın, kutuyu BOŞ bırakıp onaylayın, sonra
+Uygula'ya basın.
+
+"Artık veri" olarak gösterilen değerleri makine kullanmaz — eski
+sürümlerden kalmadır, yok sayabilirsiniz.
+
+
 DEĞİŞİKLİKTEN SONRA YOLLAR GÖRÜNMEDİ
 ════════════════════════════════════════════════════════════════
 Hesapla düğmesine basın. Bazı parametreler, düzenleme sırasında

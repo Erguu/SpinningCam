@@ -37,9 +37,18 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
     """Effective per-pass values for ``op`` — mirrors the engine exactly.
 
     Returns a list of dicts: {i, z, angle, reach, p3x, p3z, end_x, end_z,
-    source, pinned, legacy_override, warnings:[str]}. ``staged`` (dict
+    source, pinned, legacy_override, warnings:[str], prov{}}. ``staged`` (dict
     {i: {"pass_angle":v, "reach":v}}) previews unapplied table edits.
     ``angle`` is None in RAW mode. Purely advisory — never mutates the op.
+
+    ``prov`` is the per-FIELD provenance record (2026-07-28): for each of
+    anchor / extend / clr / angle / reach it names which stage of the priority
+    chain produced the live number and which candidates it beat —
+    ``{field: {"source": key, "value": v, "losers": [(key, v), …]}}``, losers
+    ordered nearest-priority first. The row-level ``source`` tag only says
+    "something on this pass is manual"; it cannot say WHICH field, which is
+    what makes a stray pin hard to find. Consumed by the pass-table
+    explanation bar, ui/dialogs/recipe_audit.py and explain.py.
     """
     count = int(op.get("count", 1))
     if op.get("type") in ("cutting", "bending"):
@@ -113,6 +122,33 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
         edit_angle = _f(st.get("pass_angle", pe.get("pass_angle")))
         edit_reach = _f(st.get("reach", pe.get("reach")))
         pinned = bool(pe) or bool(st)
+
+        # ── provenance recorder (additive; no effect on any computed value) ──
+        prov = {}
+
+        def _org(key, _st=st, _pe=pe):
+            """Which dict a per-pass edit came from — staged beats applied pin."""
+            if _st.get(key) is not None:
+                return "staged"
+            return "pin"
+
+        def _rec(field, cands, _p=prov):
+            """cands = [(source_key, value), …] in PRIORITY order, last wins.
+            None values are absent stages and are dropped.
+
+            Never raises: provenance is a display aid, and the pass table (and
+            everything reading it) must open even if this bookkeeping fails.
+            Consumers already treat a missing record as "no explanation"."""
+            try:
+                live = [(s, v) for s, v in cands if v is not None]
+                if not live:
+                    return
+                src, val = live[-1]
+                _p[field] = {"source": src, "value": val,
+                             "losers": [(s, v) for s, v in live[:-1]][::-1]}
+            except Exception as e:
+                logger.debug(f"provenance record skipped for {field}: {e}")
+
         # #89 Phase 2 — per-pass pins (roughing): anchor (target_z), extend
         # (p2_z_extend), clearance. Mirrors the engine exactly.
         edit_clr = None if is_finish else _f(st.get("clearance", pe.get("clearance")))
@@ -123,11 +159,16 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
             target_z = start_h
         else:
             target_z = start_h + (i / (count - 1)) * (end_h - start_h)
+        base_tz = target_z                      # pre-pin value, for provenance
         if edit_tz is not None:
             target_z = edit_tz
         eff_ext = edit_ext if edit_ext is not None else p2_ext
         contact_z = target_z + eff_ext          # engine: contact_z = target_z + p2_z_extend
         total_off = r_tool + blank_thick + eff_clr
+
+        _rec("anchor", [("op", base_tz), (_org("target_z"), edit_tz)])
+        _rec("extend", [("op", p2_ext), (_org("p2_z_extend"), edit_ext)])
+        _rec("clr", [("op", op_clearance), (_org("clearance"), edit_clr)])
 
         follow_reach = None
         if follow and est_flange is not None:
@@ -137,24 +178,44 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
                 fr = 0.0
             if fr > 0:
                 follow_reach = max(fr * fb_fac + fb_off, 0.0)
+                # Degenerate-flange guard — MUST mirror path_generator.py ~638
+                # (added to the engine 2026-07-22, missed here until 2026-07-28).
+                # Near the base the flange estimate collapses to a few mm, and
+                # below min_z it is unphysical and GROWS again; the engine drops
+                # follow mode in both cases and falls back to the fan/op reach.
+                # Without this the table showed ~9.8mm where the machine ran
+                # ~39mm — the displayed number was simply not what runs.
+                fb_min = _f(op.get("reach_follow_min"), 10.0) or 0.0
+                if follow_reach < fb_min or target_z <= float(mgr.props.get("min_z", 0.0)):
+                    follow_reach = None
 
         p3_x, p3_z = def_p3_x, def_p3_z
         eff_angle = None
         if pa_deg is not None:
             eff_angle = pa_deg
+            fan_angle = None
             if prog_a:
                 eff_angle += i * (prog_a_end - eff_angle) / (count - 1)
+                fan_angle = eff_angle
             if edit_angle is not None:
                 eff_angle = edit_angle
+            _rec("angle", [("op", pa_deg), ("fan", fan_angle),
+                           (_org("pass_angle"), edit_angle)])
             L3 = reach_v if reach_v is not None else math.hypot(p3_x, p3_z)
+            base_L3, base_src = L3, ("op" if reach_v is not None else "raw")
+            fan_L3 = None
             if prog_r:
                 r_end = _f(op.get("progressive_reach_end"), L3)
                 r_end = L3 if r_end is None else r_end
                 L3 = max(L3 + i * (r_end - L3) / (count - 1), 0.0)
+                fan_L3 = L3
             if follow_reach is not None:
                 L3 = follow_reach
             if edit_reach is not None:
                 L3 = edit_reach
+            _rec("reach", [(base_src, base_L3), ("fan", fan_L3),
+                           ("follow", follow_reach),
+                           (_org("reach"), edit_reach)])
             if L3 > 0.001:
                 theta_B = theta_A + math.radians(eff_angle)
                 p3_x = L3 * math.cos(theta_B)
@@ -169,6 +230,8 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
             if edit_reach is not None:
                 raw_len = edit_reach
             cur = math.hypot(p3_x, p3_z)
+            _rec("reach", [("raw", cur), ("op", reach_v), ("follow", follow_reach),
+                           (_org("reach"), edit_reach)])
             if raw_len is not None and cur > 1e-6:
                 s = raw_len / cur
                 p3_x *= s
@@ -255,7 +318,8 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
                      "p1x": round(p2_x_abs + p1_x, 2), "p1z": round(target_z, 2),
                      "p2x": round(p2_x_abs, 2),
                      "source": source, "pinned": pinned,
-                     "legacy_override": legacy, "warnings": warnings})
+                     "legacy_override": legacy, "warnings": warnings,
+                     "prov": prov})
     return rows
 
 
@@ -297,9 +361,17 @@ class PassTableDialog(tk.Toplevel):
         self.tree.tag_configure("pin", background="#fff3d0")
         self.tree.tag_configure("staged", background="#ffe0b0")
         self.tree.tag_configure("warn", foreground="#aa3300")
+        # A hand-set value that breaks the operation's own pattern — the thing
+        # people open this table to find. Red + bold + a ◆ on the cell itself,
+        # because a whole-row tint cannot say WHICH number is the odd one.
+        self.tree.tag_configure("odd", foreground="#c01000", background="#ffecea")
         self.tree.pack(fill="both", expand=True, padx=6, pady=(6, 0))
         self.tree.bind("<Double-1>", self._on_double_click)
         self.tree.bind("<<TreeviewSelect>>", self._on_row_select)
+        # Self-explaining numbers (2026-07-28): the Source column is row-level,
+        # so it cannot say WHICH field is manual. Clicking a cell spells out the
+        # chain that produced that one number. Read-only — click never edits.
+        self.tree.bind("<ButtonRelease-1>", self._on_cell_click, add="+")
 
         # #89 — live 2D side view (X-Z): each pass drawn P1→P2→P3 (schematic), the
         # mandrel faint, the selected pass highlighted. Redraws from the CURRENT rows
@@ -310,6 +382,12 @@ class PassTableDialog(tk.Toplevel):
 
         self.lbl_foot = tk.Label(self, anchor="w", justify="left", fg="#446688")
         self.lbl_foot.pack(fill="x", padx=8, pady=(2, 0))
+
+        # Explanation bar — fed by _on_cell_click / row select.
+        self.lbl_explain = tk.Label(self, anchor="w", justify="left", fg="#204060",
+                                    bg="#eef3f8", relief="groove", bd=1,
+                                    wraplength=860, text=t("rx_explain_hint"))
+        self.lbl_explain.pack(fill="x", padx=6, pady=(4, 0))
 
         # #89 — bulk fill helpers: put one value on every pass (Set all) or a linear
         # first→last ramp (Progressive) for the selected field. Both stage like manual
@@ -363,25 +441,42 @@ class PassTableDialog(tk.Toplevel):
                                  base_fwd_idx=self._base_fwd_idx(),
                                  staged=self.staged)
         self._last_rows = rows
+        # Which values do not fit this operation's own pattern (shared helper,
+        # so the table and the recipe-check window can never disagree).
+        try:
+            from recipe_explain import outlier_fields
+            odd_map = outlier_fields(rows)
+        except Exception as e:
+            logger.debug(f"outlier highlight skipped: {e}")
+            odd_map = {}
+        self._odd_map = odd_map
         self.tree.delete(*self.tree.get_children())
         for r in rows:
-            tags = []
-            if str(r["i"]) in {str(k) for k in self.staged}:
-                tags.append("staged")
+            odd = odd_map.get(r["i"], set())
+            # Exactly ONE styling tag per row: ttk tag precedence with several
+            # competing tags is fragile, and 'odd' must always win.
+            if odd:
+                tags = ["odd"]
+            elif str(r["i"]) in {str(k) for k in self.staged}:
+                tags = ["staged"]
             elif r["pinned"]:
-                tags.append("pin")
-            if r["warnings"]:
+                tags = ["pin"]
+            else:
+                tags = []
+            if r["warnings"] and not odd:
                 tags.append("warn")
-            # ✎ prefix directly ON the staged cell — user feedback 2026-07-08:
-            # the row tint alone was not noticed as "pending edit".
+            # Prefix directly ON the cell — user feedback 2026-07-08: the row
+            # tint alone was not noticed. ✎ = staged edit, ◆ = the value that
+            # does not fit this operation's pattern (row tint cannot say which).
             st = self.staged.get(r["i"]) or self.staged.get(str(r["i"])) or {}
-            def _mark(key, val):
-                return f"✎ {val}" if key in st else val
-            a_txt = _mark("pass_angle", "—" if r["angle"] is None else r["angle"])
-            r_txt = _mark("reach", r["reach"])
-            an_txt = _mark("target_z", r["anchor"])
-            ex_txt = _mark("p2_z_extend", r["extend"])
-            c_txt = _mark("clearance", r["clr"])
+            def _mark(key, val, field=None, _st=st, _odd=odd):
+                pre = ("✎ " if key in _st else "") + ("◆ " if field in _odd else "")
+                return f"{pre}{val}" if pre else val
+            a_txt = _mark("pass_angle", "—" if r["angle"] is None else r["angle"], "angle")
+            r_txt = _mark("reach", r["reach"], "reach")
+            an_txt = _mark("target_z", r["anchor"], "anchor")
+            ex_txt = _mark("p2_z_extend", r["extend"], "extend")
+            c_txt = _mark("clearance", r["clr"], "clr")
             self.tree.insert("", "end", iid=str(r["i"]), tags=tuple(tags), values=(
                 r["i"] + 1, an_txt, ex_txt, r["z"], c_txt, a_txt, r_txt,
                 r["end_z"], r["source"],
@@ -500,6 +595,47 @@ class PassTableDialog(tk.Toplevel):
             self.app.recolor_paths()
         except Exception as e:
             logger.debug(f"pass-table highlight skipped: {e}")
+
+    # Table column → provenance field. Columns without a resolved number
+    # (№, contact Z, P3_Z, Source, Warnings) fall back to the row summary.
+    _PROV_COL = {"#2": "anchor", "#3": "extend", "#5": "clr",
+                 "#6": "angle", "#7": "reach"}
+
+    def _on_cell_click(self, event):
+        """Explain the clicked number in plain language (read-only)."""
+        try:
+            row = self.tree.identify_row(event.y)
+            if not row:
+                return
+            r = next((x for x in (self._last_rows or []) if str(x["i"]) == row), None)
+            if r is None:
+                return
+            from recipe_explain import explain_field, find_overrides
+            odd = getattr(self, "_odd_map", {}).get(r["i"], set())
+            field = self._PROV_COL.get(self.tree.identify_column(event.x))
+            if field:
+                txt = explain_field(r, field)
+                hot = field in odd
+            else:
+                # No number in this column — summarise what IS manual on the row,
+                # which is the question the Source column raises but can't answer.
+                # Lead with the outliers: if the row is flagged red, those are
+                # what the flag is about, and listing the deliberate ramps first
+                # would point the user at the wrong number.
+                hits = [f for f, _ in find_overrides(r)]
+                if odd:
+                    hits = [f for f in hits if f in odd]
+                txt = ("  |  ".join(explain_field(r, f) for f in hits) if hits
+                       else t("rx_explain_hint"))
+                hot = bool(odd)
+            if hot:
+                txt = t("rx_odd_prefix") + " " + txt
+            self.lbl_explain.config(
+                text=txt or t("rx_explain_hint"),
+                fg="#c01000" if hot else "#204060",
+                bg="#ffecea" if hot else "#eef3f8")
+        except Exception as e:
+            logger.debug(f"pass-table explain skipped: {e}")
 
     def _on_double_click(self, event):
         row = self.tree.identify_row(event.y)

@@ -5,6 +5,95 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-28 — YENİ: KENDİNİ AÇIKLAYAN SAYILAR + "PASIM NEDEN TUHAF?" DENETİMİ (v1.013)
+
+**İstek (kullanıcı):** *"sometimes other users stuck some operations and couldnt find the
+reason why any pass acts weird"* — tetikleyici vaka: `analyze/13. uzun pasolu.ssp` op #8'in
+1. pasında reach = 118, operasyon paneli 95.26 diyor. Bulmak ~10 araç çağrısı sürdü.
+
+**Kök neden (teşhis):** köken bilgisi SATIR bazındaydı, ALAN bazında değil.
+`pass_table.py` Kaynak sütunu `bool(pe)` bakıyor → op #8'in üç pasında da pin var
+(target_z/p2_z_extend/clearance/pass_angle), dolayısıyla ÜÇ satır da "⭑ pin" diyordu.
+Sütun "burada elle bir şey var" diyor ama HANGİ ALAN olduğunu söyleyemiyordu.
+
+**Yapılanlar:**
+1. **`compute_pass_rows` → `row["prov"]`** (`pass_table.py`): her alan için
+   `{source, value, losers}`. **Tamamen ek** — hiçbir hesaplanan sayı değişmedi
+   (motorla çapraz doğrulandı).
+2. **`recipe_explain.py` (YENİ, saf/Tk'siz):** `explain_field()` düz-dil cümle,
+   `find_overrides()` anomali seçici, `audit_operations()` tüm reçete denetimi,
+   `format_report()`.
+3. **Pas tablosunda açıklama çubuğu:** hücreye tıkla → *"Reach mm = 118 ← bu pasta elle
+   ayarlandı. Şunları geçersiz kıldı: sac kenarını takip 128.39 · operasyon ayarı 95.26"*.
+   Salt-okunur, tıklama düzenleme YAPMAZ.
+4. **`ui/dialogs/recipe_audit.py` (YENİ):** Araçlar ▸ *Pasım neden tuhaf?* — makine tipinden
+   BAĞIMSIZ (her makinede gizli pas durumu olabilir). Çift tık → operasyona git,
+   "Raporu kopyala" → panoya (destek akışı için).
+5. **`explain.py` (YENİ, CLI):** `python explain.py dosya.ssp [--op N] [--pass N] [--step X]`.
+   Mandrel STEP yoksa dosya-seviyesi kontroller yine çalışır (müşteri .ssp gönderdiğinde
+   STEP elde olmuyor).
+6. **Gürültü kontrolü — kritik tasarım kararı:** denetim ALAN bazında gruplar.
+   TÜM paslarda pinli alan = bilinçli rampa (info); YALNIZCA BAZI paslarda pinli =
+   **anomali (warn)**. Gerçek dosyada bu, 60+ uyarıyı tek satıra indirdi:
+   *"op #8 pas 1: Reach mm sadece 3 pasın 1 tanesinde elle ayarlı (pas 1: 118) —
+   diğer paslar sac kenarını takip 128.39 kullanıyor."* Ayrıca dosya-seviyesi
+   tekrarlar tek satıra toplanır (artık veri / kapalı op / aynı ad).
+
+**YAN FAYDA — ÖNCEDEN BOZUK TESTİ DÜZELTTİ (gerçek hata):**
+`_test_pass_table.py` #2 HEAD'de de FAIL veriyordu (git stash ile doğrulandı):
+tablo 9.82, motor 39.05. Sebep: motora 2026-07-22'de eklenen dejenere-flanş koruması
+(`reach_follow_min` 10mm + `target_z <= min_z`) **aynaya işlenmemişti**. Takip modundaki
+op'larda tablo makinenin koşmadığı bir reach gösteriyordu. `pass_table.py`'ye taşındı
+→ `_test_pass_table.py` ALL PASS.
+
+**Doğrulama:** `_test_recipe_explain.py` 24/24; `_test_pass_table.py` / `_test_scl_inspector.py`
+/ `_test_gcode_not_plc.py` ALL PASS; headless GUI smoke (denetim penceresi 28 bulgu,
+şiddet etiketleri, refresh idempotent, pas tablosu hücre tıklamaları). Gerçek dosya
+`13. uzun pasolu.ssp` üzerinde uçtan uca doğrulandı.
+**BEKLEYEN:** gerçek pencerede elle GUI smoke; commit EDİLMEDİ.
+
+**Not:** `_test_program_tab_toolbar.py` `btn_batch` AttributeError ile ÖNCEDEN bozuk
+(2026-07-10'da araç çubuğu sadeleştirilince düğme sağ-tık menüsüne taşındı, test
+güncellenmedi) — bu oturumla ilgisi yok.
+
+### 2026-07-28b — aynı oturum, kullanıcı geri bildirimi sonrası
+
+*"can we make it more noticible, the ones that can be more critical, in red… also can we
+place the why my passes are weird button in help section"*
+
+1. **YENİ ŞİDDET KATMANI `hidden`** (`SEV_ORDER`: error > **hidden** > warn > info).
+   Düzene uymayan elle ayarlı değer artık amber tavsiyelerle aynı kefede DEĞİL:
+   kırmızı (#c01000) + **kalın** + `◆` işareti, listenin en üstünde, açılışta
+   **otomatik seçili**. Alt bilgi de kırmızıya döner: *"◆ 1 bulgu dikkat istiyor
+   (28 içinden)"*. Gerçek dosyada 28 bulgunun **1 tanesi** kırmızı — tam da aranan
+   op #8 reach'i.
+2. **Pas tablosunda aykırı vurgusu:** satır kırmızı (`odd` etiketi) + `◆` doğrudan
+   O HÜCREDE (`◆ 118.0`), çünkü satır rengi HANGİ sayı olduğunu söyleyemez.
+   Açıklama çubuğu da kırmızıya döner ve `rx_odd_prefix` ile başlar.
+   ⚠ Tek satır-etiketi kullanılıyor (ttk çoklu etiket önceliği kırılgan) — `odd`
+   her zaman kazanır.
+3. **`group_overrides()` / `outlier_fields()`** ortak yardımcıya çıkarıldı → denetim
+   penceresi ile pas tablosu vurgusu AYNI kaynaktan besleniyor, çelişemezler.
+4. **MENÜ TAŞINDI: Araçlar → Yardım** (kullanıcı: *"that would be more correct place
+   to take a look first"*). Araçlar'da yalnızca yönlendirici yorum bırakıldı.
+   Yardım menüsünde EN ÜSTTE, kılavuzun üzerinde.
+5. Renk tek başına yeterli değil (renk körlüğü + kopyalanan düz-metin rapor) →
+   `SEV_MARK` (‼ ◆ !) + rapor öneki `=>`.
+
+**Doğrulama:** `_test_recipe_explain.py` 30/30 (yeni: katman, gruplama, aykırı haritası);
+GUI smoke: kırmızı etiket/font, ön-seçim, kırmızı alt bilgi, `◆` sadece reach hücresinde,
+rampa hücreleri işaretsiz, rampa tıklaması alarm vermiyor.
+**Test fixture düzeltmesi:** ilk fixture gerçek dosyaya sadık değildi (clearance
+sadece 1 pasta pinliydi) → kod HAKLI olarak 2 aykırı buluyordu; fixture gerçek op #8'e
+uyduruldu.
+
+**Geri alma:** `recipe_explain.py`, `ui/dialogs/recipe_audit.py`, `explain.py`,
+`_test_recipe_explain.py` sil; `pass_table.py`'de `prov`/`_rec`/`_on_cell_click`/
+`lbl_explain` ve dejenere-flanş korumasını, `main_window.py`'de menü+`open_recipe_audit`,
+i18n `rx_*`/`menu_recipe_audit` bloğunu geri al.
+
+---
+
 ## 2026-07-26d — YENİ: SCL İNCELEYİCİ (Araçlar ▸ SCL İnceleyici) — PLC'ye gerçekte ne gidiyor
 
 **İstek (kullanıcı):** *"we need a separate scl viewer program where we can inspect how the

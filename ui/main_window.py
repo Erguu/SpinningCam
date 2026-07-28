@@ -223,6 +223,7 @@ class SpinningCamWindow(tk.Tk):
         tools_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label=t("menu_tools"), menu=tools_menu)
         tools_menu.add_command(label=t("menu_tool_library"), command=self.open_tool_library)
+        # NB: the recipe check lives under Help, not here — see the Help menu below.
         # SCL Inspector — the .nc is always full resolution, so a G-code viewer
         # shows intent, not what the PLC receives. Gated to machines whose adapter
         # actually has the SCL pipeline, same rule as the export entry above.
@@ -258,6 +259,11 @@ class SpinningCamWindow(tk.Tk):
         def _open_user_guide():
             from ui.dialogs.help_window import HelpWindow
             HelpWindow(self)
+        # First entry, above the guide: when a pass misbehaves this is the thing
+        # to open first, and Help is where people look before Tools (user, 2026-07-28).
+        help_menu.add_command(label=t("menu_recipe_audit"),
+                              command=self.open_recipe_audit)
+        help_menu.add_separator()
         help_menu.add_command(label=t("menu_user_guide"), command=_open_user_guide)
         help_menu.add_separator()
         help_menu.add_command(label=t("menu_about"), command=lambda: messagebox.showinfo(
@@ -972,6 +978,11 @@ class SpinningCamWindow(tk.Tk):
                  webbrowser.open("https://ncviewer.com/")
                  try: os.startfile(path)
                  except: pass
+
+    def open_recipe_audit(self):
+        """Read-only list of values that did not come from the operation panel."""
+        from ui.dialogs.recipe_audit import RecipeAuditDialog
+        RecipeAuditDialog(self, self.app, getattr(self, "ui_program", None))
 
     def open_scl_inspector(self):
         """Read-only view of what PLC decimation does to the calculated paths."""

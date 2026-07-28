@@ -17,6 +17,31 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.013": [
+        ("Every number in the pass table now explains itself",
+         "Click any cell and a line underneath says where that number came from — "
+         "the operation panel, the progressive fan, follow-blank, or set by hand on "
+         "that one pass — and what it overrode. Previously the Source column could "
+         "only say 'something on this pass is manual', never which value.",
+         "Program List ▸ right-click an operation ▸ Passes ▦ ▸ click a cell"),
+        ("New: a check that finds settings hiding inside a program",
+         "Lists every value that did not come from the operation panel: a reach or "
+         "angle set by hand on one pass, old hidden overrides, negative clearances, "
+         "and roller reach short enough to dig into the part. Double-click a line to "
+         "jump to that operation, or Copy report to send it on.",
+         "Help ▸ Why is my pass weird?"),
+        ("The value that does not fit is shown in red",
+         "A setting changed by hand on EVERY pass is a ramp you built on purpose, so "
+         "it stays grey. A setting changed on only SOME passes is the one that "
+         "usually causes the surprise — it turns red with a ◆ marker, sorts to the "
+         "top of the check, and the ◆ appears on that exact cell in the pass table.",
+         "Help ▸ Why is my pass weird?  /  Passes ▦"),
+        ("Fixed: the pass table could show a reach the machine never used",
+         "On operations that follow the blank edge, the table ignored a rule the "
+         "machine applies near the base of the part, so it could display around 10 mm "
+         "where the machine actually ran nearly 40 mm. The table now matches.",
+         "Program List ▸ right-click an operation ▸ Passes ▦"),
+    ],
     "1.012": [
         ("Roughing passes can curl at the end instead of running straight",
          "The exit stays dead straight until a point you choose, then curls away "

@@ -78,6 +78,8 @@ CRITICAL_MODULES = [
     "ui.dialogs.op_library_dialog",   # op library UI (#71), lazily imported
     "ui.dialogs.batch_edit_dialog",   # batch edit UI (#67), lazily imported
     "ui.dialogs.pass_table",          # per-pass table (#80/#79), lazily imported
+    "recipe_explain",                 # provenance + recipe audit, lazily imported
+    "ui.dialogs.recipe_audit",        # "Why is my pass weird?" UI, lazily imported
 ]
 
 

@@ -372,6 +372,56 @@ program yoksa `_default_cfg` ile makul varsayılana düşer.
 - Tohum ekini `_DEFAULT_SUFFIX = ".default"+".json"` parçalı yazılır ki kaynak
   tarayıcı (`_DATA_RE`) onu shiplenecek dosya sanmasın.
 
+### 23. Değer KÖKENİ (provenance) + reçete denetimi — 2026-07-28
+
+**ÇÖZÜM SIRASI (resolution order) — motorun tek doğruluk kaynağı `path_generator.py:556-675`:**
+
+```
+UZUNLUK (reach): |p3| ham  <  op.reach  <  kademeli yelpaze  <  takip(sac kenarı)  <  pas pin'i
+YÖN   (angle)  : op.pass_angle          <  kademeli yelpaze  <  pas pin'i
+ANKRAJ(target_z)/EXTEND/CLEARANCE      : op alanı            <  pas pin'i
+```
+Son yazan kazanır. Pin = `op["pass_edits"][str(i)][alan]`; staged = pas tablosunda
+henüz Uygula'ya basılmamış düzenleme (pin'i de geçer).
+
+⚠️ **ÖLÜ ALANLAR** (motor OKUMAZ, `export_manager._skip` içinde): op içindeki
+`pass_overrides`. CANLI eski mekanizma = **üst düzey** `overrides`
+(`app.gui_pass_overrides`, .ssp kökünde). İkisini karıştırma — ölü olanı kovalamak
+klasik zaman kaybı.
+
+| Ne | Dosya | Fonksiyon/Anahtar |
+|----|-------|-------------------|
+| Alan-başına köken kaydı (`row["prov"]`) | `ui/dialogs/pass_table.py` | `compute_pass_rows` içinde `_rec()`/`_org()`; `{alan: {source, value, losers}}` |
+| Düz-dil açıklama + bulgu üretimi (SAF, Tk YOK) | `recipe_explain.py` | `explain_field()`, `find_overrides()`, `audit_operations()`, `format_report()` |
+| **Alan-bazında gruplama — TEK doğruluk kaynağı** | `recipe_explain.py` | `group_overrides(rows)` → `{"ramp":…, "odd":…}`; `outlier_fields(rows)` → `{pas: {alan}}`. Hem denetim hem pas tablosu vurgusu bunu kullanır → ASLA çelişemezler |
+| Pas tablosu açıklama çubuğu (hücreye tıkla) | `ui/dialogs/pass_table.py` | `_on_cell_click()`, `_PROV_COL`, `lbl_explain` (aykırıysa KIRMIZI + `rx_odd_prefix`) |
+| Pas tablosu aykırı vurgusu | `ui/dialogs/pass_table.py` | `refresh()` içinde `_odd_map`; satır etiketi `"odd"` (kırmızı), hücrede `◆` öneki (`_mark(key, val, field)`) |
+| "Pasım neden tuhaf?" penceresi | `ui/dialogs/recipe_audit.py` | `RecipeAuditDialog`, `SEV_MARK`; menü **Yardım (Help) altında** — Araçlar'da DEĞİL (kullanıcı kararı 2026-07-28) → `main_window.open_recipe_audit` |
+| CLI (kayıtlı .ssp üzerinde, başsız) | `explain.py` | `--op N`, `--pass N`, `--step`, `--all`, `--lang` |
+| Test | `_test_recipe_explain.py` | 24 kontrol |
+
+**Kurallar:**
+- `prov` **tamamen ek** — hiçbir hesaplanan sayıyı değiştirmez (`_test_recipe_explain.py`
+  motorla çapraz doğrular).
+- Denetim **alan bazında gruplar**, pas bazında değil: bir alan TÜM paslarda pinliyse
+  = bilinçli rampa (info); YALNIZCA BAZI paslarda pinliyse = **anomali**. Aranan
+  sinyal budur. Otomatik değerin aynısını tekrarlayan pin gürültü sayılır (`_TOL`).
+- **Şiddet katmanları** (`SEV_ORDER`): `error` (fiziksel tehlike — gouge) >
+  **`hidden`** (düzene uymayan elle ayarlı değer — KIRMIZI+kalın, insanların bu
+  pencereyi açma sebebi) > `warn` (tavsiye: boşta hareket, negatif klerens, eski
+  override) > `info` (bilinçli rampa, kapalı op, artık veri). `hidden` KASITLI olarak
+  amber tavsiyelerin ÜSTÜNDE — yoksa aranan satır onların arasında kayboluyor.
+  Renk TEK BAŞINA yeterli değil → `SEV_MARK` metin işareti (‼ ◆ !) + kopyalanan
+  raporda `=>` öneki.
+- `mgr=None` (mandrel yok) → dosya-seviyesi kontroller yine çalışır (pin/gouge/artık).
+- Salt-okunur: params'a yazmaz, takım yolu üretmez.
+
+> **AYNA UYARISI:** `compute_pass_rows` motorun ELLE tutulan aynasıdır. 2026-07-22'de
+> motora eklenen dejenere-flanş koruması (`reach_follow_min`, varsayılan 10mm +
+> `target_z <= min_z`) aynaya İŞLENMEMİŞTİ → tablo ~9.8mm gösterirken makine ~39mm
+> koşuyordu. 2026-07-28'de düzeltildi (`_test_pass_table.py` #2 artık geçiyor).
+> Motorun çözüm zincirine dokunan HER değişikliği aynaya da taşı.
+
 ### 15. PLC mod decimation
 | Ne | Dosya | Satır/Fonksiyon |
 |----|-------|-----------------|

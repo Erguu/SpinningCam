@@ -852,6 +852,104 @@ STRINGS = {
     "lbl_exit_mid_trim":    {"EN": "Curl Trim",                     "TR": "Kıvrım Kırp",                "ES": "Recortar Rizo"},
     "lbl_exit_mid_radius_end": {"EN": "Curl R End (mm)",            "TR": "Kıvrım R Bitiş (mm)",        "ES": "Radio Fin Rizo (mm)"},
 
+    # ── Why is my pass weird? (provenance + recipe audit) ────────────────
+    "menu_recipe_audit":  {"EN": "Why is my pass weird? (recipe check)…",
+                           "TR": "Pasım neden tuhaf? (reçete kontrolü)…",
+                           "ES": "¿Por qué esta pasada es rara? (revisión)…"},
+    "dlg_recipe_audit":   {"EN": "Recipe check — hidden settings that change a pass",
+                           "TR": "Reçete kontrolü — pası değiştiren gizli ayarlar",
+                           "ES": "Revisión — ajustes ocultos que cambian una pasada"},
+    "rx_help":            {"EN": "Every line is a value that did NOT come from the operation panel. "
+                                 "◆ RED = needs attention (a hand-set value that does not fit the rest of "
+                                 "the operation, or a real collision risk). Grey = deliberate, nothing to do. "
+                                 "Double-click a line to jump to that operation.",
+                           "TR": "Her satır, operasyon panelinden GELMEYEN bir değerdir. "
+                                 "◆ KIRMIZI = dikkat gerekir (operasyonun geri kalanına uymayan elle ayarlı "
+                                 "bir değer ya da gerçek çarpışma riski). Gri = bilinçli, yapılacak bir şey yok. "
+                                 "Satıra çift tıklayınca o operasyona gider.",
+                           "ES": "Cada línea es un valor que NO viene del panel de operación. "
+                                 "◆ ROJO = requiere atención (un valor puesto a mano que no encaja con el "
+                                 "resto de la operación, o riesgo real de colisión). Gris = intencionado. "
+                                 "Doble clic para ir a esa operación."},
+    "rx_col_sev":         {"EN": "",                  "TR": "",                  "ES": ""},
+    "rx_col_op":          {"EN": "Operation",         "TR": "Operasyon",         "ES": "Operación"},
+    "rx_col_pass":        {"EN": "Pass",              "TR": "Pas",               "ES": "Pasada"},
+    "rx_col_msg":         {"EN": "What was found",    "TR": "Bulunan",           "ES": "Hallazgo"},
+    "rx_btn_copy":        {"EN": "Copy report",       "TR": "Raporu kopyala",    "ES": "Copiar informe"},
+    "rx_btn_goto":        {"EN": "Go to operation",   "TR": "Operasyona git",    "ES": "Ir a la operación"},
+    "rx_copied":          {"EN": "Report copied to the clipboard.",
+                           "TR": "Rapor panoya kopyalandı.",
+                           "ES": "Informe copiado al portapapeles."},
+    "rx_none":            {"EN": "Nothing hidden found — every value comes from the operation panel.",
+                           "TR": "Gizli bir şey yok — tüm değerler operasyon panelinden geliyor.",
+                           "ES": "Nada oculto — todos los valores vienen del panel de operación."},
+    "rx_no_mandrel":      {"EN": "No mandrel loaded — only the file-level checks ran. "
+                                 "Load the STEP model to check every pass.",
+                           "TR": "Mandrel yüklü değil — sadece dosya seviyesi kontroller çalıştı. "
+                                 "Her pası kontrol etmek için STEP modelini yükleyin.",
+                           "ES": "Sin mandril cargado — solo revisiones de archivo. "
+                                 "Cargue el STEP para revisar cada pasada."},
+    "rx_count":           {"EN": "{n} finding(s) — nothing serious",
+                           "TR": "{n} bulgu — ciddi bir şey yok",
+                           "ES": "{n} hallazgo(s) — nada serio"},
+    "rx_count_hot":       {"EN": "◆ {n} finding(s) need attention (of {total}) — shown in red at the top",
+                           "TR": "◆ {n} bulgu dikkat istiyor ({total} içinden) — üstte kırmızı gösteriliyor",
+                           "ES": "◆ {n} hallazgo(s) requieren atención (de {total}) — en rojo arriba"},
+    "rx_odd_prefix":      {"EN": "◆ DOES NOT FIT THIS OPERATION'S PATTERN —",
+                           "TR": "◆ BU OPERASYONUN DÜZENİNE UYMUYOR —",
+                           "ES": "◆ NO ENCAJA CON EL PATRÓN DE ESTA OPERACIÓN —"},
+    # Priority-chain stage names (plain language, no jargon)
+    "rx_src_raw":         {"EN": "the P3 exit geometry", "TR": "P3 çıkış geometrisi", "ES": "la geometría de salida P3"},
+    "rx_src_op":          {"EN": "the operation setting", "TR": "operasyon ayarı",    "ES": "el ajuste de la operación"},
+    "rx_src_fan":         {"EN": "the progressive fan", "TR": "kademeli yelpaze",     "ES": "el abanico progresivo"},
+    "rx_src_follow":      {"EN": "follow blank edge",   "TR": "sac kenarını takip",   "ES": "seguir borde de chapa"},
+    "rx_src_pin":         {"EN": "set by hand on this pass", "TR": "bu pasta elle ayarlandı", "ES": "puesto a mano en esta pasada"},
+    "rx_src_staged":      {"EN": "an edit not applied yet", "TR": "henüz uygulanmamış düzenleme", "ES": "una edición sin aplicar"},
+    # Explanation bar
+    # Arrow instead of a preposition: the source labels are noun phrases and
+    # have to read naturally BOTH here and inside the "It overrode: …" chain.
+    "rx_explain_head":    {"EN": "{f} = {v}  ←  {src}.",
+                           "TR": "{f} = {v}  ←  {src}.",
+                           "ES": "{f} = {v}  ←  {src}."},
+    "rx_explain_beat":    {"EN": "It overrode: {chain}",
+                           "TR": "Şunları geçersiz kıldı: {chain}",
+                           "ES": "Anuló: {chain}"},
+    "rx_explain_hint":    {"EN": "Click any cell to see where its number comes from.",
+                           "TR": "Herhangi bir hücreye tıklayın: değerin nereden geldiğini gösterir.",
+                           "ES": "Haga clic en una celda para ver de dónde viene su número."},
+    # Findings
+    "rx_f_odd":           {"EN": "{f} is set by hand on only {k} of {n} passes (pass {list}: {v}) — "
+                                 "the other passes use {auto} {av}.",
+                           "TR": "{f} sadece {n} pasın {k} tanesinde elle ayarlı (pas {list}: {v}) — "
+                                 "diğer paslar {auto} {av} kullanıyor.",
+                           "ES": "{f} está puesto a mano solo en {k} de {n} pasadas (pasada {list}: {v}) — "
+                                 "las demás usan {auto} {av}."},
+    "rx_f_ramp":          {"EN": "{f} is set by hand on all {n} passes ({a} → {b}) — looks deliberate.",
+                           "TR": "{f} {n} pasın hepsinde elle ayarlı ({a} → {b}) — bilinçli görünüyor.",
+                           "ES": "{f} puesto a mano en las {n} pasadas ({a} → {b}) — parece intencionado."},
+    "rx_f_single":        {"EN": "{f} is set by hand ({a}) on this single-pass operation.",
+                           "TR": "{f} bu tek-paslı operasyonda elle ayarlı ({a}).",
+                           "ES": "{f} puesto a mano ({a}) en esta operación de una pasada."},
+    "rx_passes":          {"EN": "passes {list}", "TR": "pas {list}", "ES": "pasadas {list}"},
+    "rx_f_legacy":        {"EN": "Old-style hidden override on this pass (open the pass table and use Unpin).",
+                           "TR": "Bu pasta ESKİ tip gizli override var (pas tablosunu açıp Pin temizle).",
+                           "ES": "Override antiguo oculto en esta pasada (use Quitar fijado)."},
+    "rx_f_inert":         {"EN": "{n} operation(s) carry leftover '{key}' data — the machine ignores it. Safe to ignore.",
+                           "TR": "{n} operasyonda artık '{key}' verisi var — makine bunu kullanmıyor. Yok sayılabilir.",
+                           "ES": "{n} operación(es) con datos '{key}' sobrantes — la máquina los ignora."},
+    "rx_f_gouge":         {"EN": "Roller reach {rt} is SHORTER than tool {tool} radius {rad} — the disc would dig into the part.",
+                           "TR": "Rulo erişimi {rt}, {tool} takım yarıçapı {rad} değerinden KISA — disk parçaya gömülür.",
+                           "ES": "El alcance {rt} es MENOR que el radio {rad} de {tool} — el disco chocaría."},
+    "rx_f_negclr":        {"EN": "Clearance is negative ({v}) on pass {list} — it presses into the contour.",
+                           "TR": "Klerens {list} pasında negatif ({v}) — kontura bastırıyor.",
+                           "ES": "Holgura negativa ({v}) en pasada {list} — presiona el contorno."},
+    "rx_f_disabled":      {"EN": "{n} of {total} operations are switched OFF ({list}) — they produce no toolpath.",
+                           "TR": "{total} operasyonun {n} tanesi KAPALI ({list}) — takım yolu üretmiyorlar.",
+                           "ES": "{n} de {total} operaciones APAGADAS ({list}) — no generan trayectoria."},
+    "rx_f_dupname":       {"EN": "{n} operations share a name in {g} group(s) ({list}) — easy to edit the wrong one.",
+                           "TR": "{n} operasyon {g} grupta aynı adı taşıyor ({list}) — yanlışını düzenlemek kolay.",
+                           "ES": "{n} operaciones comparten nombre en {g} grupo(s) ({list}) — fácil equivocarse."},
+
     # ── SCL Inspector (PLC decimation viewer) ────────────────────────────
     "menu_scl_inspector": {"EN": "SCL Inspector (PLC output)…",
                            "TR": "SCL İnceleyici (PLC çıktısı)…",
