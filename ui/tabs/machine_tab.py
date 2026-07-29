@@ -1,3 +1,4 @@
+import re
 import tkinter as tk
 from tkinter import ttk, messagebox
 from ui.tabs.scrollable_tab_base import ScrollableTabBase
@@ -356,50 +357,6 @@ class MachineTab(ScrollableTabBase):
                              "Bu bölge işlenmez (counter-press). Her program bunu Process sekmesindeki 'Kıskaç Bölgesi' "
                              "alanıyla geçersiz kılabilir (0 = bu varsayılanı kullan). TODO #62.")
 
-        # Cylinder Section
-        f_cyl = ttk.LabelFrame(self.content, text=t("frm_cylinder"))
-        f_cyl.pack(fill="x", padx=10, pady=10)
-
-        tk.Label(f_cyl, text=t("lbl_cyl_info"),
-                 font=("Arial", 8, "italic"), fg="gray", justify="left").pack(anchor="w", padx=5, pady=(2, 4))
-
-        var_cyl_enabled = tk.BooleanVar(value=bool(self.app.params.get("cylinder_enabled", True)))
-        def on_cyl_enabled_toggle():
-            self.app.on_param_change("cylinder_enabled", var_cyl_enabled.get(), "none")
-        cb_cyl_enabled = ttk.Checkbutton(f_cyl, text=t("cb_cyl_enabled"), variable=var_cyl_enabled, command=on_cyl_enabled_toggle)
-        cb_cyl_enabled.pack(anchor="w", padx=5, pady=(0, 2))
-        self.helper.bind_tooltip(cb_cyl_enabled, "İşaretliyken program başında M40 P<mm> komutu G-code'a yazılır.")
-
-        var_cyl_show = tk.BooleanVar(value=bool(self.app.params.get("cylinder_show", True)))
-        def on_cyl_show_toggle():
-            self.app.on_param_change("cylinder_show", var_cyl_show.get(), "all")
-        cb_cyl_show = ttk.Checkbutton(f_cyl, text=t("cb_show_in_3d"), variable=var_cyl_show, command=on_cyl_show_toggle)
-        cb_cyl_show.pack(anchor="w", padx=5, pady=(0, 4))
-        self.helper.bind_tooltip(cb_cyl_show, "Silindiri 3D sahnede göster/gizle. G-code/PLC çıktısını etkilemez.")
-
-        def add_cyl_entry(parent, param_key, label, default, tooltip):
-            f = ttk.Frame(parent)
-            f.pack(fill="x", padx=5, pady=3)
-            tk.Label(f, text=label, width=18, anchor="w").pack(side="left")
-            var = tk.DoubleVar(value=self.app.params.get(param_key, default))
-            def on_change(v=var, k=param_key):
-                try: self.app.on_param_change(k, v.get(), "all")
-                except: pass
-            e = ttk.Entry(f, textvariable=var, width=10)
-            e.pack(side="left", padx=4)
-            e.bind("<Return>",   lambda ev, fn=on_change: fn())
-            e.bind("<FocusOut>", lambda ev, fn=on_change: fn())
-            e.bind("<Button-1>", lambda event: event.widget.focus_force())
-            self.helper.bind_tooltip(e, tooltip)
-            return var
-
-        add_cyl_entry(f_cyl, "cylinder_position_mm", t("lbl_cyl_pos"), 0.0,
-            "Silindirin hedef konumu (mm). PLC'ye Param = round(mm / 10) olarak gönderilir.")
-        add_cyl_entry(f_cyl, "cylinder_x_pos", t("lbl_cyl_x"), 0.0,
-            "Silindirin 3D sahnedeki X koordinatı (radyal konum, mm).")
-        add_cyl_entry(f_cyl, "cylinder_z_base", t("lbl_cyl_z"), 200.0,
-            "Silindirin monte edildiği Z konumu (mm).")
-
         # Tilt Arm (B Axis) — tilt-arm machines only (ID112); gated below via
         # section_frames like every other section.
         f_tilt = ttk.LabelFrame(self.content, text=t("frm_tilt_arm"))
@@ -662,57 +619,169 @@ class MachineTab(ScrollableTabBase):
 
         _sync_turret_angles()   # apply initial lock state to the angle fields
 
+        # NOTE: the Cylinder section was removed here 2026-07-30. Its two
+        # G-code fields (enable + position) became an ordinary program_start
+        # M40 in the Custom Commands table below — one actuator, one list. Its
+        # three purely visual fields (show / X / Z base) moved to the
+        # Process & Visual tab, where the rest of the 3D-scene settings live.
+
         # Custom Commands
         f_cc = ttk.LabelFrame(self.content, text=t("frm_custom_cmds"))
         f_cc.pack(fill="x", padx=10, pady=10)
 
-        tv_cc = ttk.Treeview(f_cc, columns=("trigger", "value", "cmd"), show="headings", height=4)
+        tv_cc = ttk.Treeview(f_cc, columns=("trigger", "value", "cmd", "note"),
+                             show="headings", height=4)
         tv_cc.heading("trigger", text=t("cc_trigger_col")); tv_cc.column("trigger", width=70,  anchor="center")
         tv_cc.heading("value",   text=t("cc_value_col"));   tv_cc.column("value",   width=60,  anchor="center")
-        tv_cc.heading("cmd",     text=t("cc_command_col")); tv_cc.column("cmd",     width=180)
+        tv_cc.heading("cmd",     text=t("cc_command_col")); tv_cc.column("cmd",     width=110)
+        # Per-ENTRY note, not the shared definition. One description covers a
+        # whole code ("1 for relax, 2 for retract"), so copying it onto every
+        # row would print the same sentence twice and still not say which of
+        # the two THIS row is. The note carries that; "?" shows the definition.
+        tv_cc.heading("note",    text=t("cc_note_col"));    tv_cc.column("note",    width=320)
         tv_cc.pack(fill="x", padx=5, pady=(5, 2))
 
         def refresh_cc_tree():
             for item in tv_cc.get_children():
                 tv_cc.delete(item)
+            _tri_label = {"program_start": t("cc_tri_start"),
+                          "pass": t("cc_tri_pass"), "z": "Z"}
             for entry in self.app.params.get("custom_commands", []):
-                tri = "Pass" if entry.get("trigger") == "pass" else "Z"
-                tv_cc.insert("", "end", values=(tri, entry.get("value", ""), entry.get("cmd", "")))
+                trig = entry.get("trigger")
+                tri = _tri_label.get(trig, str(trig or "?"))
+                # program_start has no value — showing "0" would read like a
+                # setting the operator could change.
+                val = "" if trig == "program_start" else entry.get("value", "")
+                tv_cc.insert("", "end", values=(tri, val,
+                                                entry.get("cmd", ""),
+                                                entry.get("note", "")))
+
+        def _persist_cc(select_idx=None):
+            """Redraw, then write the change to the machine profile file.
+
+            custom_commands / mcode_descriptions are MACHINE_PROFILE_KEYS, and
+            settings.json deliberately excludes those — the profile file is the
+            only place they live. These editors mutate params directly rather
+            than going through on_param_change, so they never triggered the
+            autosave every other machine-tab field gets: edits were silently
+            lost on restart unless "Save Machine Profile" was pressed.
+            """
+            refresh_cc_tree()
+            if select_idx is not None:
+                kids = tv_cc.get_children()
+                if 0 <= select_idx < len(kids):
+                    tv_cc.selection_set(kids[select_idx])
+                    tv_cc.focus(kids[select_idx])
+            try:
+                self.app.autosave_machine_profile()
+            except Exception:
+                pass
 
         refresh_cc_tree()
 
         f_add = ttk.Frame(f_cc)
         f_add.pack(fill="x", padx=5, pady=2)
 
-        tk.Label(f_add, text=t("lbl_trigger")).pack(side="left")
+        # The row reads as a sentence — "When pass = 3 do M41 P2, note retract"
+        # — instead of four disconnected labels. The connecting words replace
+        # the old Trigger:/Value:/Cmd: captions rather than sitting beside them.
+        tk.Label(f_add, text=t("cc_when")).pack(side="left")
         var_trig = tk.StringVar(value="pass")
-        cb_trig = ttk.Combobox(f_add, textvariable=var_trig, values=["pass", "z"], width=5, state="readonly")
-        cb_trig.pack(side="left", padx=(2, 6))
+        cb_trig = ttk.Combobox(f_add, textvariable=var_trig,
+                               values=["program_start", "pass", "z"],
+                               width=13, state="readonly")
+        cb_trig.pack(side="left", padx=(3, 3))
 
-        tk.Label(f_add, text=t("lbl_value")).pack(side="left")
+        lbl_eq = tk.Label(f_add, text="=")
+        lbl_eq.pack(side="left")
         var_val = tk.StringVar(value="1")
-        e_val = ttk.Entry(f_add, textvariable=var_val, width=7)
-        e_val.pack(side="left", padx=(2, 6))
+        e_val = ttk.Entry(f_add, textvariable=var_val, width=6)
+        e_val.pack(side="left", padx=(3, 6))
         e_val.bind("<Button-1>", lambda event: event.widget.focus_force())
 
-        tk.Label(f_add, text=t("lbl_cmd")).pack(side="left")
+        def _sync_trigger_fields(_event=None):
+            """program_start has no value — the trigger IS the moment."""
+            starts = var_trig.get() == "program_start"
+            e_val.configure(state="disabled" if starts else "normal")
+            lbl_eq.configure(fg="gray70" if starts else "black")
+
+        cb_trig.bind("<<ComboboxSelected>>", _sync_trigger_fields)
+
+        tk.Label(f_add, text=t("cc_do")).pack(side="left")
         var_cmd = tk.StringVar()
-        e_cmd = ttk.Entry(f_add, textvariable=var_cmd, width=16)
-        e_cmd.pack(side="left", padx=2, fill="x", expand=True)
+        e_cmd = ttk.Entry(f_add, textvariable=var_cmd, width=12)
+        e_cmd.pack(side="left", padx=3)
         e_cmd.bind("<Button-1>", lambda event: event.widget.focus_force())
+
+        tk.Label(f_add, text=t("cc_note_lc")).pack(side="left")
+        var_note = tk.StringVar()
+        e_note = ttk.Entry(f_add, textvariable=var_note, width=26)
+        e_note.pack(side="left", padx=3, fill="x", expand=True)
+        e_note.bind("<Button-1>", lambda event: event.widget.focus_force())
+
+        _sync_trigger_fields()
+
+        def _cc_fields():
+            """Current form contents as a command entry, or None if unusable."""
+            trig = var_trig.get()
+            cmd = var_cmd.get().strip()
+            if not cmd:
+                return None
+            if trig == "program_start":
+                val = 0          # unused by the engine; kept so the schema
+            elif trig == "z":    # and every existing reader stay uniform
+                val = float(var_val.get())
+            else:
+                val = int(float(var_val.get()))
+            entry = {"trigger": trig, "value": val, "cmd": cmd}
+            note = var_note.get().strip()
+            if note:                       # absent when empty — keeps old
+                entry["note"] = note       # profiles byte-identical on save
+            return entry
+
+        def on_cc_select(_event=None):
+            """Load the selected command into the form so Update can edit it."""
+            sel = tv_cc.selection()
+            if not sel:
+                return
+            idx = tv_cc.index(sel[0])
+            cmds = self.app.params.get("custom_commands", [])
+            if not (0 <= idx < len(cmds)):
+                return
+            entry = cmds[idx]
+            var_trig.set(entry.get("trigger", "pass"))
+            _sync_trigger_fields()          # unlock/lock Value before writing it
+            var_val.set(str(entry.get("value", "")))
+            var_cmd.set(entry.get("cmd", ""))
+            var_note.set(entry.get("note", ""))
+
+        tv_cc.bind("<<TreeviewSelect>>", on_cc_select)
 
         def add_cc():
             try:
-                trig = var_trig.get()
-                val = float(var_val.get()) if trig == "z" else int(float(var_val.get()))
-                cmd = var_cmd.get().strip()
-                if not cmd:
+                entry = _cc_fields()
+                if entry is None:
                     return
-                if "custom_commands" not in self.app.params:
-                    self.app.params["custom_commands"] = []
-                self.app.params["custom_commands"].append({"trigger": trig, "value": val, "cmd": cmd})
-                refresh_cc_tree()
+                self.app.params.setdefault("custom_commands", []).append(entry)
+                _persist_cc()
                 var_cmd.set("")
+                var_note.set("")
+            except Exception:
+                pass
+
+        def update_cc():
+            """Replace the selected command — the only way to edit a note."""
+            try:
+                sel = tv_cc.selection()
+                if not sel:
+                    return
+                idx = tv_cc.index(sel[0])
+                cmds = self.app.params.get("custom_commands", [])
+                entry = _cc_fields()
+                if entry is None or not (0 <= idx < len(cmds)):
+                    return
+                cmds[idx] = entry
+                _persist_cc(idx)
             except Exception:
                 pass
 
@@ -724,16 +793,77 @@ class MachineTab(ScrollableTabBase):
             cmds = self.app.params.get("custom_commands", [])
             if 0 <= idx < len(cmds):
                 cmds.pop(idx)
-                refresh_cc_tree()
+                _persist_cc()
+
+        def move_cc(delta):
+            """Reorder a command. Two commands on the SAME pass both fire, in
+            list order (path_generator.py: the emit loop walks pass_cmds as-is),
+            so this list order is real machine behaviour, not cosmetics."""
+            sel = tv_cc.selection()
+            if not sel:
+                return
+            idx = tv_cc.index(sel[0])
+            cmds = self.app.params.get("custom_commands", [])
+            j = idx + delta
+            if not (0 <= idx < len(cmds) and 0 <= j < len(cmds)):
+                return
+            cmds[idx], cmds[j] = cmds[j], cmds[idx]
+            _persist_cc(j)
+
+        def show_cc_desc():
+            """What does this M-code mean? — reads the definitions below."""
+            cmd = var_cmd.get().strip()
+            sel = tv_cc.selection()
+            if not cmd and sel:
+                idx = tv_cc.index(sel[0])
+                cmds = self.app.params.get("custom_commands", [])
+                cmd = cmds[idx].get("cmd", "") if 0 <= idx < len(cmds) else ""
+            m = re.search(r"M\s*(\d+)", str(cmd), re.IGNORECASE)
+            if not m:
+                messagebox.showinfo(t("dlg_mcode_desc"), t("msg_no_mcode"), parent=self.content)
+                return
+            code = m.group(1)
+            desc = (self.app.params.get("mcode_descriptions", {}) or {}).get(code, "")
+            messagebox.showinfo(
+                t("dlg_mcode_desc"),
+                f"M{code}\n\n" + (desc if desc else t("msg_no_desc").format(code=code)),
+                parent=self.content)
 
         f_btns = ttk.Frame(f_cc)
         f_btns.pack(fill="x", padx=5, pady=(0, 5))
         ttk.Button(f_btns, text=t("btn_add"),    command=add_cc).pack(side="left", padx=2)
+        ttk.Button(f_btns, text=t("btn_update"), command=update_cc).pack(side="left", padx=2)
         ttk.Button(f_btns, text=t("btn_delete"), command=del_cc).pack(side="left", padx=2)
+
+        btn_up = ttk.Button(f_btns, text="▲", width=3, command=lambda: move_cc(-1))
+        btn_up.pack(side="left", padx=(12, 1))
+        btn_dn = ttk.Button(f_btns, text="▼", width=3, command=lambda: move_cc(+1))
+        btn_dn.pack(side="left", padx=1)
+        for _b in (btn_up, btn_dn):
+            self.helper.bind_tooltip(_b,
+                "Seçili komutu listede yukarı/aşağı taşır.\n"
+                "SIRA ÖNEMLİDİR: aynı pas numarasına birden fazla komut "
+                "koyarsanız hepsi çalışır ve LİSTEDEKİ SIRAYLA yazılır "
+                "(üstteki önce).")
+
+        btn_what = ttk.Button(f_btns, text="?", width=3, command=show_cc_desc)
+        btn_what.pack(side="left", padx=(12, 2))
+        self.helper.bind_tooltip(btn_what,
+            "Seçili komutun M-code AÇIKLAMASINI gösterir (aşağıdaki M-Code "
+            "Tanımları'ndan okunur).\n"
+            "Açıklama = kodun genel anlamı, Not = bu satıra özel kısa etiket.")
         self.helper.bind_tooltip(f_cc,
+            "Komutun NE ZAMAN çalışacağı burada belirlenir; NE ANLAMA geldiği "
+            "aşağıdaki M-Code Tanımları'nda ('?' düğmesiyle bakabilirsiniz).\n"
+            "Not = bu satıra özel kısa etiket (ör. aynı M41'in P1'i 'gevşet', "
+            "P2'si 'geri çek').\n"
+            "Bir satırı seçince alanlara dolar; Güncelle ile düzenlersiniz.\n"
             "Trigger=pass → o global pas numarasının başında komutu ekler (1-indexed).\n"
             "Trigger=z → paso içinde Z o eşiği geçtiği anda komutu ekler.\n"
-            "Örn: trigger=pass, value=1, cmd=M41 P1")
+            "Örn: trigger=pass, value=1, cmd=M41 P1\n"
+            "UYARI: pas numarası sabittir — pas ekler/sıralamayı değiştirirseniz "
+            "komut programın başka bir yerine kayar. Yardım ▸ Önizle ve Analiz Et "
+            "ile programa gerçekte ne yazıldığını görebilirsiniz.")
 
         # M-Code Descriptions
         f_md = ttk.LabelFrame(self.content, text=t("frm_mcode_desc"))
@@ -742,9 +872,11 @@ class MachineTab(ScrollableTabBase):
         tk.Label(f_md, text=t("lbl_mcode_info"),
                  font=("Arial", 8, "italic"), fg="gray").pack(anchor="w", padx=5, pady=(4, 0))
 
-        tv_md = ttk.Treeview(f_md, columns=("code", "description"), show="headings", height=4)
-        tv_md.heading("code",        text=t("mc_code_col"));  tv_md.column("code",        width=80,  anchor="center")
-        tv_md.heading("description", text=t("mc_desc_col")); tv_md.column("description", width=230)
+        tv_md = ttk.Treeview(f_md, columns=("code", "description"), show="headings", height=5)
+        tv_md.heading("code",        text=t("mc_code_col"));  tv_md.column("code",        width=70,  anchor="center")
+        # Descriptions are full sentences now ("...: 1 for relax, 2 for
+        # retract"), so the column has to hold one without truncating.
+        tv_md.heading("description", text=t("mc_desc_col")); tv_md.column("description", width=460)
         tv_md.pack(fill="x", padx=5, pady=(5, 2))
 
         def refresh_md_tree():
@@ -765,10 +897,21 @@ class MachineTab(ScrollableTabBase):
         e_mcode.bind("<Button-1>", lambda event: event.widget.focus_force())
 
         tk.Label(f_add_md, text=t("lbl_mcode_desc")).pack(side="left")
-        var_mdesc = tk.StringVar(value="Clamp On")
-        e_mdesc = ttk.Entry(f_add_md, textvariable=var_mdesc, width=22)
+        var_mdesc = tk.StringVar()
+        e_mdesc = ttk.Entry(f_add_md, textvariable=var_mdesc, width=48)
         e_mdesc.pack(side="left", padx=2, fill="x", expand=True)
         e_mdesc.bind("<Button-1>", lambda event: event.widget.focus_force())
+
+        def on_md_select(_event=None):
+            """Load the selected row into the fields so Add edits it in place."""
+            sel = tv_md.selection()
+            if not sel:
+                return
+            vals = tv_md.item(sel[0])["values"]
+            var_mcode.set(str(vals[0]).lstrip("Mm"))
+            var_mdesc.set(str(vals[1]) if len(vals) > 1 else "")
+
+        tv_md.bind("<<TreeviewSelect>>", on_md_select)
 
         def add_md():
             try:
@@ -780,6 +923,10 @@ class MachineTab(ScrollableTabBase):
                     self.app.params["mcode_descriptions"] = {}
                 self.app.params["mcode_descriptions"][code] = desc
                 refresh_md_tree()
+                try:                # same profile-autosave gap as custom_commands
+                    self.app.autosave_machine_profile()
+                except Exception:
+                    pass
             except Exception:
                 pass
 
@@ -792,14 +939,20 @@ class MachineTab(ScrollableTabBase):
             if code in descs:
                 del descs[code]
                 refresh_md_tree()
+                try:
+                    self.app.autosave_machine_profile()
+                except Exception:
+                    pass
 
         f_btns_md = ttk.Frame(f_md)
         f_btns_md.pack(fill="x", padx=5, pady=(0, 5))
         ttk.Button(f_btns_md, text=t("btn_add"),    command=add_md).pack(side="left", padx=2)
         ttk.Button(f_btns_md, text=t("btn_delete"), command=del_md).pack(side="left", padx=2)
         self.helper.bind_tooltip(f_md,
-            "M-code numarasına açıklama tanımla.\n"
-            "G-code çıktısında: M41 P1 (Clamp On)\n"
+            "Her M-code'un ne yaptığını burada yazın. Kod başına TEK satır — "
+            "parametrenin anlamını da aynı cümlede anlatın.\n"
+            "Örn: M41 → 'Arka destek silindiri: 1 gevşetme, 2 geri çekme'\n"
+            "Bir satırı seçince alanlara dolar; Ekle'ye basmak o kodu günceller.\n"
             "M-Code alanına sadece sayı gir (örn: 41), 'M' ön eki opsiyonel.")
 
         # ── Section gating by machine type ──────────────────────────────────
@@ -809,7 +962,7 @@ class MachineTab(ScrollableTabBase):
         section_frames = {
             "coords": f_coords, "output_mode": f_output_mode, "offsets": f_offsets,
             "home": f_home, "touch": f_touch, "gcode_out": f_gcode_out,
-            "workspace": f_ws, "cylinder": f_cyl, "tilt_arm": f_tilt, "plc": f_plc,
+            "workspace": f_ws, "tilt_arm": f_tilt, "plc": f_plc,
             "turret": f_turret, "custom_cmds": f_cc, "mcode_desc": f_md,
         }
         adapter = getattr(self.app, "active_adapter", None)

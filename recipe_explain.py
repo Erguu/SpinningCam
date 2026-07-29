@@ -17,10 +17,16 @@ This module turns the machine's own resolution into plain sentences:
   audit_operations(params, mgr)
       → every hidden override, contradiction and leftover in the whole recipe
 
+It also lists the M-codes the program will carry (list_mcodes) — custom
+commands and the cylinder block inject those, and they appear nowhere in the
+operation panel.
+
 Pure: no Tk, no file IO, never mutates params. Consumed by the pass-table
-explanation bar, ui/dialogs/recipe_audit.py (Tools ▸ Why is my pass weird?)
-and explain.py (CLI).
+explanation bar, ui/dialogs/recipe_audit.py (Help ▸ Preview & Analyze) and
+explain.py (CLI).
 """
+import re
+
 from i18n import t
 
 # Priority-chain stage → i18n key for its plain-language name. Order here is
@@ -187,6 +193,168 @@ def _ranges(nums):
     return ", ".join(out)
 
 
+# ── M-codes the generated program will contain ───────────────────────────
+# Custom commands and the cylinder block inject M-codes that appear nowhere in
+# the operation panel, so a recipe can carry actuator commands its author never
+# sees. Listing them is deliberately DUMB: nothing here judges whether a set is
+# right or wrong (every machine wires these differently), it only reports what
+# the post-processor will emit and in what order. The bug this was written for
+# — valve commands firing while the cylinder extend was switched off — is
+# obvious the moment the list is in front of you, with no rule needed.
+_MCODE_RE = re.compile(r"M\s*(\d+)", re.IGNORECASE)
+
+# Sort keys around the pass numbers: program_start runs before every pass, the
+# Z-triggered ones cannot be placed on the pass axis at all so they trail.
+_MC_EARLY = -1
+_MC_LATE = 10 ** 6
+
+
+def _mcode_num(cmd):
+    """Bare M-code number from a command string ('M41 P2' → '41'), or None."""
+    m = _MCODE_RE.search(str(cmd or ""))
+    return m.group(1) if m else None
+
+
+def orphan_pass_commands(params, total_passes):
+    """Pass-triggered commands whose pass number does not exist in this program.
+
+    A "pass" trigger is pinned to a global pass NUMBER. Add or remove a pass,
+    reorder operations, or disable one, and a command can end up pointing past
+    the end of the program — where it simply never fires, with nothing said.
+    For an actuator command (a clamp that never releases) that silence is the
+    dangerous part.
+
+    Returns ``[{index, cmd, value, note}, ...]`` in table order. Pure.
+    """
+    out = []
+    try:
+        total = int(total_passes)
+    except (TypeError, ValueError):
+        return out
+    for i, c in enumerate(params.get("custom_commands") or []):
+        if not isinstance(c, dict) or c.get("trigger") != "pass":
+            continue
+        if not str(c.get("cmd", "") or "").strip():
+            continue
+        try:
+            v = int(float(c.get("value", 0) or 0))
+        except (TypeError, ValueError):
+            continue
+        if v > total or v < 1:
+            out.append({"index": i, "cmd": c.get("cmd", ""), "value": v,
+                        "note": c.get("note", "")})
+    return out
+
+
+# Resolutions offered when a command points at a pass that does not exist.
+ORPHAN_LAST = "last"    # clamp it onto the final pass
+ORPHAN_SKIP = "skip"    # leave it out of THIS output only
+
+
+def apply_orphan_action(params, total_passes, action):
+    """Copy of ``params`` with out-of-range pass commands resolved.
+
+    Never mutates the input: the caller exports the copy, so the user's command
+    table keeps the original row and the decision applies to this file only.
+    """
+    orphans = orphan_pass_commands(params, total_passes)
+    if not orphans:
+        return params
+    bad = {o["index"] for o in orphans}
+    try:
+        last = max(1, int(total_passes))
+    except (TypeError, ValueError):
+        last = 1
+
+    new_cmds = []
+    for i, c in enumerate(params.get("custom_commands") or []):
+        if i not in bad:
+            new_cmds.append(c)
+            continue
+        if action == ORPHAN_LAST:
+            moved = dict(c)
+            moved["value"] = last
+            new_cmds.append(moved)
+        # ORPHAN_SKIP: dropped from this copy only
+    out = dict(params)
+    out["custom_commands"] = new_cmds
+    return out
+
+
+def commanded_cylinder_position(params, code="40"):
+    """Extension (mm) the recipe actually commands for the cylinder, else 0.0.
+
+    Reads the P value of the first M40 in custom_commands. Since 2026-07-30 the
+    cylinder has no dedicated enable/position fields — M40 is an ordinary custom
+    command — so the 3D view derives its extension from the command instead of a
+    separate setting that could silently disagree with it. No command, no
+    extension. Pure.
+    """
+    want = str(code).lstrip("Mm")
+    for c in (params.get("custom_commands") or []):
+        cmd = str(c.get("cmd", "") or "")
+        if _mcode_num(cmd) != want:
+            continue
+        m = re.search(r"P\s*(\d*\.?\d+)", cmd, re.IGNORECASE)
+        if m:
+            try:
+                return float(m.group(1))
+            except ValueError:
+                pass
+        return 0.0
+    return 0.0
+
+
+def list_mcodes(params):
+    """Every M-code this recipe will emit, in emission order.
+
+    Mirrors ``path_generator.generate_gcode``: the cylinder block first (it is
+    written before the spindle starts), then the pass-triggered custom
+    commands in pass order, then the Z-triggered ones. Returns a list of
+    ``(command, when, description)`` triples. Read-only.
+    """
+    descs = params.get("mcode_descriptions") or {}
+    out = []
+
+    # Cylinder block — path_generator.py guards on BOTH the enable flag and a
+    # positive position, so mirror both or the list would promise a line the
+    # post never writes.
+    try:
+        cyl_pos = float(params.get("cylinder_position_mm", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        cyl_pos = 0.0
+    if params.get("cylinder_enabled") and cyl_pos > 0:
+        out.append((f"M40 P{cyl_pos:.1f}", t("rx_mc_start"), descs.get("40", "")))
+
+    rows = []
+    for c in (params.get("custom_commands") or []):
+        cmd = str(c.get("cmd", "") or "").strip()
+        if not cmd:
+            continue
+        trig = c.get("trigger")
+        note = str(c.get("note", "") or "").strip()
+        try:
+            val = float(c.get("value", 0) or 0)
+        except (TypeError, ValueError):
+            val = 0.0
+        if trig == "program_start":
+            rows.append((_MC_EARLY, cmd, t("rx_mc_start"), note))
+        elif trig == "pass":
+            rows.append((int(val), cmd, t("rx_mc_pass").format(n=int(val)), note))
+        elif trig == "z":
+            rows.append((_MC_LATE, cmd, t("rx_mc_z").format(v=_num(val)), note))
+        else:
+            rows.append((_MC_LATE + 1, cmd, str(trig or "?"), note))
+
+    # The entry's own note wins over the code's shared description: the
+    # description covers every parameter value of that code ("1 for relax, 2
+    # for retract") and so cannot say which value THIS line is.
+    for _, cmd, when, note in sorted(rows, key=lambda r: r[0]):
+        num = _mcode_num(cmd)
+        out.append((cmd, when, note or (descs.get(num, "") if num else "")))
+    return out
+
+
 def _finding(sev, msg_key, op_i=None, op_name=None, pas=None, field=None, **kw):
     # NB: **kw carries the message's format fields, so no parameter here may
     # share a name with one of them (a 'key' param collided with rx_f_inert).
@@ -305,6 +473,12 @@ def audit_operations(params, mgr=None, gui_overrides=None, tools=None):
                              "pass": passes[0], "field": None, "msg": w + suffix})
 
     # ── collapsed file-level notes (one line each, not one per operation) ──
+    # M-codes first among the notes: they describe the whole program, and they
+    # are the one class of content the operation panel cannot show at all.
+    for cmd, when, desc in list_mcodes(params):
+        findings.append(_finding("info", "rx_mc_line", cmd=cmd, when=when,
+                                 desc=desc or t("rx_mc_nodesc")))
+
     for k, idxs in inert_ops.items():
         findings.append(_finding("info", "rx_f_inert", key=k, n=len(idxs)))
     if disabled_ops:

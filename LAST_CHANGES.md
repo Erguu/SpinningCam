@@ -5,6 +5,183 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-30 — M-CODE'LAR GÖRÜNÜR OLDU + "ÖNİZLE VE ANALİZ ET" (yeniden adlandırma)
+
+**Tetikleyici vaka (saha):** `machines/ID111-1.json` içinde `cylinder_enabled: 0.0` idi →
+`path_generator.py:2557` guard'ı (`enabled AND pos > 0`) yüzünden **M40 hiç yazılmadı**,
+ama `custom_commands` M41 P1/P2'yi yazmaya devam etti. Silindir hiç çıkmadığı için valf
+komutları anlamsız davrandı; kullanıcı bunu hortum hatası sanıp **fiziksel hortumları
+yer değiştirdi**. Yazılım sessizce eksik komut üretti, teşhis yanlış yere gitti.
+
+**Kök neden:** reçeteye enjekte edilen M-code'ları gösteren HİÇBİR yer yoktu. Operasyon
+listesinde, ops tablosunda, PDF'te, denetimde yok; sadece Makine sekmesindeki iki ayrı
+bölümde. Operatörler Makine sekmesine bakmıyor.
+
+**Yapılanlar (hepsi EK — G-code çıktısı BAYT-AYNI):**
+1. **`recipe_explain.list_mcodes(params)` (YENİ, saf):** programın yazacağı TÜM M-code'ları
+   çalışma sırasıyla döndürür → `(komut, ne zaman, açıklama)`. `generate_gcode`'u aynalar:
+   önce silindir bloğu (aynı çift guard), sonra pas-tetikli komutlar pas sırasına göre,
+   sonra Z-tetikli. **KURAL KOYMAZ** — hiçbir şeyi doğru/yanlış diye yargılamaz, sadece
+   ne yazılacağını gösterir (her makine bunları farklı kablolar; makineye özgü hiçbir şey
+   kodda sabit DEĞİL). Eksik M40 listede satırın YOKLUĞU olarak kendini belli eder.
+2. **`audit_operations`'a bağlandı** — `info` bulgusu olarak. Diyalog, "Raporu kopyala"
+   ve `explain.py` CLI üçü de bedavaya aldı.
+3. **Makine sekmesi — Özel Komutlar'a "Not" sütunu (satır-başına, YENİ opsiyonel alan
+   `custom_commands[i]["note"]`):** İLK deneme "Anlamı" sütunuydu (tanımdan kopyalanan)
+   ama kullanıcı haklı olarak reddetti: bir kodun açıklaması TÜM parametre değerlerini
+   kapsar, dolayısıyla M41 P1 ile M41 P2 satırlarına AYNI cümleyi basıyordu ve hangisinin
+   hangisi olduğunu söyleyemiyordu. Not O SATIRA ait ("gevşet" / "geri çek").
+   Açıklamayı görmek için **"?" düğmesi** (seçili satırın kodunu M-Code Tanımları'ndan
+   okur). Satır seçince alanlara dolar + yeni **Güncelle** düğmesi (notu düzenlemenin
+   tek yolu; Ekle her zaman YENİ satır ekler).
+   - `note` boşsa dict'e HİÇ yazılmaz → eski profiller kaydedilince bayt-aynı kalır.
+   - `list_mcodes` önceliği: **not > açıklama** (boş/whitespace not açıklamaya düşer).
+   - **G-code yorumu DEĞİŞMEDİ** — `_annotate_mcode` hâlâ açıklamayı kullanıyor, not
+     sadece UI + analizde. Çıktı bayt-aynı (kullanıcı kararı).
+3b. **Silindir bölümü TAŞINDI:** Taret ↔ Özel Komutlar arasına (önce Çalışma Alanı'ndan
+   sonraydı). M40 ile M41/M42 AYNI fiziksel aktüatörü sürüyor; ayrı durmaları M40'ın
+   kapalı olduğunun fark edilmemesine yol açtı. "Etkinleştir" tooltip'i artık kapalıyken
+   valf komutlarının yine de yazıldığını söylüyor.
+4. **M-Code Tanımları kullanılabilir hale geldi:** açıklama sütunu 230→460 px, giriş
+   alanı 22→48 karakter (açıklamalar artık cümle: *"Arka destek silindiri: 1 gevşetme,
+   2 geri çekme"*), satır seçince alanlara dolar → Ekle yerinde günceller.
+5. **Yeniden adlandırma:** *Pasım neden tuhaf?* → **Önizle ve Analiz Et** (EN *Preview &
+   Analyze*, ES *Vista Previa y Análisis*). Yardım menüsünde KALDI (2026-07-28 kararı).
+   Artık sadece pasları değil M-code'ları da kapsıyor.
+6. **Yardım penceresi:** yeni "M-CODE'LAR (özel komutlar)" bölümü (EN+TR) — iki bölümün
+   iş bölümü (Tanımlar = NE ANLAMA gelir, Özel Komutlar = NE ZAMAN), M40'ın ayrı olduğu,
+   ve **pas numarasına sabitlenmiş tetikleyicinin pas ekleyince kayacağı** uyarısı.
+
+7. **Özel Komutlar satırı CÜMLE gibi okunuyor:** `Şu anda: [pas] = [3] şunu yap:
+   [M41 P2] not: [geri çek]`. Bağlaç kelimeleri eski `Trigger:/Value:/Cmd:`
+   etiketlerinin YERİNE geçti (yanına değil) — yoksa daha da uzun olurdu.
+8. **YENİ `program_start` tetikleyicisi (#TODO M-code Faz B):** komutu programın en
+   başına, **takım değişiminden ve `S.. M3`'ten ÖNCE** yazar (`path_generator.py`,
+   silindir bloğunun hemen ardında). Sebebi ölçüldü: `pass 1` tetikleyicisi pas
+   döngüsünün İÇİNDE (satır ~2655), yani **mil çoktan dönüyorken** ateşler — arka
+   destek gibi parça dururken kurulması gereken bir aktüatör için yanlış an.
+   Bu sayede M40 artık istenirse Silindir bölümü yerine tabloya yazılabilir
+   (ikisini birden açarsanız İKİ M40 satırı olur — dikkat).
+   - `value` alanı bu tetikleyicide **kullanılmaz** → UI'da gri/kilitli, tabloda boş.
+   - `if start_cmds:` guard'ı → **program_start satırı yoksa G-code BAYT-AYNI.**
+
+9. **BUG DÜZELTİLDİ — Özel Komutlar / M-Code Tanımları KAYDEDİLMİYORDU.** Kök neden:
+   `autosave_machine_profile()` SADECE `on_param_change` içinden çağrılıyor
+   (`main.py:1598`, `_is_machine_key` dalı). Bu iki editör `self.app.params[...]`'ı
+   DOĞRUDAN mutasyona uğratıyor, `on_param_change`'den geçmiyor → autosave hiç
+   tetiklenmiyordu. `custom_commands`/`mcode_descriptions` MACHINE_PROFILE_KEYS
+   olduğu için `settings.json` de onları hariç tutuyor → **tek yaşadıkları yer profil
+   dosyası**, ve oraya yalnızca "Makine Profilini Kaydet" düğmesiyle yazılıyorlardı.
+   Sonuç: girilen notlar/açıklamalar yeniden başlatınca kayboluyordu.
+   Fix: `_persist_cc()` yardımcısı (yeniden çiz + autosave) tüm mutasyon
+   noktalarında (ekle/güncelle/sil/taşı) + M-code ekle/sil'de doğrudan autosave.
+10. **Özel Komutlar'a ▲/▼ SIRALAMA düğmeleri:** aynı pas numarasına birden fazla
+   komut konabilir, hepsi çalışır ve **liste sırasıyla** yazılır (motor `pass_cmds`'i
+   olduğu gibi geziyor) → sıra kozmetik değil, GERÇEK makine davranışı. Taşıma
+   sonrası satır seçili kalır. Sıra da profile autosave edilir.
+
+11. **YENİ "Dışa Aktar" menüsü (Dosya ile Araçlar arasında):** beş dışa aktarma tek
+   yerde — G-code (.nc), SCL, Reçete CSV, PDF operasyon kartı, STL. Önceden İKİYE
+   bölünmüştü: SCL/CSV Dosya menüsünde, G-code/PDF/STL ise Process sekmesinin
+   dibindeki düğmelerde → hangi formatı nerede arayacağın belli değildi.
+   Adapter kapıları AYNEN korundu (`"scl" in formats` / `"recipe_csv" in formats`).
+   Handler'lar değişmedi, sadece çağrıldıkları yer değişti.
+12. **Hesapla düğmesi 3D görünümün ÜSTÜNE taşındı (global):** tek Hesapla düğmesi
+   Process sekmesinin içindeydi → **Makine sekmesinde** (M-code, offset, PLC)
+   hesaplamanın yolu yoktu, önce sekme değiştirmek gerekiyordu.
+   ⚠ **KRİTİK YAPI NOTU:** `plot_frame` artık `view_pane` adlı bir sarmalayıcının
+   İÇİNDE. `plot_frame`'in İÇİNE ASLA widget koymayın — `embed_plotter` PyVista
+   HWND'sini oraya reparent edip `MoveWindow(0,0,w,h)` ile tüm çerçeveyi
+   kaplatıyor, kardeş widget'lar 3D görünümün ALTINDA kalır. Araç çubuğu bu
+   yüzden `view_pane` altında ayrı bir kardeş. `pack_propagate(False)` ile
+   yüksekliği 36px'e kilitli (durum çubuğuyla aynı desen).
+   Buton `lambda: self.ui_program._start_async_calc()` — GEÇ bağlama şart,
+   `rebuild_all_tabs()` `ui_program`'ı yeniden yaratıyor.
+   Process sekmesindeki "Eylemler" bölümü tamamen kaldırıldı (içi boşaldı).
+   Artık ölü i18n anahtarları (zararsız, bırakıldı): `section_actions`,
+   `btn_save_gcode`, `btn_export_pdf`, `btn_export_stl`.
+
+13. **SİLİNDİR BÖLÜMÜ KALDIRILDI — M40 artık sıradan bir özel komut.**
+   Makine sekmesindeki "Silindir (CMD=40)" bölümü tamamen gitti. Beş alanı ikiye
+   ayrıldı:
+   - **G-code olanlar** (`cylinder_enabled`, `cylinder_position_mm`) → **emekli**.
+     Yerine Özel Komutlar tablosunda `program_start` + `M40 P<mm>`. Böylece
+     extend/relax/retract TEK listede; ayrı durmaları M40'ın kapalı olduğunun
+     fark edilmemesine yol açmıştı.
+   - **Görsel olanlar** (`cylinder_show`, `cylinder_x_pos`, `cylinder_z_base`) →
+     **Process & Visual** sekmesine, diğer 3D ayarlarının yanına.
+   - `path_generator.py`'deki adanmış M40 bloğu SİLİNDİ.
+   - **3D uzama artık M40 KOMUTUNDAN okunuyor** (`recipe_explain.
+     commanded_cylinder_position`, `main.py` render'ında). Ayrı bir alan
+     olmadığı için resim programla ÇELİŞEMEZ. M40 yoksa uzama 0 (çekik çizilir).
+   - **GEÇİŞ (`config_schema.migrate_cylinder_mcode`):** `cylinder_enabled=True`
+     ve `pos>0` olan kurulumlar otomatik olarak listenin BAŞINA bir
+     `program_start M40 P<pos>` ekler → **kimse extend'ini sessizce kaybetmez**
+     (bu rework'ün var olma sebebi olan hatanın ta kendisi). Idempotent: zaten
+     M40 varsa dokunmaz, dönüşümden sonra bayrağı `False` yapar. Çağrı yerleri:
+     `load_project` (main.py) + `_load_machine_profile` (main_window.py — bayrak
+     PROFİLDEN geldiği için `params.update(profile)` SONRASINDA, ve dönüşüm
+     profile geri yazılıp autosave ediliyor ki kalıcı olsun).
+   - ⚠ `cylinder_enabled` / `cylinder_position_mm` anahtarları
+     MACHINE_PROFILE_KEYS'te BIRAKILDI (eski profiller sorunsuz açılsın) ama
+     **artık hiçbir yerde OKUNMUYOR** — atıl (inert) veri.
+   - Doğrulama: 20 kontrol GEÇTİ (`M400` yanlışlıkla `M40` sayılmıyor, çift
+     ekleme yok, pos=0 eski guard'la aynı davranıyor, kullanıcının kendi M40'ı
+     korunuyor).
+
+14. **OLMAYAN PASA İŞARET EDEN KOMUT artık sessizce yutulmuyor — dışa aktarımda
+   SORULUYOR.** Önceden `trigger=pass, value=9` ama programda 5 pas varsa komut
+   HİÇ çalışmıyor ve hiçbir şey söylenmiyordu. Bir aktüatör komutu için (geri
+   çekilmeyen arka destek) tehlikeli olan tam da bu sessizlik.
+   - `recipe_explain.orphan_pass_commands(params, total)` → menzil dışı satırlar
+     (pas < 1 veya > toplam). `program_start` ve `z` tetikleyicileri kapsam DIŞI.
+   - `recipe_explain.apply_orphan_action(params, total, action)` → params'ın
+     KOPYASI; `ORPHAN_LAST` = son pasa kırp, `ORPHAN_SKIP` = bu çıktıdan çıkar.
+     **Girdiyi ASLA değiştirmez** → kullanıcının komut tablosu olduğu gibi kalır
+     (kullanıcı isteği: "dont need to also delete it from the custom command table").
+   - `ui/dialogs/orphan_commands.py` (YENİ): üç seçenek — Son pasa taşı / Bu
+     dosyada atla / Dışa aktarmayı iptal et (Esc = iptal). Hangi komutların
+     hangi pası istediğini notlarıyla listeler.
+   - `SpinningCamWindow.resolve_export_params()` ortak kanca: params döner ya da
+     iptalde **None** (çağıran None'ı "hiçbir şey yazma" olarak İŞLEMELİ).
+     Toplam pas = `len(path_gen.last_calculated_paths)` (geri paslar DÂHİL —
+     motorun `pass_num = global_path_idx + 1` sayımıyla aynı).
+     Kancanın kendisi hata verirse loglayıp ESKİ davranışla devam eder.
+   - Bağlandığı yerler: `save_gcode_logic` (+ `save_gcode(params=)` yeni
+     opsiyonel argüman) ve `export_scl_action`. SCL'de `_xp` fonksiyon boyunca
+     `self.app.params`'ın YERİNE geçiyor (9 yer) — yoksa satır sayısı/auto-tune
+     yazılandan BAŞKA bir programdan hesaplanırdı.
+   - `packaging_manifest.CRITICAL_MODULES`'a eklendi (lazy import).
+   - Doğrulama: 20 kontrol GEÇTİ (girdi mutasyonu yok, orphan yokken AYNI nesne
+     dönüyor, pas 0/negatif de yakalanıyor, bozuk/boş değerler patlatmıyor).
+   - ⚠ Analiz penceresine EKLENMEDİ: `audit_operations` toplam pas sayısını
+     bilmiyor (geri paslar yüzünden op'lardan güvenilir türetilemez), yanlış
+     sayı göstermektense sadece dışa aktarımda soruyoruz.
+
+**Dokunulmayanlar:** `recipe_to_scl.py` (M40 zaten açık branch'te, M41/M42 generic
+fallback'te — değişiklik gerekmedi), `machines/*.json`,
+`custom_commands`/`mcode_descriptions` veri şeması (aynı düz `{kod: metin}` sözlüğü —
+yeni şema YOK, cihaz/rol/sıra modeli YOK; kullanıcı bilinçli olarak reddetti: *"I dont
+like hard codded parts... I just want a simple, easy to understand and has enough
+description for m codes. in single place"*).
+
+**Doğrulama:** `_test_recipe_explain.py` 24/24 GEÇTİ (yeni bulgular `info` seviyesinde →
+"temiz reçete info üstünde bir şey üretmez" testi hâlâ geçiyor). Gerçek `ID111-1.json`
+üzerinde headless doğrulandı; uç durumlar (boş params, bozuk value, boş komut, M içermeyen
+komut, Z tetikleyici, silindir açık ama pos=0, sırasız pas numaraları) hata vermiyor.
+`explain.py 13.07.26.ssp` CLI çalışıyor. **GUI SMOKE BEKLİYOR** (Makine sekmesi Tk
+değişiklikleri gözle görülmedi). Commit EDİLMEDİ.
+
+**⚠ AYRI BULGU — DÜZELTİLMEDİ (bkz. oturum notu):** `load_project` (`main.py:1934`)
+`params.update(loaded_params)` ile .ssp'deki TÜM anahtarları yazıyor, `MACHINE_PROFILE_KEYS`
+dâhil. Eski bir .ssp açmak `cylinder_enabled`, **`home_x`/`home_z`**, PLC ayarları,
+`custom_commands` vb. eski değerlerini SESSİZCE geri getiriyor. settings.json yolu bu
+anahtarları zaten hariç tutuyor (`main_window.py:562-564`) — .ssp yolu tutmuyor.
+Blanket hariç tutma `turret_slots` için YANLIŞ olur (reçete-taşımalı, "recipe always wins",
+CAM_TOOL_TABLE_HANDOVER). Karar kullanıcıya bırakıldı.
+
+---
+
 ## 2026-07-28 — YENİ: KENDİNİ AÇIKLAYAN SAYILAR + "PASIM NEDEN TUHAF?" DENETİMİ (v1.013)
 
 **İstek (kullanıcı):** *"sometimes other users stuck some operations and couldnt find the

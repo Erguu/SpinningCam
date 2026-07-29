@@ -898,7 +898,11 @@ class SpinningApp:
                 self.actors[key] = None
             if self.params.get("cylinder_show", True):
                 try:
-                    cyl_pos    = float(self.params.get("cylinder_position_mm", 0.0))
+                    # Extension comes from the M40 the recipe actually issues,
+                    # not a separate field — the picture cannot disagree with
+                    # the program any more (2026-07-30).
+                    from recipe_explain import commanded_cylinder_position
+                    cyl_pos    = commanded_cylinder_position(self.params)
                     cx         = float(self.params.get("cylinder_x_pos", 0.0))
                     z_base     = float(self.params.get("cylinder_z_base", 200.0))
                     stem_r     = 12.0
@@ -1886,7 +1890,9 @@ class SpinningApp:
             return True
         return False
 
-    def save_gcode(self, v, filepath=None):
+    def save_gcode(self, v, filepath=None, params=None):
+        """``params`` lets the caller supply an already-resolved copy (see
+        SpinningCamWindow.resolve_export_params); defaults to the live params."""
         if v:
             try:
                 # The .nc file is the CNC program and is ALWAYS full resolution.
@@ -1896,7 +1902,7 @@ class SpinningApp:
                 # decimated .nc, so the file inspected in a G-code viewer was a
                 # flattened preview of the PLC recipe rather than the real path
                 # (a 0.5 mm tolerance cut 1971 lines to 128 and erased exit curls).
-                _p = dict(self.params)
+                _p = dict(params if params is not None else self.params)
                 _p["plc_mode"] = False
                 code = self.path_gen.generate_gcode(params=_p)
 
@@ -1941,9 +1947,11 @@ class SpinningApp:
                     if "op_view_col_order" not in loaded_params:
                         self.params.pop("op_view_col_order", None)
                     try:
-                        from config_schema import migrate_clearance, migrate_pass_retract
+                        from config_schema import (migrate_clearance, migrate_pass_retract,
+                                                    migrate_cylinder_mcode)
                         migrate_clearance(self.params)
                         migrate_pass_retract(self.params)   # #90 pure per-op retract
+                        migrate_cylinder_mcode(self.params) # M40 → custom command
                     except Exception:
                         pass
                     # Check overrides format

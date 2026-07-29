@@ -37,6 +37,37 @@ STRINGS = {
     "menu_export_recipe":   {"EN": "Export Recipe for PLC (.csv)",  "TR": "PLC Reçetesi Aktar (.csv)",  "ES": "Exportar Receta PLC (.csv)"},
     "menu_export_scl":      {"EN": "Export SCL for TIA Portal (.scl)", "TR": "TIA Portal SCL Aktar (.scl)", "ES": "Exportar SCL TIA Portal (.scl)"},
     "menu_exit":            {"EN": "Exit",                          "TR": "Çıkış",                      "ES": "Salir"},
+    # Export menu — every "make a file for someone else" action in one cascade.
+    "menu_export":          {"EN": "Export",                        "TR": "Dışa Aktar",                 "ES": "Exportar"},
+    "menu_save_gcode":      {"EN": "Save G-Code (.nc)",             "TR": "G-Code Kaydet (.nc)",        "ES": "Guardar G-Code (.nc)"},
+    "menu_export_pdf":      {"EN": "Export Operation Sheet (.pdf)", "TR": "Operasyon Kartı Aktar (.pdf)", "ES": "Exportar Hoja de Operación (.pdf)"},
+    "menu_export_stl":      {"EN": "Export Part Shell (.stl)",      "TR": "Parça Kabuğu Aktar (.stl)",  "ES": "Exportar Casco de Pieza (.stl)"},
+    # Out-of-range pass trigger, asked at export time (never silently dropped).
+    "orc_title":            {"EN": "Command points at a missing pass",
+                             "TR": "Komut olmayan bir pası gösteriyor",
+                             "ES": "Un comando apunta a una pasada inexistente"},
+    "orc_heading":          {"EN": "This program is shorter than some of your custom commands expect.",
+                             "TR": "Bu program, bazı özel komutlarınızın beklediğinden daha kısa.",
+                             "ES": "Este programa es más corto de lo que esperan algunos comandos."},
+    "orc_explain":          {"EN": "The program has {total} passes, but {n} command(s) are set to fire on a "
+                                   "pass that does not exist. As things stand they would simply never run, "
+                                   "with no message. What should this export do?",
+                             "TR": "Programda {total} pas var, ama {n} komut olmayan bir pasta çalışacak "
+                                   "şekilde ayarlı. Bu haliyle hiçbir uyarı vermeden hiç çalışmazlar. "
+                                   "Bu dışa aktarmada ne yapılsın?",
+                             "ES": "El programa tiene {total} pasadas, pero {n} comando(s) apuntan a una "
+                                   "pasada inexistente. Tal cual, nunca se ejecutarían y sin aviso. "
+                                   "¿Qué debe hacer esta exportación?"},
+    "orc_wants":            {"EN": "wants pass {n}",                "TR": "pas {n} istiyor",            "ES": "quiere la pasada {n}"},
+    "orc_btn_last":         {"EN": "Move to last pass ({n})",       "TR": "Son pasa taşı ({n})",        "ES": "Mover a la última ({n})"},
+    "orc_btn_skip":         {"EN": "Leave them out",                "TR": "Bu dosyada atla",            "ES": "Omitirlos"},
+    "orc_btn_cancel":       {"EN": "Cancel export",                 "TR": "Dışa aktarmayı iptal et",    "ES": "Cancelar exportación"},
+    "orc_footer":           {"EN": "Either choice affects this file only — your command table is not "
+                                   "changed. Cancel to go and edit it in Machine ▸ Custom Commands.",
+                             "TR": "Her iki seçim de SADECE bu dosyayı etkiler — komut tablonuz "
+                                   "değişmez. Düzenlemek için iptal edip Makine ▸ Özel Komutlar'a gidin.",
+                             "ES": "Cualquier opción afecta solo a este archivo — su tabla de comandos no "
+                                   "cambia. Cancele para editarla en Máquina ▸ Comandos Personalizados."},
     "menu_tools":           {"EN": "Tools",                         "TR": "Araçlar",                    "ES": "Herramientas"},
     "menu_tool_library":    {"EN": "Tool Library...",               "TR": "Takım Kütüphanesi...",        "ES": "Biblioteca de Herramientas..."},
     "menu_view":            {"EN": "View",                          "TR": "Görünüm",                    "ES": "Vista"},
@@ -421,6 +452,18 @@ STRINGS = {
     "lbl_ws_z_min":         {"EN": "Min Z (mm):",                   "TR": "Min Z (mm):",                "ES": "Z Mín (mm):"},
     "lbl_ws_z_max":         {"EN": "Max Z (mm):",                   "TR": "Maks Z (mm):",               "ES": "Z Máx (mm):"},
     "lbl_clamp_baseline":   {"EN": "Clamp Zone Default (mm):",      "TR": "Kıskaç Bölgesi Varsayılan (mm):", "ES": "Zona Sujeción Def. (mm):"},
+    # The Machine-tab cylinder section is gone (2026-07-30): M40 became an
+    # ordinary custom command; only the 3D-view fields remain, in Process & Visual.
+    "section_cylinder":     {"EN": "Back-Support Cylinder (3D view)",
+                             "TR": "Arka Destek Silindiri (3D görünüm)",
+                             "ES": "Cilindro de Contrapunto (vista 3D)"},
+    "lbl_cyl_visual_info":  {"EN": "Drawing only. The cylinder's actual command is M40 in "
+                                   "Machine ▸ Custom Commands; the extension drawn here is read "
+                                   "from that command.",
+                             "TR": "Sadece çizim. Silindirin gerçek komutu Makine ▸ Özel Komutlar'daki "
+                                   "M40'tır; burada çizilen uzama o komuttan okunur.",
+                             "ES": "Solo dibujo. El comando real del cilindro es M40 en "
+                                   "Máquina ▸ Comandos Personalizados; la extensión dibujada se lee de él."},
     "frm_cylinder":         {"EN": "Cylinder (CMD=40)",             "TR": "Silindir (CMD=40)",          "ES": "Cilindro (CMD=40)"},
     "lbl_cyl_info":         {"EN": "Cylinder axis servo beside spindle axis, parallel to mandrel.\nMoves to position at program start, before spindle runs. (M40 P<mm>)",
                              "TR": "Silindir eksen servoların yanında, mandrel ile paralel.\nProgram başında, mil çalışmadan önce konuma gider. (M40 P<mm>)",
@@ -477,15 +520,43 @@ STRINGS = {
     "cc_trigger_col":       {"EN": "Trigger",                       "TR": "Tetikleyici",                "ES": "Disparador"},
     "cc_value_col":         {"EN": "Value",                         "TR": "Değer",                      "ES": "Valor"},
     "cc_command_col":       {"EN": "Command",                       "TR": "Komut",                      "ES": "Comando"},
+    # Per-entry note (NOT the shared M-code description): one code's description
+    # covers every parameter value, so it cannot say which value this row is.
+    "cc_note_col":          {"EN": "Note",                          "TR": "Not",                        "ES": "Nota"},
+    "lbl_note":             {"EN": "Note:",                         "TR": "Not:",                       "ES": "Nota:"},
+    # Connecting words that make the add-row read as a sentence:
+    #   "When [pass] = [3] do [M41 P2] note [retract]"
+    "cc_when":              {"EN": "When",                          "TR": "Şu anda:",                   "ES": "Cuando"},
+    "cc_do":                {"EN": "do",                            "TR": "şunu yap:",                  "ES": "hacer"},
+    "cc_note_lc":           {"EN": "note",                          "TR": "not:",                       "ES": "nota"},
+    "cc_tri_start":         {"EN": "Start",                         "TR": "Başlangıç",                  "ES": "Inicio"},
+    "cc_tri_pass":          {"EN": "Pass",                          "TR": "Pas",                        "ES": "Pasada"},
+    "btn_update":           {"EN": "Update",                        "TR": "Güncelle",                   "ES": "Actualizar"},
+    "dlg_mcode_desc":       {"EN": "M-Code description",            "TR": "M-Code açıklaması",          "ES": "Descripción del M-Code"},
+    "msg_no_mcode":         {"EN": "No M-code in this command.",
+                             "TR": "Bu komutta M-code yok.",
+                             "ES": "No hay M-code en este comando."},
+    "msg_no_desc":          {"EN": "No description defined for M{code}.\n\n"
+                                   "Add one in the M-Code Definitions section below.",
+                             "TR": "M{code} için tanımlı açıklama yok.\n\n"
+                                   "Aşağıdaki M-Code Tanımları bölümünden ekleyebilirsiniz.",
+                             "ES": "No hay descripción definida para M{code}.\n\n"
+                                   "Añádala en la sección Definiciones de M-Code."},
     "lbl_trigger":          {"EN": "Trigger:",                      "TR": "Tetikleyici:",               "ES": "Disparador:"},
     "lbl_value":            {"EN": "Value:",                        "TR": "Değer:",                     "ES": "Valor:"},
     "lbl_cmd":              {"EN": "Cmd:",                          "TR": "Komut:",                     "ES": "Cmd:"},
     "btn_add":              {"EN": "Add",                           "TR": "Ekle",                       "ES": "Agregar"},
     "btn_delete":           {"EN": "Delete",                        "TR": "Sil",                        "ES": "Eliminar"},
-    "frm_mcode_desc":       {"EN": "M-Code Descriptions",           "TR": "M-Code Açıklamaları",        "ES": "Descripciones de M-Code"},
-    "lbl_mcode_info":       {"EN": "Defined M-codes are automatically added as comments in G-code and SCL output.",
-                             "TR": "Tanımlanan M-code'lar G-code ve SCL çıktısında otomatik yorum olarak eklenir.",
-                             "ES": "Los M-codes definidos se agregan automáticamente como comentarios en la salida G-code y SCL."},
+    "frm_mcode_desc":       {"EN": "M-Code Definitions",            "TR": "M-Code Tanımları",           "ES": "Definiciones de M-Code"},
+    "lbl_mcode_info":       {"EN": "What each M-code means. One line per code — describe the parameter here too "
+                                   "(e.g. \"1 for relax, 2 for retract\"). Shown as comments in G-code/SCL, in the "
+                                   "Custom Commands list, and in Preview & Analyze.",
+                             "TR": "Her M-code'un anlamı. Kod başına tek satır — parametreyi de burada anlatın "
+                                   "(ör. \"1 gevşetme, 2 geri çekme\"). G-code/SCL yorumlarında, Özel Komutlar "
+                                   "listesinde ve Önizle ve Analiz Et'te görünür.",
+                             "ES": "Qué significa cada M-code. Una línea por código — describa aquí también el "
+                                   "parámetro (p. ej. \"1 para relajar, 2 para retraer\"). Se muestra como "
+                                   "comentario en G-code/SCL, en Comandos Personalizados y en Vista Previa y Análisis."},
     "mc_code_col":          {"EN": "M-Code",                        "TR": "M-Code",                     "ES": "M-Code"},
     "mc_desc_col":          {"EN": "Description",                   "TR": "Açıklama",                   "ES": "Descripción"},
     "lbl_mcode_code":       {"EN": "M-Code:",                       "TR": "M-Code:",                    "ES": "M-Code:"},
@@ -852,13 +923,25 @@ STRINGS = {
     "lbl_exit_mid_trim":    {"EN": "Curl Trim",                     "TR": "Kıvrım Kırp",                "ES": "Recortar Rizo"},
     "lbl_exit_mid_radius_end": {"EN": "Curl R End (mm)",            "TR": "Kıvrım R Bitiş (mm)",        "ES": "Radio Fin Rizo (mm)"},
 
-    # ── Why is my pass weird? (provenance + recipe audit) ────────────────
-    "menu_recipe_audit":  {"EN": "Why is my pass weird? (recipe check)…",
-                           "TR": "Pasım neden tuhaf? (reçete kontrolü)…",
-                           "ES": "¿Por qué esta pasada es rara? (revisión)…"},
-    "dlg_recipe_audit":   {"EN": "Recipe check — hidden settings that change a pass",
-                           "TR": "Reçete kontrolü — pası değiştiren gizli ayarlar",
-                           "ES": "Revisión — ajustes ocultos que cambian una pasada"},
+    # ── Preview & Analyze (provenance + recipe audit + M-code listing) ───
+    "menu_recipe_audit":  {"EN": "Preview & Analyze…",
+                           "TR": "Önizle ve Analiz Et…",
+                           "ES": "Vista Previa y Análisis…"},
+    "dlg_recipe_audit":   {"EN": "Preview & Analyze — what is actually in this recipe",
+                           "TR": "Önizle ve Analiz Et — bu reçetede gerçekte ne var",
+                           "ES": "Vista Previa y Análisis — qué contiene realmente esta receta"},
+
+    # M-code listing. Deliberately descriptive, never a verdict: the analyzer
+    # reports what the post will emit and lets the operator judge it.
+    "rx_mc_line":         {"EN": "{cmd}  ·  {when}  ·  {desc}",
+                           "TR": "{cmd}  ·  {when}  ·  {desc}",
+                           "ES": "{cmd}  ·  {when}  ·  {desc}"},
+    "rx_mc_start":        {"EN": "program start",       "TR": "program başında",   "ES": "inicio del programa"},
+    "rx_mc_pass":         {"EN": "before pass {n}",     "TR": "pas {n} öncesi",    "ES": "antes de la pasada {n}"},
+    "rx_mc_z":            {"EN": "at Z {v}",            "TR": "Z {v} noktasında",  "ES": "en Z {v}"},
+    "rx_mc_nodesc":       {"EN": "no description — add one in Machine ▸ M-Code Definitions",
+                           "TR": "açıklama yok — Makine ▸ M-Code Tanımları'ndan ekleyin",
+                           "ES": "sin descripción — añádala en Máquina ▸ Definiciones M-Code"},
     "rx_help":            {"EN": "Every line is a value that did NOT come from the operation panel. "
                                  "◆ RED = needs attention (a hand-set value that does not fit the rest of "
                                  "the operation, or a real collision risk). Grey = deliberate, nothing to do. "

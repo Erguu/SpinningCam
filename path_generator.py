@@ -2453,6 +2453,8 @@ class PathGenerator:
         raw_cmds = params.get("custom_commands", [])
         pass_cmds = [(int(float(c["value"])), c["cmd"]) for c in raw_cmds if c.get("trigger") == "pass"]
         z_cmds    = [(float(c["value"]), c["cmd"])      for c in raw_cmds if c.get("trigger") == "z"]
+        # program_start ignores "value" entirely — the trigger IS the moment.
+        start_cmds = [c["cmd"] for c in raw_cmds if c.get("trigger") == "program_start"]
 
         mcode_descriptions = params.get("mcode_descriptions", {})
 
@@ -2552,12 +2554,23 @@ class PathGenerator:
             ""
         ])
 
-        # Cylinder GOTO — one-time, before spindle start
-        cyl_pos_mm = float(params.get("cylinder_position_mm", 0.0))
-        if params.get("cylinder_enabled", True) and cyl_pos_mm > 0:
-            gcode.append(f"(--- SILINDIR / CYLINDER ---)")
-            _cyl_desc = mcode_descriptions.get("40", "CYLINDER GOTO")
-            gcode.append(f"M40 P{cyl_pos_mm:.1f} ({_cyl_desc} {cyl_pos_mm:.1f} mm)")
+        # NOTE: the dedicated "Cylinder GOTO" block that used to sit here was
+        # removed 2026-07-30. M40 is now an ordinary program_start custom
+        # command, so the cylinder's extend/relax/retract sequence lives in ONE
+        # list instead of being split between a checkbox and a command table —
+        # which is how a disabled M40 went unnoticed while its valve commands
+        # kept firing. Existing setups are converted by
+        # config_schema.migrate_cylinder_mcode, so nobody loses their extend.
+
+        # Program-start custom commands — here, and NOT in the pass loop,
+        # because this is the only point that is still before the tool change
+        # and before the spindle starts. An actuator that has to be set while
+        # the part is stationary (a back support clamping the blank) cannot use
+        # a "pass 1" trigger: that fires after S.. M3 is already running.
+        if start_cmds:
+            gcode.append("(--- PROGRAM START ---)")
+            for scmd in start_cmds:
+                gcode.append(_annotate_mcode(scmd))
             gcode.append("")
 
         safe_x_machine = home_x_machine  # Use transformed safe X

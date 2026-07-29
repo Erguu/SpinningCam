@@ -207,17 +207,28 @@ class SpinningCamWindow(tk.Tk):
         self._file_menu.add_separator()
         self._file_menu.add_command(label=t("menu_load_model"), command=self.load_step_prompt)
         self._file_menu.add_separator()
-        # Machine-type-specific exports: the Siemens SCL / recipe pipeline only
+        self._file_menu.add_command(label=t("menu_exit"), command=self.on_close)
+
+        # Export Menu — every "produce a file for someone else" action in one
+        # place. These were split between the File menu (SCL / recipe CSV) and
+        # buttons at the bottom of the Process tab (G-code / PDF / STL), so
+        # which menu to look in depended on the format.
+        # Machine-type gating unchanged: the Siemens SCL / recipe pipeline only
         # applies to machines whose adapter lists those formats (ID111). The
         # ID112 CODESYS machine gets its own post-processor later (TODO.md #52).
         adapter = getattr(self.app, "active_adapter", None)
         formats = adapter.get_export_formats() if adapter else ["scl", "recipe_csv"]
-        if "recipe_csv" in formats:
-            self._file_menu.add_command(label=t("menu_export_recipe"), command=self.export_recipe_action)
+
+        export_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label=t("menu_export"), menu=export_menu)
+        export_menu.add_command(label=t("menu_save_gcode"), command=self.save_gcode_logic)
         if "scl" in formats:
-            self._file_menu.add_command(label=t("menu_export_scl"), command=self.export_scl_action)
-        self._file_menu.add_separator()
-        self._file_menu.add_command(label=t("menu_exit"), command=self.on_close)
+            export_menu.add_command(label=t("menu_export_scl"), command=self.export_scl_action)
+        if "recipe_csv" in formats:
+            export_menu.add_command(label=t("menu_export_recipe"), command=self.export_recipe_action)
+        export_menu.add_separator()
+        export_menu.add_command(label=t("menu_export_pdf"), command=self.export_pdf_action)
+        export_menu.add_command(label=t("menu_export_stl"), command=self.export_stl_action)
 
         # Tools Menu
         tools_menu = tk.Menu(menubar, tearoff=0)
@@ -564,6 +575,22 @@ class SpinningCamWindow(tk.Tk):
             self.app.params.update(clean)
 
         self.app.params.update(profile)
+
+        # Retired cylinder enable/position → a program_start M40 custom command.
+        # Runs here because cylinder_enabled arrives with the PROFILE, so this
+        # must be after the update above. Writes the converted command back to
+        # the profile so the conversion is permanent rather than per-session.
+        try:
+            from config_schema import migrate_cylinder_mcode
+            _before = json.dumps(profile.get("custom_commands"), sort_keys=True)
+            migrate_cylinder_mcode(self.app.params)
+            for _k in ("custom_commands", "cylinder_enabled"):
+                profile[_k] = self.app.params.get(_k)
+            if json.dumps(profile.get("custom_commands"), sort_keys=True) != _before:
+                self.app.autosave_machine_profile()
+        except Exception as e:
+            logger.error(f"Cylinder M-code migration failed: {e}")
+
         self.app.params["_customer_name"] = license_.get("customer_name", "")
         self.app.params["_admin"]         = license_.get("admin", False)
 
@@ -645,8 +672,39 @@ class SpinningCamWindow(tk.Tk):
         self.tabs.add(self.tab_machine, text=t("tab_machine"))
         self.ui_machine = MachineTab(self.tab_machine, self.app, self.helper)
 
-        self.plot_frame = tk.Frame(self._paned, bg="white")
-        self._paned.add(self.plot_frame, minsize=300)
+        # 3D pane = action bar on top + the plotter frame below it.
+        # plot_frame must stay a frame of its own and must contain NOTHING else:
+        # embed_plotter reparents the PyVista HWND into it and drives it with
+        # MoveWindow(0, 0, w, h), so any sibling widget placed inside would be
+        # covered by the 3D view. Wrapping keeps that contract intact while
+        # giving the bar its own space.
+        view_pane = tk.Frame(self._paned, bg="#f0f0f0")
+        self._paned.add(view_pane, minsize=300)
+
+        # Calculate lives here, next to the 3D view, because it applies to the
+        # whole program — it used to sit inside the Process tab, which meant the
+        # Machine tab (M-codes, offsets, PLC) had no way to recalculate without
+        # switching tabs first. Height locked like the status bar so a themed
+        # button cannot grow the strip and squeeze the viewport.
+        bar_view = tk.Frame(view_pane, bg="#e4e4e4", height=36)
+        bar_view.pack(side="top", fill="x")
+        bar_view.pack_propagate(False)
+
+        self.btn_calc_global = tk.Button(
+            bar_view, text=t("btn_calculate"), bg="orange", fg="black",
+            font=("Arial", 9, "bold"), relief="raised", bd=2, padx=14,
+            # Late binding: rebuild_all_tabs() replaces ui_program, so resolve
+            # the attribute at click time rather than capturing it now.
+            command=lambda: self.ui_program._start_async_calc())
+        self.btn_calc_global.pack(side="left", padx=8, pady=4)
+        self.helper.bind_tooltip(
+            self.btn_calc_global,
+            "Mevcut ayarlara göre tüm takım yollarını yeniden hesapla ve "
+            "görünümü güncelle.\nHer sekmeden erişilebilir — Makine sekmesindeki "
+            "M-code/offset/PLC değişiklikleri de buradan hesaplanır.")
+
+        self.plot_frame = tk.Frame(view_pane, bg="white")
+        self.plot_frame.pack(side="top", fill="both", expand=True)
 
         # Persist the chosen sidebar width when the sash drag ends.
         def _save_sidebar_width(event=None):
@@ -955,6 +1013,34 @@ class SpinningCamWindow(tk.Tk):
         except Exception:
             pass
 
+    def resolve_export_params(self):
+        """params for an export, after settling any out-of-range pass triggers.
+
+        Returns the dict to generate from, or None when the operator cancels —
+        callers MUST treat None as "abort, write nothing".
+
+        A "pass" trigger is pinned to a pass NUMBER, so editing the program list
+        can leave a command aimed past the end, where the engine silently never
+        fires it. Asking here is the last point before a file exists. The answer
+        is applied to a COPY: the command table is never edited behind the user.
+        """
+        try:
+            from recipe_explain import orphan_pass_commands, apply_orphan_action
+            total = len(getattr(self.app.path_gen, 'last_calculated_paths', None) or [])
+            orphans = orphan_pass_commands(self.app.params, total)
+            if not orphans:
+                return self.app.params
+            from ui.dialogs.orphan_commands import OrphanCommandsDialog
+            choice = OrphanCommandsDialog(self, orphans, total).result
+            if choice is None:
+                return None
+            return apply_orphan_action(self.app.params, total, choice)
+        except Exception as e:
+            # A check must never be the reason an export fails: log and proceed
+            # with exactly the old behaviour.
+            logger.error(f"Orphan-command check failed, exporting unchanged: {e}")
+            return self.app.params
+
     def save_gcode_logic(self):
         if hasattr(self, 'ui_machine'):
             self.ui_machine.sync_params()
@@ -965,6 +1051,10 @@ class SpinningCamWindow(tk.Tk):
             messagebox.showwarning(t("msg_no_paths_title"), t("msg_no_paths"))
             return
 
+        _p = self.resolve_export_params()
+        if _p is None:
+            return
+
         path = filedialog.asksaveasfilename(
              defaultextension=".nc",
              filetypes=[(t("fd_gcode_files"), "*.nc"), (t("fd_all_files"), "*.*")],
@@ -972,7 +1062,7 @@ class SpinningCamWindow(tk.Tk):
              initialfile="EMS_Spinning.nc"
         )
         if path:
-             self.app.save_gcode(True, filepath=path)
+             self.app.save_gcode(True, filepath=path, params=_p)
              if messagebox.askyesno(t("msg_view_gcode_title"),
                                     t("msg_view_gcode").format(os.path.basename(path))):
                  webbrowser.open("https://ncviewer.com/")
@@ -1116,9 +1206,16 @@ class SpinningCamWindow(tk.Tk):
         if hasattr(self, 'ui_machine'):
             self.ui_machine.sync_params()
 
+        # Settle out-of-range pass triggers BEFORE the first generate, so every
+        # later step (line count, auto-tune, the written file) sees one and the
+        # same program. _xp replaces self.app.params for the rest of this export.
+        _xp = self.resolve_export_params()
+        if _xp is None:
+            return
+
         try:
             from recipe_to_scl import GCodeToSCLConverter
-            gcode_str = self.app.path_gen.generate_gcode(params=self.app.params)
+            gcode_str = self.app.path_gen.generate_gcode(params=_xp)
         except Exception as e:
             messagebox.showerror(t("msg_export_error_title"), t("msg_gcode_gen_error").format(e))
             return
@@ -1135,7 +1232,7 @@ class SpinningCamWindow(tk.Tk):
         # array-size dialogs.
         if _parsed_line_count is not None:
             try:
-                _pre_converter._tool_table_scl(self.app.params)
+                _pre_converter._tool_table_scl(_xp)
             except ValueError as _tt:
                 _tt_msg = str(_tt)
                 if _tt_msg.startswith("TOOL_TABLE:"):
@@ -1162,8 +1259,8 @@ class SpinningCamWindow(tk.Tk):
         if not program_title:
             program_title = "SpinningCam Program"
 
-        auto = (bool(self.app.params.get("plc_auto_tune", False))
-                and bool(self.app.params.get("plc_mode", False)))
+        auto = (bool(_xp.get("plc_auto_tune", False))
+                and bool(_xp.get("plc_mode", False)))
         force_flag = False
         autofit_note = None
 
@@ -1177,16 +1274,16 @@ class SpinningCamWindow(tk.Tk):
             # staying at least as clear as the full-resolution path. Replaces the
             # array-size question entirely (target sizes the array: 350 -> [0..349]).
             pg = self.app.path_gen
-            target = int(self.app.params.get("plc_target_lines", 1000) or 1000)
-            floor_cl = pg.measure_min_clearance(pg.last_calculated_paths, self.app.params)
-            result = ExportManager.auto_fit_plc_tolerance(pg, self.app.params, target, floor_cl)
+            target = int(_xp.get("plc_target_lines", 1000) or 1000)
+            floor_cl = pg.measure_min_clearance(pg.last_calculated_paths, _xp)
+            result = ExportManager.auto_fit_plc_tolerance(pg, _xp, target, floor_cl)
             st = result.get("status")
             fit_tol   = result.get("tolerance")
             fit_lines = result.get("lines", 0)
             fit_cl    = result.get("min_clearance")
 
             # Show the fitted values so the operator can review before writing.
-            man_tol = float(self.app.params.get("plc_tolerance", 0.5))
+            man_tol = float(_xp.get("plc_tolerance", 0.5))
             before = _parsed_line_count if _parsed_line_count is not None else fit_lines
             preview = t("msg_autotune_preview").format(
                 man=_fmt(man_tol), auto=_fmt(fit_tol),
@@ -1209,7 +1306,7 @@ class SpinningCamWindow(tk.Tk):
                     return
 
             # Rebuild the SCL source with the fitted tolerance.
-            p = dict(self.app.params)
+            p = dict(_xp)
             p["plc_mode"] = True
             p["plc_tolerance"] = fit_tol
             p["plc_exit_tolerance"] = fit_tol
@@ -1252,7 +1349,7 @@ class SpinningCamWindow(tk.Tk):
             db_name=db_name,
             program_title=program_title,
             force=force_flag,
-            params=self.app.params,
+            params=_xp,
             custom_array_size=custom_array_size,
             gcode_string=gcode_str
         )
@@ -1274,7 +1371,7 @@ class SpinningCamWindow(tk.Tk):
                     db_name=db_name,
                     program_title=program_title,
                     force=True,
-                    params=self.app.params,
+                    params=_xp,
                     custom_array_size=custom_array_size,
                     gcode_string=gcode_str
                 )

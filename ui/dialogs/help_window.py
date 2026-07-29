@@ -41,12 +41,15 @@ GENERAL WORKFLOW — first time through
     as needed.
 
 6.  Calculate and inspect
-    Press Calculate. Review toolpaths in the 3D view. Use the
-    heatmap and distance indicators to check for collisions.
+    Press the orange Calculate button ABOVE the 3D view — it is
+    there whichever tab you are on. Review toolpaths in the 3D
+    view. Use the heatmap and distance indicators to check for
+    collisions.
 
 7.  Export
-    Save G-code for your controller, or export SCL for TIA
-    Portal, or a CSV recipe for documentation.
+    Everything is in one menu, Export ▸ — G-code (.nc) for your
+    controller, SCL for TIA Portal, CSV recipe for the PLC, a PDF
+    operation sheet for the shop floor, or the part shell as STL.
 
 
 TIP
@@ -87,13 +90,15 @@ GENEL İŞ AKIŞI — ilk kullanım
     son boyutlara ulaşmak için bitirme, gerekirse kesme veya bükme.
 
 6.  Hesapla ve incele
-    Hesapla düğmesine bas. 3D görünümde takım yollarını incele.
-    Çarpışmaları kontrol etmek için ısı haritasını ve mesafe
-    göstergelerini kullan.
+    3D görünümün ÜSTÜNDEKİ turuncu Hesapla düğmesine bas (hangi
+    sekmede olursan ol oradadır). 3D görünümde takım yollarını
+    incele. Çarpışmaları kontrol etmek için ısı haritasını ve
+    mesafe göstergelerini kullan.
 
 7.  Dışa aktar
-    Denetleyicin için G-code kaydet, TIA Portal için SCL aktar
-    ya da dokümantasyon için CSV reçetesi oluştur.
+    Tüm dışa aktarmalar tek menüde: Dışa Aktar ▸ — denetleyicin
+    için G-code (.nc), TIA Portal için SCL, PLC için CSV reçetesi,
+    tezgah için PDF operasyon kartı, parça kabuğu için STL.
 
 
 İPUCU
@@ -1945,6 +1950,81 @@ Important: "Use ▸" only fills the Rr box for this calibration. It
 does NOT change the tool library and saves no tool value.
 
 
+M-CODES (custom commands)
+════════════════════════════════════════════════════════════════
+M-codes drive things that are not the roller — an air cylinder, a
+clamp, a valve. They are set up here in the Machine tab, and they
+go into every program made for this machine WITHOUT appearing in
+the operation list. Two sections work together:
+
+  M-Code Definitions   What each code MEANS. One line per code.
+                       Describe the parameter in the same
+                       sentence, e.g.
+                         M41 → "Back support cylinder:
+                                1 for relax, 2 for retract"
+                       Select a row to load it into the fields;
+                       Add then updates that code in place.
+
+  Custom Commands      WHEN each code fires, one row per firing.
+                       Each row reads as a sentence:
+                         When [pass] = [3] do [M41 P2] note […]
+
+                         program_start → at the very top of the
+                                         program, BEFORE the tool
+                                         change and BEFORE the
+                                         spindle starts. Use this
+                                         for anything that must
+                                         act while the part is
+                                         still stationary. No
+                                         value needed.
+                         pass          → before that global pass
+                                         number (1-based)
+                         z             → when Z crosses that
+                                         value inside a pass
+                       The Note column is a short label for THAT
+                       row — the description covers the whole
+                       code, so it cannot tell M41 P1 apart from
+                       M41 P2, but the note can ("relax" /
+                       "retract"). Press "?" to read the full
+                       description of the selected row's code.
+                       Select a row to load it into the fields,
+                       then Update to change it.
+
+The back-support cylinder has no special section any more. Its
+extend is just another row: trigger program_start, command
+M40 P<mm>. Extend, relax and retract therefore sit together in
+one list, in the order the machine runs them. That matters —
+when the extend lived in a separate checkbox it could be
+switched off while the valve rows kept firing, commanding
+valves on a cylinder that had never come out.
+
+The cylinder's 3D-view settings (show it, X position, Z base)
+are in the Process & Visual tab, since they only affect the
+drawing. How far it is drawn extended is read from your M40
+command, so the picture cannot disagree with the program.
+
+TO SEE WHAT A PROGRAM ACTUALLY CONTAINS, use
+Help ▸ Preview & Analyze. It lists every M-code the program will
+carry, in the order the machine will execute them, each with its
+description. This is the only place that shows them all together
+— if a command you expected is missing, or one you forgot is
+still there, it shows up in that list.
+
+Watch out: a "pass" trigger is pinned to a pass NUMBER. Add a
+pass, delete one, or reorder operations, and the command moves to
+a different point in the process without warning. After changing
+the program list, check the list in Preview & Analyze again.
+
+If a command points at a pass the program does not have, the
+export stops and asks: move it to the last pass, leave it out of
+this file, or cancel so you can fix the table. Either of the
+first two applies to that file only — your command table is
+never edited for you.
+
+Two commands on the SAME pass both run, in table order (top
+first). Use the ▲ ▼ buttons to set that order.
+
+
 EXPORT FORMATS
 ════════════════════════════════════════════════════════════════
 G-code (.nc)     Standard CNC moves. Use for most controllers.
@@ -2095,6 +2175,78 @@ takımlar birbiriyle tutarlı kalır. Test etmek için:
 Takım kütüphanesini DEĞİŞTİRMEZ ve hiçbir takım değerini KAYDETMEZ.
 
 
+M-CODE'LAR (özel komutlar)
+════════════════════════════════════════════════════════════════
+M-code'lar rulo dışındaki şeyleri sürer — bir hava silindiri, bir
+kıskaç, bir valf. Burada, Makine sekmesinde kurulurlar ve bu
+makine için üretilen HER programa girerler; ama operasyon
+listesinde GÖRÜNMEZLER. Birlikte çalışan iki bölüm var:
+
+  M-Code Tanımları    Her kodun NE ANLAMA geldiği. Kod başına tek
+                      satır. Parametreyi de aynı cümlede anlatın,
+                      örn.
+                        M41 → "Arka destek silindiri:
+                               1 gevşetme, 2 geri çekme"
+                      Bir satırı seçince alanlara dolar; Ekle o
+                      kodu yerinde günceller.
+
+  Özel Komutlar       Her kodun NE ZAMAN çalışacağı; her çalışma
+                      için bir satır. Her satır cümle gibi okunur:
+                        Şu anda: [pas] = [3] şunu yap: [M41 P2]
+
+                        program_start → programın en başında,
+                                        takım değişiminden VE mil
+                                        dönmeye başlamadan ÖNCE.
+                                        Parça hâlâ dururken
+                                        yapılması gereken her şey
+                                        için bunu kullanın.
+                                        Değer gerekmez.
+                        pass          → o global pas numarasından
+                                        önce (1'den başlar)
+                        z             → pas içinde Z o değeri
+                                        geçtiğinde
+                      Not sütunu O SATIRA özel kısa bir etikettir
+                      — açıklama tüm kodu kapsar, bu yüzden
+                      M41 P1 ile M41 P2'yi ayırt edemez; not
+                      edebilir ("gevşet" / "geri çek"). Seçili
+                      satırın kodunun tam açıklamasını okumak
+                      için "?" düğmesine basın. Satırı seçince
+                      alanlara dolar, Güncelle ile değiştirirsiniz.
+
+Arka destek silindirinin artık ayrı bir bölümü YOK. Uzaması da
+sıradan bir satır: tetikleyici program_start, komut M40 P<mm>.
+Böylece uzat / gevşet / geri çek üçü tek listede, makinenin
+çalıştırdığı sırayla durur. Bu önemli — uzatma ayrı bir onay
+kutusundayken kapatılabiliyordu ve valf satırları yine de
+çalışıp hiç çıkmamış bir silindirin valflerine komut veriyordu.
+
+Silindirin 3D görünüm ayarları (göster, X konumu, Z tabanı)
+Process & Visual sekmesindedir; yalnızca çizimi etkilerler.
+Ne kadar uzamış çizileceği M40 komutunuzdan okunur, böylece
+resim programla çelişemez.
+
+BİR PROGRAMDA GERÇEKTE NE OLDUĞUNU GÖRMEK İÇİN
+Yardım ▸ Önizle ve Analiz Et'i kullanın. Programın taşıyacağı
+bütün M-code'ları, makinenin çalıştıracağı sırayla ve
+açıklamalarıyla listeler. Hepsini bir arada gösteren tek yer
+burasıdır — beklediğiniz bir komut eksikse ya da unuttuğunuz bir
+komut hâlâ duruyorsa o listede ortaya çıkar.
+
+DİKKAT: "pass" tetikleyicisi bir pas NUMARASINA sabitlenmiştir.
+Pas eklerseniz, silerseniz veya operasyonları yeniden sıralarsanız
+komut uyarı vermeden sürecin başka bir noktasına kayar. Program
+listesini değiştirdikten sonra Önizle ve Analiz Et'teki listeye
+tekrar bakın.
+
+Bir komut programda olmayan bir pası gösteriyorsa dışa aktarma
+durur ve sorar: son pasa taşı, bu dosyada atla, ya da iptal edip
+tabloyu düzelt. İlk ikisi SADECE o dosyayı etkiler — komut
+tablonuz sizin yerinize hiç değiştirilmez.
+
+Aynı pasa konan iki komutun İKİSİ de çalışır, tablo sırasıyla
+(üstteki önce). Sırayı ▲ ▼ düğmeleriyle ayarlayın.
+
+
 DIŞA AKTARMA FORMATLARI
 ════════════════════════════════════════════════════════════════
 G-code (.nc)      Standart CNC hareketleri. Çoğu denetleyici için
@@ -2151,7 +2303,7 @@ reason "the operation says 95 but this pass clearly runs longer".
 
 Two ways to see it:
 
-1. Help ▸ Why is my pass weird?
+1. Help ▸ Preview & Analyze
    Lists every value in the whole program that did NOT come from
    the operation panel, most serious first. It separates a field
    set by hand on EVERY pass (a deliberate ramp you built) from a
@@ -2300,7 +2452,7 @@ bu pas belli ki daha uzun gidiyor" durumunun olağan sebebi budur.
 
 Görmenin iki yolu:
 
-1. Yardım ▸ Pasım neden tuhaf?
+1. Yardım ▸ Önizle ve Analiz Et
    Tüm programda operasyon panelinden GELMEYEN her değeri, en
    ciddisi üstte olacak şekilde listeler. HER pasta elle ayarlı bir
    alanı (bilerek kurduğunuz bir rampa) yalnızca BAZI paslarda elle

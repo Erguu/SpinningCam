@@ -5,6 +5,7 @@ Uses pydantic for type-safe validation of settings.json and tools.json.
 from typing import List, Optional, Any
 from pydantic import BaseModel, Field, field_validator
 import json
+import re
 
 
 class ToolSchema(BaseModel):
@@ -196,6 +197,50 @@ def migrate_pass_retract(params: dict) -> dict:
                 op["retract_x"] = gx
             if "retract_z" not in op:
                 op["retract_z"] = gz
+    return params
+
+
+def migrate_cylinder_mcode(params: dict) -> dict:
+    """Turn the retired ``cylinder_enabled`` + ``cylinder_position_mm`` pair into
+    an ordinary ``program_start`` custom command (2026-07-30).
+
+    The cylinder used to emit M40 from its own Machine-tab section, separate from
+    the M41/M42 valve commands that drive the SAME actuator. Keeping them apart
+    is how a switched-off M40 went unnoticed while its valve commands kept
+    firing. M40 is now just another custom command, so the whole sequence is
+    visible in one list.
+
+    Without this, anyone whose checkbox was ticked would silently lose their
+    extend on upgrade — the exact failure this rework exists to prevent.
+
+    Idempotent: does nothing if an M40 command already exists, and clears the
+    legacy flag once converted so a second run cannot duplicate it.
+    """
+    if not isinstance(params, dict):
+        return params
+    if not params.get("cylinder_enabled"):
+        return params
+    try:
+        pos = float(params.get("cylinder_position_mm", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        pos = 0.0
+
+    cmds = params.get("custom_commands")
+    if not isinstance(cmds, list):
+        cmds = []
+        params["custom_commands"] = cmds
+
+    already = any(
+        re.search(r"M\s*40\b", str(c.get("cmd", "") or ""), re.IGNORECASE)
+        for c in cmds if isinstance(c, dict)
+    )
+    if not already and pos > 0:
+        # Front of the list: the old block ran before every pass command, and
+        # same-trigger commands fire in list order.
+        cmds.insert(0, {"trigger": "program_start", "value": 0,
+                        "cmd": f"M40 P{pos:g}",
+                        "note": "migrated from Cylinder section"})
+    params["cylinder_enabled"] = False   # legacy flag retired; no longer read
     return params
 
 

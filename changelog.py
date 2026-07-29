@@ -17,6 +17,59 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.014": [
+        ("M-codes are no longer invisible",
+         "Custom commands go into every program made for this machine but appeared "
+         "nowhere you would look — not the operation list, not the PDF, not the "
+         "checks. Preview & Analyze now lists every M-code the program will carry, "
+         "in the order the machine runs them, each with its description. If a "
+         "command you expected is missing, it shows up as a gap in that list.",
+         "Help ▸ Preview & Analyze"),
+        ("The back-support cylinder is one list instead of three places",
+         "Its extend was a checkbox in its own section while the valve commands "
+         "lived in a table further down — so the extend could be switched off "
+         "while the valves kept firing at a cylinder that never came out. Extend, "
+         "relax and retract are now ordinary rows in one list. Existing setups are "
+         "converted automatically; nobody loses their extend.",
+         "Machine ▸ Custom Commands"),
+        ("New trigger: program start",
+         "Fires at the very top of the program, before the tool change and before "
+         "the spindle starts — for anything that has to act while the part is still "
+         "stationary. A 'pass 1' trigger cannot do this: it runs with the spindle "
+         "already turning.",
+         "Machine ▸ Custom Commands ▸ When"),
+        ("Each command row now reads as a sentence, with its own note",
+         "When [pass] = [3] do [M41 P2] note [retract]. One description covers a "
+         "whole M-code, so it cannot tell P1 from P2 — the note can. Press ? to "
+         "read the full description of the selected row.",
+         "Machine ▸ Custom Commands"),
+        ("Commands aimed at a pass that does not exist now ask instead of vanishing",
+         "A pass trigger is pinned to a pass number, so editing the program list can "
+         "leave a command pointing past the end, where it used to be dropped in "
+         "silence. Exporting now stops and offers: move it to the last pass, leave "
+         "it out of this file, or cancel and fix it. Your command table is never "
+         "edited for you.",
+         "Export ▸ any format"),
+        ("Order matters, so you can now set it",
+         "Two commands on the same pass both run, top of the table first. New arrow "
+         "buttons move a row up or down.",
+         "Machine ▸ Custom Commands ▸ ▲ ▼"),
+        ("Fixed: custom commands and M-code descriptions were not being saved",
+         "Edits to either table were lost on restart unless you happened to press "
+         "Save Machine Profile. They now save as soon as you make them.",
+         "Machine ▸ Custom Commands / M-Code Definitions"),
+        ("Calculate moved next to the 3D view",
+         "It applies to the whole program but used to sit inside the Process tab, so "
+         "the Machine tab had no way to recalculate without switching tabs first.",
+         "Above the 3D view"),
+        ("All exports in one menu",
+         "G-code, SCL, recipe CSV, PDF operation sheet and STL were split between "
+         "the File menu and buttons at the bottom of the Process tab.",
+         "Export ▸"),
+        ("'Why is my pass weird?' is now called Preview & Analyze",
+         "Same checks, plus the M-code listing — it covers more than passes now.",
+         "Help ▸ Preview & Analyze"),
+    ],
     "1.013": [
         ("Every number in the pass table now explains itself",
          "Click any cell and a line underneath says where that number came from — "

@@ -129,6 +129,48 @@ class ProcessTab(ScrollableTabBase):
             "veya simülasyonu ETKİLEMEZ, yalnızca 3B'de gösterilen çizgiyi taşır.\n"
             "(Radyal yaklaşım; eğik yüzeylerde temas noktası normal boyunca hafifçe kayabilir.)")
 
+        # ---------------- Back-support cylinder (3D view only) ----------------
+        # Moved here from the Machine tab (2026-07-30): these three fields only
+        # affect how the cylinder is DRAWN. Its actual command (M40) is now an
+        # ordinary program_start entry in Machine ▸ Custom Commands, and the
+        # extension drawn below is read straight from that command — the picture
+        # cannot disagree with the program.
+        self.helper.add_section_header(self.content, t("section_cylinder"), color="darkgreen")
+
+        tk.Label(self.content, text=t("lbl_cyl_visual_info"),
+                 font=("Arial", 8, "italic"), fg="gray", justify="left",
+                 wraplength=300).pack(anchor="w", padx=10, pady=(0, 4))
+
+        var_cyl_show = tk.BooleanVar(value=bool(self.app.params.get("cylinder_show", True)))
+        def on_cyl_show_toggle():
+            self.app.on_param_change("cylinder_show", var_cyl_show.get(), "all")
+        cb_cyl_show = ttk.Checkbutton(self.content, text=t("cb_show_in_3d"),
+                                      variable=var_cyl_show, command=on_cyl_show_toggle)
+        cb_cyl_show.pack(anchor="w", padx=10)
+        self.helper.bind_tooltip(cb_cyl_show,
+            "Silindiri 3D sahnede göster/gizle. G-code/PLC çıktısını ETKİLEMEZ.")
+
+        def add_cyl_entry(param_key, label, default, tooltip):
+            f = ttk.Frame(self.content)
+            f.pack(fill="x", padx=10, pady=3)
+            tk.Label(f, text=label, width=18, anchor="w").pack(side="left")
+            var = tk.DoubleVar(value=self.app.params.get(param_key, default))
+            def on_change(v=var, k=param_key):
+                try: self.app.on_param_change(k, v.get(), "all")
+                except Exception: pass
+            e = ttk.Entry(f, textvariable=var, width=10)
+            e.pack(side="left", padx=4)
+            e.bind("<Return>",   lambda ev, fn=on_change: fn())
+            e.bind("<FocusOut>", lambda ev, fn=on_change: fn())
+            e.bind("<Button-1>", lambda event: event.widget.focus_force())
+            self.helper.bind_tooltip(e, tooltip)
+            return var
+
+        add_cyl_entry("cylinder_x_pos", t("lbl_cyl_x"), 0.0,
+            "Silindirin 3D sahnedeki X koordinatı (radyal konum, mm). Sadece görsel.")
+        add_cyl_entry("cylinder_z_base", t("lbl_cyl_z"), 200.0,
+            "Silindirin monte edildiği Z konumu (mm). Sadece görsel.")
+
         # ---------------- Camera Controls ----------------
         # All camera buttons drive the CANONICAL orbit params
         # (cam_azimuth / cam_elevation / cam_roll / cam_distance) through
@@ -438,24 +480,11 @@ class ProcessTab(ScrollableTabBase):
         self.helper.bind_tooltip(btn_rreset, "Mandrel rotasyonunu sıfırla (tüm eksenler 0°). "
                                              "Model orijinal STEP yönüne döner.")
 
-        # --- Actions ---
-        self.helper.add_section_header(self.content, t("section_actions"), color="darkblue")
-
-        def force_calc():
-             # R3 (one calc path, #76): route through the SAME background worker
-             # the Program tab uses — no more synchronous UI-thread recalc here.
-             # Time estimate + clamp status refresh when the result lands.
-             self.root.ui_program._start_async_calc()
-
-        self.helper.add_button(self.content, t("btn_calculate"), force_calc, "orange",
-                               "Mevcut ayarlara göre tüm takım yollarını yeniden hesapla ve görünümü güncelle.")
-
-        self.helper.add_button(self.content, t("btn_save_gcode"), self.root.save_gcode_logic, "lightgreen",
-                               "Hesaplanan takım yollarını standart G-code formatında .NC dosyasına kaydet.")
-        self.helper.add_button(self.content, t("btn_export_pdf"), self.root.export_pdf_action, "#4169E1",
-                               "Operasyon bilgilerini (takım, hız, pas sayısı) içeren PDF tezgah kartı oluştur.")
-        self.helper.add_button(self.content, t("btn_export_stl"), self.root.export_stl_action, "#20B2AA",
-                               "Sıvama sonucu oluşan parça kabuğunu (shell) STL dosyası olarak dışa aktar.")
+        # --- Actions section removed (2026-07-30) ---
+        # Calculate moved to the action bar above the 3D view: it applies to the
+        # whole program, and living in this tab meant the Machine tab had no way
+        # to recalculate. G-code / PDF / STL moved to the Export menu. Both still
+        # call the same handlers (ui_program._start_async_calc, root.export_*).
 
         # --- Simulation ---
         self.helper.add_section_header(self.content, t("section_simulation"), color="darkblue")
