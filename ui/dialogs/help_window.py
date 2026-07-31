@@ -975,8 +975,9 @@ your own setup.
 TOOL-CHANGE POSITION (per operation)
 ════════════════════════════════════════════════════════════════
 When an operation needs a different tool than the one before it,
-the machine retracts and M6 rotates the turret. Each operation has
-a Tool Change setting that controls WHERE that retract goes:
+the machine retracts and M6 rotates the turret. EVERY operation type
+has a Tool Change setting — roughing, finishing, cutting and bending
+alike — that controls WHERE that retract goes:
 
   Global (home)        Retract to the machine home / Program Start.
                        This is the default and the safest choice.
@@ -1604,8 +1605,9 @@ kendi kurulumunuz için kalibrasyonu yeniden kontrol edin.
 TAKIM DEĞİŞİM KONUMU (operasyon başına)
 ════════════════════════════════════════════════════════════════
 Bir operasyon bir öncekinden farklı bir takım gerektirdiğinde makine
-geri çekilir ve M6 tareti döndürür. Her operasyonun, bu geri çekilmenin
-NEREYE gideceğini belirleyen bir Takım Değişim ayarı vardır:
+geri çekilir ve M6 tareti döndürür. HER operasyon tipinde — kaba,
+bitirme, kesme ve kıvırma dâhil — bu geri çekilmenin NEREYE gideceğini
+belirleyen bir Takım Değişim ayarı vardır:
 
   Global (home)        Makine home / Program Start'a geri çekilir.
                        Varsayılan ve en güvenli seçenek budur.

@@ -62,10 +62,28 @@ kilitli (`emit_count`). UI'dan `count` bu tiplere girilemiyor (evrende yok, batc
   merkezinden radyal mesafe" diyordu (yanlış, gouge riski) → düzeltildi.
 - Bu dalda **hiçbir clearance/gouge kontrolü yok**.
 
-**DURUM:** headless doğrulandı (`_test_bend_points.py` + widget smoke: 4 alan render
-oluyor, tabloda sütun oluyor, düzenleme op'a yazıyor, eski op editörü açıyor). Tam
-suite'te 5 test kırık — **5'i de HEAD'de de kırık** (temiz worktree ile doğrulandı),
-bu değişiklikle ilgisiz. **GERÇEK PENCEREDE GUI SMOKE + FİZİKSEL DOĞRULAMA BEKLİYOR.**
+**EK DÜZELTME (aynı gün, kullanıcı sorusu üzerine): kesme/kıvırmada Takım Değişim
+konumu alanları YOKTU.** `OP_PARAM_UNIVERSE` bu tipler için `_TOOL_CHANGE_KEYS`
+listeliyordu (Görünümü Özelleştir'de sütun olarak seçilebiliyordu), ama
+`on_op_select`'in cutting/bending dalı ortak takım-değişim bloğundan ÖNCE `return`
+ediyordu → alan görünür-ama-düzenlenemez. Dosyanın kendi yorumundaki "OP_PARAM_UNIVERSE
+`on_op_select` ile ELLE senkron tutulur" sözleşmesi kaymıştı (2026-07-21'den beri).
+
+MOTOR ZATEN DESTEKLİYORDU — `resolve_tool_change_point` hem `calculate_paths` hem
+`generate_gcode` içinde tip kontrolünden ÖNCE çalışır; dört mod da doğru G-code
+üretiyordu (headless doğrulandı). Sadece UI eksikti. Üstelik bu tipler genelde kendi
+takımını getirdiği için **değişimi TETİKLEYEN op** onlar oluyor.
+
+Düzeltme: blok `_add_tool_change_fields(idx, op)` metoduna çıkarıldı (kopyalanmadı) ve
+hem ortak yoldan hem cutting/bending dalından çağrılıyor. Roughing/finishing çıktısı
+DEĞİŞMEDİ (widget smoke: TC bloğu hâlâ render oluyor, absolute modu hâlâ X/Z açıyor).
+
+**DURUM:** headless doğrulandı (`_test_bend_points.py` 7 paket — takım değişim dört
+modu dâhil — + widget smoke: 4 geometri alanı + TC alanları render oluyor, mod
+değişimi X/Z ↔ dX/dZ takas ediyor, düzenleme op'a yazıyor, eski op editörü açıyor).
+Tam suite'te 5 test kırık — **5'i de HEAD'de de kırık** (temiz worktree ile
+doğrulandı), bu değişiklikle ilgisiz. **GERÇEK PENCEREDE GUI SMOKE + FİZİKSEL
+DOĞRULAMA BEKLİYOR.**
 
 ---
 

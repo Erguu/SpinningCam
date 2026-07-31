@@ -153,6 +153,49 @@ def test_count_desync_guard():
     print("test_count_desync_guard PASS")
 
 
+# ── 7. Per-op tool-change position works on these types ────────────────────
+def test_tool_change_position():
+    """The engine has always honored tool_change_* on cutting/bending — the
+    resolver runs before the type check. Until 2026-07-31 the editor branch
+    returned before the tool-change block, so the fields were columnable but not
+    editable. Pin the engine behaviour so the UI fix has something to hold on to."""
+    rough = {"type": "roughing", "enabled": True, "count": 1, "tool_id": "T0101",
+             "r_tool": 25.0, "start_z": 10.0, "end_z": 60.0, "p1_x": 40.0,
+             "p1_z": 50.0, "p3_x": 40.0, "p3_z": -20.0,
+             "pass_shape": "linear_approach"}
+    geom = dict(plunge_start_x=110.0, plunge_start_z=10.0,
+                plunge_end_x=60.0, plunge_end_z=10.0)
+
+    def tc_lines(**tc):
+        pg = PathGenerator()
+        p = _params([rough, _bend(**geom, **tc)])   # T0101 -> T0303 at the bend
+        pg.calculate_paths(p, {}, _StubMgr())
+        gc = pg.generate_gcode(params=p).splitlines()
+        i = next(k for k, l in enumerate(gc) if "TOOL CHANGE" in l)
+        return [l.strip() for l in gc[i + 1:i + 4] if l.strip().startswith("G0")]
+
+    # default: machine home
+    assert tc_lines() == ["G0 Z150.000 (Home Z)", "G0 X300.000 (Retract X)"]
+
+    # absolute: Z first, then X
+    assert tc_lines(tool_change_mode="absolute",
+                    tool_change_x=222.0, tool_change_z=88.0) == [
+        "G0 Z88.000 (Tool Change Z, absolute)",
+        "G0 X222.000 (Tool Change X, absolute)"]
+
+    # relative: offset from the previous pass's forming end
+    rel = tc_lines(tool_change_mode="relative",
+                   tool_change_dx=30.0, tool_change_dz=40.0)
+    assert rel == ["G0 Z70.000 (Tool Change Z, relative)",
+                   "G0 X149.000 (Tool Change X, relative)"], rel
+
+    # simultaneous: one coordinated diagonal
+    assert tc_lines(tool_change_mode="absolute", tool_change_x=222.0,
+                    tool_change_z=88.0, tool_change_simultaneous=True) == [
+        "G0 X222.000 Z88.000 (Tool Change XZ, absolute)"]
+    print("test_tool_change_position PASS")
+
+
 if __name__ == "__main__":
     test_resolver()
     test_retract_is_only_a_retract()
@@ -160,4 +203,5 @@ if __name__ == "__main__":
     test_legacy_unchanged()
     test_migration()
     test_count_desync_guard()
+    test_tool_change_position()
     print("ALL PASS")

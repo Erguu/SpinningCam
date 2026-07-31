@@ -35,6 +35,13 @@ CHANGELOG = {
          "what a flange bend usually needs. Leave them equal for the old purely "
          "radial plunge.",
          "Program List ▸ a cutting or bending operation ▸ End Z"),
+        ("Cutting and bending finally show their Tool Change position",
+         "The setting always worked on these operations — the machine honoured it "
+         "in the generated program — but the fields were never drawn, so there was "
+         "no way to set them. These are usually the operations that trigger the "
+         "change, since they bring their own tool. Global / Absolute / Relative "
+         "now appear here like on any other operation.",
+         "Program List ▸ a cutting or bending operation ▸ Tool Change"),
         ("Your existing programs are converted on load and keep their exact path",
          "An old recipe's hidden start point is written out into the new Start X/Z "
          "fields, so the toolpath is identical — you can now see and change the "

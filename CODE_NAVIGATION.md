@@ -78,7 +78,8 @@ i18n.py                                  ← Çok dilli metin (EN/TR/ES), t(key)
 | Emitter pas sayısı kilidi (desync guard) | `path_generator.py` | `generate_gcode` → `emit_count` |
 | Migrasyon (`z_pos`+`plunge_x` → 4 alan) | `config_schema.py` | `migrate_bend_points()`; çağrı `main.py` `load_project` |
 | UI alanları / evren / sütun / batch | `ui/tabs/program_tab.py` | `_CUT_BEND_POINTS`, `on_op_select` cut/bend dalı, `_factory_op` |
-| Test | `_test_bend_points.py` | 6 paket |
+| Takım değişim alanları (TÜM tipler, paylaşılan) | `ui/tabs/program_tab.py` | `_add_tool_change_fields()` — ortak yoldan VE cut/bend dalından çağrılır |
+| Test | `_test_bend_points.py` | 7 paket |
 
 **Model:** op = START → END arası TEK düz besleme çizgisi. `plunge_start_x/z` →
 `plunge_end_x/z`, ikisi de kullanıcı girer. Start Z ≠ End Z → eğik/eksenel kıvırma.
@@ -91,6 +92,10 @@ Feed = op'un kendi Feed'i. `count` YOK SAYILIR (her zaman 1 yol).
 - **v1.015 ÖNCESİ:** sadece `z_pos` + `plunge_x` vardı, başlangıç GİZLİCE
   `plunge_x + |retract_x|` idi → geri çekilme alanı besleme mesafesini belirliyordu.
   Migrasyondan geçmemiş op'lar (preset, `ops_library.json`) hâlâ bu yoldan çalışır.
+- **`OP_PARAM_UNIVERSE` ↔ `on_op_select` senkron sözleşmesi:** universe'te olup
+  editörde render EDİLMEYEN bir anahtar = Görünümü Özelleştir'de sütun seçilebilir
+  ama düzenlenemez alan. Takım değişim anahtarları 2026-07-21'den 07-31'e kadar tam
+  olarak bu durumdaydı. Yeni alan eklerken İKİ tarafı da güncelle.
 
 ### 5. Operasyon yönetimi (roughing / finishing)
 | Ne | Dosya | Satır/Fonksiyon |
