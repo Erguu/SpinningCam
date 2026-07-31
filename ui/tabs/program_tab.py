@@ -19,7 +19,6 @@ from i18n import t
 OP_PARAM_DEFAULTS = {
     # ── Fixed-constant defaults ──────────────────────────────────────────
     "count": 1,
-    "z_pos": 0,
     "start_z": 10,
     "p1_x": 40,
     "p1_z": 50,
@@ -54,7 +53,10 @@ OP_PARAM_DEFAULTS = {
     "feed_contact_end": "= Feed Contact",
     "back_pass_feed": "= Feed",
     "end_z": "= mandrel top",
-    "plunge_x": "= center + 50",
+    "plunge_end_x": "= center + 50",
+    "plunge_end_z": 0,
+    "plunge_start_x": "= End X + retract",
+    "plunge_start_z": "= End Z",
     "tool_change_x": "= home X",
     "tool_change_z": "= home Z",
 }
@@ -81,6 +83,11 @@ _UNIVERSE_COMMON = ["speed_mode", "speed", "feed_mode", "feed"]
 # effect on the op that first needs a new tool. Default mode "global" = home.
 _TOOL_CHANGE_KEYS = ["tool_change_mode", "tool_change_x", "tool_change_z",
                      "tool_change_dx", "tool_change_dz", "tool_change_simultaneous"]
+
+# Cutting / bending geometry: an explicit start and end for the feed line. These
+# replaced the old z_pos + plunge_x pair, where the start was hidden and derived
+# from the retract offset (see config_schema.migrate_bend_points).
+_CUT_BEND_POINTS = ["plunge_start_x", "plunge_start_z", "plunge_end_x", "plunge_end_z"]
 
 OP_PARAM_UNIVERSE = {
     "roughing": _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + [
@@ -109,8 +116,8 @@ OP_PARAM_UNIVERSE = {
         "retract_x", "retract_z",
         "clearance", "pass_shape", "straight_line_mode",
     ],
-    "cutting":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + ["name", "tool_id", "z_pos", "plunge_x", "retract_x", "retract_z"],
-    "bending":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + ["name", "tool_id", "z_pos", "plunge_x", "retract_x", "retract_z"],
+    "cutting":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + _CUT_BEND_POINTS + ["name", "tool_id", "retract_x", "retract_z"],
+    "bending":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + _CUT_BEND_POINTS + ["name", "tool_id", "retract_x", "retract_z"],
 }
 
 # Tilt fields only exist on tilt-arm machines; filtered out otherwise.
@@ -132,7 +139,8 @@ OP_PARAM_LABELS = {
     "p2_z_extend": "lbl_p2z_extend",
     "proj_extend_bottom": "lbl_proj_bottom", "proj_extend_top": "lbl_proj_top",
     "retract_x": "lbl_op_retract_x", "retract_z": "lbl_op_retract_z",
-    "z_pos": "lbl_z_pos", "plunge_x": "lbl_plunge_x",
+    "plunge_start_x": "lbl_bend_start_x", "plunge_start_z": "lbl_bend_start_z",
+    "plunge_end_x": "lbl_bend_end_x",     "plunge_end_z": "lbl_bend_end_z",
     "clearance": "lbl_clearance", "pass_shape": "lbl_shape_mode",
     "straight_line_mode": "lbl_straight_line",
     "p2_radius": "lbl_p2_radius", "exit_arc_angle": "lbl_exit_arc",
@@ -174,6 +182,7 @@ GROUP_DEPS = {
 # are currently visible (avoids stray empty section titles in Basic view).
 SECTION_KEYS = {
     "speed_feed": ["speed_mode", "speed", "feed_mode", "feed"],
+    "cut_bend_move": _CUT_BEND_POINTS,
     "path_shape": ["pass_shape", "p2_radius", "exit_arc_angle", "exit_bow",
                    "exit_bow_bias", "exit_bow_trim", "exit_mid_rotation", "exit_mid_t",
                    "exit_mid_radius", "exit_mid_radius_end", "exit_mid_trim",
@@ -196,17 +205,17 @@ _DEFAULT_BASIC = {
                   "direction", "start_z", "end_z", "clearance", "pass_shape",
                   "straight_line_mode"},
     "cutting":   {"name", "speed_mode", "speed", "feed_mode", "feed", "tool_id",
-                  "z_pos", "plunge_x"},
+                  "plunge_start_x", "plunge_start_z", "plunge_end_x", "plunge_end_z"},
     "bending":   {"name", "speed_mode", "speed", "feed_mode", "feed", "tool_id",
-                  "z_pos", "plunge_x"},
+                  "plunge_start_x", "plunge_start_z", "plunge_end_x", "plunge_end_z"},
 }
 
 # Per-type default column picks (subset of the universe).
 _DEFAULT_COLUMNS = {
     "roughing":  ["count", "start_z", "end_z"],
     "finishing": ["count", "start_z", "end_z"],
-    "cutting":   ["z_pos", "plunge_x"],
-    "bending":   ["z_pos", "plunge_x"],
+    "cutting":   ["plunge_start_x", "plunge_start_z", "plunge_end_x", "plunge_end_z"],
+    "bending":   ["plunge_start_x", "plunge_start_z", "plunge_end_x", "plunge_end_z"],
 }
 
 # ── Batch edit (#67) ─────────────────────────────────────────────────────
@@ -223,7 +232,7 @@ _BATCH_ELIGIBLE = {
     "clearance", "rot", "contact_zone_mm", "feed_contact",
     "feed_contact_end", "back_pass_feed", "back_pass_arc_x",
     "back_pass_arc_z", "tilt_start", "tilt_end", "tilt_offset",
-    "z_pos", "plunge_x",
+    "plunge_start_x", "plunge_start_z", "plunge_end_x", "plunge_end_z",
 }
 
 # Integer-valued params: batch results are rounded and floored to 1.
@@ -233,7 +242,8 @@ _BATCH_INT_KEYS = {"count"}
 # subset; the user tunes it per program in Customize View (third checkbox).
 _DEFAULT_BATCH_KEYS = {
     "speed", "feed", "count", "start_z", "end_z", "clearance",
-    "reach", "reach_blank_factor", "pass_angle", "rot", "z_pos", "plunge_x",
+    "reach", "reach_blank_factor", "pass_angle", "rot",
+    "plunge_start_x", "plunge_start_z", "plunge_end_x", "plunge_end_z",
 }
 
 
@@ -504,11 +514,13 @@ class ProgramTab:
             txt.insert("end", f" Pass {i+1}  [{lbl}]  {tool_id} \n", tag)
 
             if op_type in ("cutting", "bending"):
-                # Path is [approach, plunge] — just show the plunge target
-                plunge_xm, plunge_zm = to_machine(pts[-1])
-                approach_xm, approach_zm = to_machine(pts[0])
-                txt.insert("end", f"  Approach →  X: {approach_xm:>8.3f}   Z: {approach_zm:>8.3f}\n", "data")
-                txt.insert("end", f"  Plunge   →  X: {plunge_xm:>8.3f}   Z: {plunge_zm:>8.3f}\n", "contact")
+                # Path is [start, end] — one feed line, both ends user-typed.
+                s_xm, s_zm = to_machine(pts[0])
+                e_xm, e_zm = to_machine(pts[-1])
+                _len = float(np.linalg.norm(pts[-1] - pts[0]))
+                txt.insert("end", f"  Start →  X: {s_xm:>8.3f}   Z: {s_zm:>8.3f}\n", "data")
+                txt.insert("end", f"  End   →  X: {e_xm:>8.3f}   Z: {e_zm:>8.3f}\n", "contact")
+                txt.insert("end", f"  Feed move length: {_len:>8.3f} mm\n", "data")
             else:
                 # Start / End
                 s_xm, s_zm = to_machine(pts[0])
@@ -1973,19 +1985,29 @@ class ProgramTab:
             f_r_cb.pack(fill="x", padx=10, pady=2)
             ttk.Label(f_r_cb, text=t("lbl_tool_radius"), width=15).pack(side="left")
             ttk.Label(f_r_cb, textvariable=_cb_r_var, foreground="#6c7086").pack(side="right")
-            self._add_prop_entry(idx, "z_pos", t("lbl_z_pos"), op, is_float=True,
-                                 tooltip="Kesim / kıvırma Z pozisyonu (mm, global koordinat). "
-                                         "Takım bu Z koordinatında radyal hareket yapar.")
-            self._add_prop_entry(idx, "plunge_x", t("lbl_plunge_x"), op, is_float=True,
-                                 tooltip="Takımın plunge yapacağı hedef X koordinatı (mm, global koordinat). "
-                                         "Mandrel merkezinden itibaren radyal mesafe. "
-                                         "Takım bu X'e kadar besleme hızında ilerler.")
-            # Per-op pass retract (#90): cutting/bending own their retract too.
+            _pt_tip = ("Takım referans X'i (DRO X) — temas noktası r_tool kadar içeride "
+                       "kalır. Mandrel yüzey yarıçapı DEĞİLDİR.")
+            self._add_section_header("cut_bend_move", t("hdr_bend_move"))
+            self._add_prop_entry(idx, "plunge_start_x", t("lbl_bend_start_x"), op, is_float=True,
+                                 tooltip="Hareketin BAŞLANGIÇ X'i (mm, global koordinat). "
+                                         "Takım buraya hızlı (G0) gelir, buradan itibaren "
+                                         "besleme hızında ilerler. " + _pt_tip)
+            self._add_prop_entry(idx, "plunge_start_z", t("lbl_bend_start_z"), op, is_float=True,
+                                 tooltip="Hareketin BAŞLANGIÇ Z'si (mm, global koordinat).")
+            self._add_prop_entry(idx, "plunge_end_x", t("lbl_bend_end_x"), op, is_float=True,
+                                 tooltip="Hareketin BİTİŞ X'i (mm, global koordinat). "
+                                         "Besleme hareketi burada biter. " + _pt_tip)
+            self._add_prop_entry(idx, "plunge_end_z", t("lbl_bend_end_z"), op, is_float=True,
+                                 tooltip="Hareketin BİTİŞ Z'si (mm, global koordinat). "
+                                         "Başlangıç Z'den farklıysa hareket eğik/eksenel olur.")
+            # Per-op pass retract (#90): cutting/bending own their retract too. It
+            # behaves exactly like a roughing pass retract — it only pulls the tool
+            # away AFTER the move; it no longer sets how far the tool travels.
             self._add_prop_entry(idx, "retract_x", t("lbl_op_retract_x"), op, is_float=True,
                                  default_hint=50.0,
-                                 tooltip="Bu operasyonun geri çekilme / yaklaşım X ofseti (mm). "
-                                         "Yaklaşım bu kadar dışarıdan başlar ve plunge sonrası "
-                                         "bu kadar geri çekilir.")
+                                 tooltip="Bu operasyonun geri çekilme X ofseti (mm). "
+                                         "Hareket BİTTİKTEN sonra uygulanır — roughing ile aynı. "
+                                         "Hareketin uzunluğunu ETKİLEMEZ.")
             self._add_prop_entry(idx, "retract_z", t("lbl_op_retract_z"), op, is_float=True,
                                  default_hint=50.0,
                                  tooltip="Bu operasyonun geri çekilme Z ofseti (mm).")
@@ -4527,8 +4549,9 @@ class ProgramTab:
                 "type": mode, "enabled": True, "count": 1,
                 "tool_id": def_tool_id,
                 "r_tool": 0.0,
-                "z_pos": 0.0,
-                "plunge_x": 50.0,
+                # Explicit start → end feed line; retract no longer sets the stroke.
+                "plunge_start_x": 100.0, "plunge_start_z": 0.0,
+                "plunge_end_x": 50.0,    "plunge_end_z": 0.0,
                 "retract_x": 50.0, "retract_z": 50.0,   # #90 per-op retract
                 "feed": 50.0, "feed_mode": "mm_min",
                 "speed": 300.0, "speed_mode": "RPM",

@@ -69,6 +69,29 @@ i18n.py                                  ← Çok dilli metin (EN/TR/ES), t(key)
 | PLC format tam spec | `CAM_INTERFACE_SPEC.md` | Tüm doküman |
 | PLC data type tanımları | `CAM_INTERFACE_SPEC.md` | Bölüm 10 |
 
+### 4b. Kesme / Kıvırma (cutting / bending) — 2026-07-31, v1.015
+
+| Ne | Dosya | Satır/Fonksiyon |
+|----|-------|-----------------|
+| Başlangıç/bitiş çözücü (+ eski alan geri düşüşü) | `path_generator.py` | `resolve_bend_points()` (`resolve_pass_retract` yanında) |
+| Motor dalı (tek 2-noktalı besleme çizgisi) | `path_generator.py` | `calculate_paths` içinde `if op_type_str in ("cutting","bending")` |
+| Emitter pas sayısı kilidi (desync guard) | `path_generator.py` | `generate_gcode` → `emit_count` |
+| Migrasyon (`z_pos`+`plunge_x` → 4 alan) | `config_schema.py` | `migrate_bend_points()`; çağrı `main.py` `load_project` |
+| UI alanları / evren / sütun / batch | `ui/tabs/program_tab.py` | `_CUT_BEND_POINTS`, `on_op_select` cut/bend dalı, `_factory_op` |
+| Test | `_test_bend_points.py` | 6 paket |
+
+**Model:** op = START → END arası TEK düz besleme çizgisi. `plunge_start_x/z` →
+`plunge_end_x/z`, ikisi de kullanıcı girer. Start Z ≠ End Z → eğik/eksenel kıvırma.
+Feed = op'un kendi Feed'i. `count` YOK SAYILIR (her zaman 1 yol).
+
+**GOTCHA'lar:**
+- `plunge_*` X'leri **makine/DRO X'i** (takım referansı) — parça yarıçapı DEĞİL.
+  Temas noktası `r_tool` kadar içeride; `measure_min_clearance` de böyle varsayar.
+- Bu dalda **clearance/gouge kontrolü YOK** — girilen nokta aynen sürülür.
+- **v1.015 ÖNCESİ:** sadece `z_pos` + `plunge_x` vardı, başlangıç GİZLİCE
+  `plunge_x + |retract_x|` idi → geri çekilme alanı besleme mesafesini belirliyordu.
+  Migrasyondan geçmemiş op'lar (preset, `ops_library.json`) hâlâ bu yoldan çalışır.
+
 ### 5. Operasyon yönetimi (roughing / finishing)
 | Ne | Dosya | Satır/Fonksiyon |
 |----|-------|-----------------|

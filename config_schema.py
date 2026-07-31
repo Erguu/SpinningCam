@@ -200,6 +200,53 @@ def migrate_pass_retract(params: dict) -> dict:
     return params
 
 
+def migrate_bend_points(params: dict) -> dict:
+    """Give every cutting / bending op an explicit START and END point.
+
+    Before the split these ops carried only ``z_pos`` (the Z of the whole move)
+    and ``plunge_x`` (its END X). The START was never shown: the engine derived
+    it as ``plunge_x + abs(retract_x)``, so the retract field silently decided
+    how far the tool actually travelled under feed. Now both ends are ordinary
+    typed values and retract does nothing but retract, exactly like a roughing
+    pass.
+
+    The conversion reproduces the old start point exactly, so a migrated recipe
+    emits a bit-identical toolpath. Idempotent, and the legacy keys are dropped
+    once converted so nothing can drift out of sync with the visible fields.
+    """
+    if not isinstance(params, dict):
+        return params
+    try:
+        gx = abs(float(params.get("retract_x")))
+    except (TypeError, ValueError):
+        gx = 50.0
+    for op in (params.get("operations") or []):
+        if not isinstance(op, dict) or op.get("type") not in ("cutting", "bending"):
+            continue
+        if "plunge_end_x" not in op:
+            def _num(key, fallback):
+                v = op.get(key, None)
+                try:
+                    if v not in (None, ""):
+                        return float(v)
+                except (TypeError, ValueError):
+                    pass
+                return fallback
+            try:
+                rx = abs(float(op.get("retract_x")))
+            except (TypeError, ValueError):
+                rx = gx
+            end_x = _num("plunge_x", 50.0)
+            end_z = _num("z_pos", 0.0)
+            op["plunge_end_x"]   = end_x
+            op["plunge_end_z"]   = end_z
+            op["plunge_start_x"] = end_x + rx   # the old hidden approach point
+            op["plunge_start_z"] = end_z
+        op.pop("plunge_x", None)
+        op.pop("z_pos", None)
+    return params
+
+
 def migrate_cylinder_mcode(params: dict) -> dict:
     """Turn the retired ``cylinder_enabled`` + ``cylinder_position_mm`` pair into
     an ordinary ``program_start`` custom command (2026-07-30).

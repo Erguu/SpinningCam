@@ -9,7 +9,7 @@ UNI = OP_PARAM_UNIVERSE  # full type->keys map is a fine universe for tests
 ops = [
     {"type": "roughing",  "start_z": 10.0, "count": 3, "feed": 100.0},
     {"type": "finishing", "start_z": 25.0},
-    {"type": "cutting",   "z_pos": 5.0},           # start_z n/a for cutting
+    {"type": "cutting",   "plunge_end_z": 5.0},   # start_z n/a for cutting
     {"type": "roughing"},                            # no start_z -> default 10
 ]
 
@@ -62,7 +62,8 @@ for ot in ("roughing", "finishing", "cutting", "bending"):
     for k in d["batch"]:
         assert k in uni and k in _BATCH_ELIGIBLE and k in _DEFAULT_BATCH_KEYS, (ot, k)
 assert "start_z" in _default_cfg("roughing")["batch"]
-assert "z_pos" in _default_cfg("cutting")["batch"]
+assert "plunge_end_x" in _default_cfg("cutting")["batch"]
+assert "plunge_start_x" in _default_cfg("cutting")["batch"]
 print("default cfg batch lists: OK")
 
 # --- _view_cfg: old saved config without 'batch' falls back to defaults;

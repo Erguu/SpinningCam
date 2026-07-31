@@ -355,11 +355,35 @@ Finishing      Final surface passes. The roller follows the mandrel
                profile closely, removing the last gap and smoothing
                the surface. Use after roughing is complete.
 
-Cutting        A single pass that scores or cuts the material at a
-               fixed radial position.
+Cutting        A single pass that scores or cuts the material.
 
 Bending        A single pass that bends the flange or rim at the
                edge of the part.
+
+CUTTING / BENDING GEOMETRY  (Start X/Z → End X/Z)
+════════════════════════════════════════════════════════════════
+Both types are one straight feed line. You type BOTH ends:
+
+  Start X / Start Z   where the feed move begins. The tool rapids
+                      (G0) here, then feeds from this point.
+  End X / End Z       where the feed move ends.
+
+Leave Start Z = End Z for a purely radial plunge; make them differ
+for a diagonal or axial bend along the flange. The operation's Feed
+is the feed used for that line.
+
+Retract X / Retract Z behave exactly like they do on a roughing
+pass: they pull the tool away AFTER the move and have no effect on
+how far it travels.
+
+X values are MACHINE X of the tool reference point (what the DRO
+reads) — the contact point sits r_tool further in. They are NOT the
+mandrel surface radius.
+
+BEFORE v1.015: these ops had "Z Position" + "Plunge X" only, and the
+start point was hidden — the engine derived it as Plunge X + Retract
+X, so the retract field silently set the travelled distance. Old
+recipes are converted on load and keep their exact toolpath.
 
 
 HOW MULTIPLE PASSES WORK
@@ -1047,11 +1071,38 @@ Bitirme (Finishing)  Son yüzey pasaları. Rulo, mandrel profilini
                      yüzeyi düzeltir. Kaba işlem tamamlandıktan sonra
                      kullanılır.
 
-Kesme (Cutting)      Malzemeyi sabit bir radyal konumda çizen veya
-                     kesen tek bir paso.
+Kesme (Cutting)      Malzemeyi çizen veya kesen tek bir paso.
 
 Bükme (Bending)      Parçanın kenarındaki flanş veya kenarı büken
                      tek bir paso.
+
+KESME / KIVIRMA GEOMETRİSİ  (Başlangıç X/Z → Bitiş X/Z)
+════════════════════════════════════════════════════════════════
+Her iki tip de tek bir düz besleme çizgisidir. İKİ ucu da siz
+girersiniz:
+
+  Başlangıç X / Z    besleme hareketinin başladığı nokta. Takım
+                     buraya hızlı (G0) gelir, buradan itibaren
+                     besleme hızında ilerler.
+  Bitiş X / Z        besleme hareketinin bittiği nokta.
+
+Saf radyal dalma için Başlangıç Z = Bitiş Z bırakın; flanş boyunca
+eğik veya eksenel bir kıvırma için farklı verin. Operasyonun Besleme
+değeri bu çizginin besleme hızıdır.
+
+Geri Çekilme X / Z artık roughing ile birebir aynı davranır:
+hareket BİTTİKTEN sonra takımı uzaklaştırır, hareketin uzunluğunu
+ETKİLEMEZ.
+
+X değerleri takım referans noktasının MAKİNE X'idir (DRO'da okunan
+değer) — temas noktası r_tool kadar daha içeridedir. Mandrel yüzey
+yarıçapı DEĞİLDİR.
+
+v1.015 ÖNCESİ: bu op'larda sadece "Z Pozisyonu" + "Dalma X" vardı ve
+başlangıç noktası gizliydi — motor onu Dalma X + Geri Çekilme X
+olarak türetiyordu, yani geri çekilme alanı sessizce kat edilen
+mesafeyi belirliyordu. Eski reçeteler yüklenirken dönüştürülür ve
+takım yolları birebir korunur.
 
 
 ÇOKLU PASOLAR NASIL ÇALIŞIR

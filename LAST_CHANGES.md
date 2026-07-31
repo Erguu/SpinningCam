@@ -5,6 +5,70 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-31 — KIVIRMA/KESME: GERÇEK BAŞLANGIÇ + BİTİŞ NOKTASI (v1.015)
+
+**Kullanıcı raporu:** "Kıvırma op'unda Z pozisyonu ve dalma X soruyor. Bitiş noktası
+YOK. Garip olan, retract X değeri kıvırma mesafesi gibi davranıyor."
+
+**Teşhis (headless, `path_generator.py:431-465` eski hali):** rapor birebir doğruydu.
+Kıvırma ve kesme AYNI dalda; op tek bir 2-noktalı yol üretiyordu:
+
+```
+başlangıç = (plunge_x + |retract_x|, z_pos)   ← GİZLİ, türetilmiş
+bitiş     = (plunge_x,               z_pos)   ← "Dalma X"
+```
+
+Yani `plunge_x` hareketin BİTİŞİ (başlangıcı değil), başlangıç ise hiç gösterilmiyordu
+ve **geri çekilme alanı besleme mesafesini sessizce belirliyordu**. Kanıt (aynı op,
+sadece retract değişti): retract_x=50 → `G0 X110 / G1 X60` (50 mm besleme);
+retract_x=10 → `G0 X70 / G1 X60` (10 mm besleme). `plunge_x` her ikisinde de 60.
+
+**Yapılan (kullanıcı onaylı tasarım):** her iki tip de artık kullanıcının yazdığı
+BAŞLANGIÇ ve BİTİŞ noktası taşır — `plunge_start_x/z` → `plunge_end_x/z`. Hareket sıradan
+bir besleme çizgisi: START'a G0, END'e G1 (op'un kendi Feed'i). Başlangıç Z ≠ Bitiş Z
+verilirse hareket **eğik/eksenel** olur (flanş kıvırma için gereken şey). Geri çekilme
+artık roughing ile birebir aynı: sadece hareket BİTTİKTEN sonra uzaklaştırır, kat edilen
+mesafeyi ETKİLEMEZ.
+
+| Ne | Dosya |
+|----|-------|
+| Çözücü + eski-alan geri düşüşü | `path_generator.py` `resolve_bend_points()` (`resolve_pass_retract` yanında) |
+| Motor dalı | `path_generator.py` cutting/bending bloğu (~satır 470) |
+| Migrasyon (eski `z_pos`/`plunge_x` → 4 alan, eski anahtarları SİLER) | `config_schema.py` `migrate_bend_points()`; çağrı `main.py` `load_project` |
+| UI alanları + evren/sütun/batch | `ui/tabs/program_tab.py` `_CUT_BEND_POINTS`, `on_op_select` cutting/bending dalı, `_factory_op` |
+| Etiketler (EN/TR/ES) | `i18n.py` `hdr_bend_move`, `lbl_bend_start_x/z`, `lbl_bend_end_x/z` |
+| Yardım (EN+TR) | `ui/dialogs/help_window.py` "CUTTING / BENDING GEOMETRY" bölümü |
+| Test | `_test_bend_points.py` (6 paket) |
+
+**GERİ UYUMLULUK:** migrasyondan geçmemiş bir op (kayıtlı preset, `ops_library.json`
+girdisi — bu depolar migrasyon görmez) hâlâ `z_pos`/`plunge_x` ile ÇALIŞIR ve eski
+başlangıcı (`plunge_x + |retract_x|`) birebir üretir. Test bunu doğruluyor.
+
+**YAN DÜZELTME (aynı dalda bulundu):** `generate_gcode` `for i in range(count)`
+döngüsü kesme/kıvırma için de dönüyordu, ama `calculate_paths` bu tipler için `count`'u
+YOK SAYIP tek yol üretiyor. `count=2` olan bir kıvırma op'u **SONRAKİ op'un yolunu
+yutup onu kıvırma takımı ve beslemesiyle çalıştırıyordu**. Emitter artık bu tiplerde 1'e
+kilitli (`emit_count`). UI'dan `count` bu tiplere girilemiyor (evrende yok, batch atlıyor)
+— yani elle düzenlenmiş `.ssp`/preset senaryosu içindi.
+
+**RAPOR EDİLDİ, DEĞİŞTİRİLMEDİ (onay bekliyor):**
+- **Geri çekilme işaret asimetrisi (TÜM op tipleri):** 3D sim `abs(retract_x)` kullanır
+  (`path_generator.py:336`), G-code emitter İŞARETLİ kullanır (`~2754`). Makineleriniz
+  `roller_positive_x_side = 0` (negatif taraf) → POZİTİF bir retract_x .nc'de parçanın
+  İÇİNE geri çeker, sim ise dışarı çektiğini gösterir (ölçülen fark: 100 mm). Mevcut
+  reçeteleriniz `-10` kullandığı için şu an güvenli, ama alan ipucu `50` gösteriyor.
+- **`plunge_*` X'leri makine/DRO X'idir**, parça yarıçapı değil — temas noktası r_tool
+  kadar içeride (`measure_min_clearance` da böyle varsayar). Eski tooltip "mandrel
+  merkezinden radyal mesafe" diyordu (yanlış, gouge riski) → düzeltildi.
+- Bu dalda **hiçbir clearance/gouge kontrolü yok**.
+
+**DURUM:** headless doğrulandı (`_test_bend_points.py` + widget smoke: 4 alan render
+oluyor, tabloda sütun oluyor, düzenleme op'a yazıyor, eski op editörü açıyor). Tam
+suite'te 5 test kırık — **5'i de HEAD'de de kırık** (temiz worktree ile doğrulandı),
+bu değişiklikle ilgisiz. **GERÇEK PENCEREDE GUI SMOKE + FİZİKSEL DOĞRULAMA BEKLİYOR.**
+
+---
+
 ## 2026-07-30 — M-CODE'LAR GÖRÜNÜR OLDU + "ÖNİZLE VE ANALİZ ET" (yeniden adlandırma)
 
 **Tetikleyici vaka (saha):** `machines/ID111-1.json` içinde `cylinder_enabled: 0.0` idi →

@@ -149,6 +149,46 @@ def resolve_pass_retract(op, params):
     return _pick("retract_x"), _pick("retract_z")
 
 
+def resolve_bend_points(op, retract_x_abs=50.0, default_end_x=50.0):
+    """Start and end point of a cutting / bending move: ``((sx, sz), (ex, ez))``.
+
+    The op is an ordinary two-point feed line — rapid to START, G1 to END at the
+    op's own feed. Both ends are typed by the user, so retract/approach behave
+    like they do on a roughing pass and no longer decide the travelled distance.
+
+    LEGACY FALLBACK: recipes written before the split carry only ``z_pos`` (the Z
+    of the whole move) and ``plunge_x`` (its END X), with the start derived as
+    ``plunge_x + abs(retract_x)``. That is reproduced exactly here, so an
+    un-migrated op still runs bit-identical — which matters for op presets and
+    ops_library entries, since those stores never pass through migration.
+    """
+    def _num(key):
+        v = op.get(key, None)
+        try:
+            if v not in (None, ""):
+                return float(v)
+        except (TypeError, ValueError):
+            pass
+        return None
+
+    end_x = _num("plunge_end_x")
+    if end_x is None:
+        _legacy_x = _num("plunge_x")
+        end_x = _legacy_x if _legacy_x is not None else float(default_end_x)
+    end_z = _num("plunge_end_z")
+    if end_z is None:
+        _legacy_z = _num("z_pos")
+        end_z = _legacy_z if _legacy_z is not None else 0.0
+
+    start_x = _num("plunge_start_x")
+    if start_x is None:
+        start_x = end_x + abs(float(retract_x_abs))
+    start_z = _num("plunge_start_z")
+    if start_z is None:
+        start_z = end_z
+    return (start_x, start_z), (end_x, end_z)
+
+
 class PathGenerator:
     def __init__(self):
         self.last_calculated_paths = []
@@ -428,19 +468,20 @@ class PathGenerator:
 
             current_tool = op_tool_id
 
-            # --- Cutting / Bending: simple radial plunge, single pass ---
+            # --- Cutting / Bending: one feed line from START to END, single pass ---
+            # Both ends are typed by the user (resolve_bend_points); the retract
+            # below is the plain per-op retract, same as any roughing pass.
             op_type_str = op.get("type", "roughing")
             if op_type_str in ("cutting", "bending"):
-                z_pos          = float(op.get("z_pos", 0.0))
-                plunge_x_global  = float(op.get("plunge_x", center_x + 50.0))
-                approach_x_global = plunge_x_global + op_retract_x_can
+                (start_x, start_z), (end_x, end_z) = resolve_bend_points(
+                    op, op_retract_x_can, center_x + 50.0)
 
                 prev_paths_len = len(toolpaths)
-                path = np.array([[approach_x_global, 0.0, z_pos],
-                                 [plunge_x_global,   0.0, z_pos]])
+                path = np.array([[start_x, 0.0, start_z],
+                                 [end_x,   0.0, end_z]])
                 toolpaths.append(path)
-                projections.append(np.array([[plunge_x_global, 0.0, z_pos]]))
-                control_points.append(np.array([[plunge_x_global, 0.0, z_pos]]))
+                projections.append(np.array([[end_x, 0.0, end_z]]))
+                control_points.append(np.array([[end_x, 0.0, end_z]]))
                 deviations.append(np.array([0.0, 0.0]))
 
                 if len(toolpaths) > prev_paths_len:
@@ -459,8 +500,8 @@ class PathGenerator:
 
                 while len(self._path_op_map) < len(toolpaths):
                     self._path_op_map.append(op)
-                # Cutting/bending "reach" is the plunge Z.
-                self.last_op_end_z[op_index] = z_pos
+                # Cutting/bending "reach" is where the feed line ends.
+                self.last_op_end_z[op_index] = end_z
                 global_pass_idx += 1
                 continue
 
@@ -2635,7 +2676,12 @@ class PathGenerator:
                  gcode.append(f"{code_speed} S{int(val_speed)} M3")
                  gcode.append(f"{code_feed}")
 
-            for i in range(count):
+            # calculate_paths emits exactly ONE path for a cutting/bending op and
+            # ignores its `count` — so the emitter must too, or a stray count>1
+            # (hand-edited .ssp, imported preset) makes this op swallow the NEXT
+            # op's path and run it with the wrong tool and feed.
+            emit_count = 1 if op.get("type", "roughing") in ("cutting", "bending") else count
+            for i in range(emit_count):
                 if global_path_idx >= total_paths: break
 
                 path = paths_to_use[global_path_idx]

@@ -17,6 +17,30 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.015": [
+        ("Bending and cutting now have a real start point and end point",
+         "You typed a Z Position and a Plunge X, and that was it — there was no "
+         "start, and no end you could see. The tool's starting point was derived "
+         "behind your back from the Retract X field, which is why changing the "
+         "retract changed how far the tool actually travelled under feed. Both "
+         "ends are now ordinary fields you type: Start X/Z and End X/Z.",
+         "Program List ▸ a cutting or bending operation"),
+        ("Retract now only retracts, exactly like on a roughing pass",
+         "It pulls the tool away after the move and has no effect on the distance "
+         "travelled. Approach, tool change, speed and feed behave the same way "
+         "they do on every other operation type.",
+         "Program List ▸ a cutting or bending operation ▸ Retract X / Retract Z"),
+        ("Bends can now run along Z, not just straight in",
+         "Set End Z different from Start Z and the move goes diagonal or axial — "
+         "what a flange bend usually needs. Leave them equal for the old purely "
+         "radial plunge.",
+         "Program List ▸ a cutting or bending operation ▸ End Z"),
+        ("Your existing programs are converted on load and keep their exact path",
+         "An old recipe's hidden start point is written out into the new Start X/Z "
+         "fields, so the toolpath is identical — you can now see and change the "
+         "number that was always there.",
+         "File ▸ Open"),
+    ],
     "1.014": [
         ("M-codes are no longer invisible",
          "Custom commands go into every program made for this machine but appeared "

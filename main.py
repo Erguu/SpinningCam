@@ -1948,10 +1948,11 @@ class SpinningApp:
                         self.params.pop("op_view_col_order", None)
                     try:
                         from config_schema import (migrate_clearance, migrate_pass_retract,
-                                                    migrate_cylinder_mcode)
+                                                    migrate_cylinder_mcode, migrate_bend_points)
                         migrate_clearance(self.params)
                         migrate_pass_retract(self.params)   # #90 pure per-op retract
                         migrate_cylinder_mcode(self.params) # M40 → custom command
+                        migrate_bend_points(self.params)    # cut/bend: explicit start+end
                     except Exception:
                         pass
                     # Check overrides format
