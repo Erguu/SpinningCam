@@ -5,6 +5,43 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-07-31b — GERİ ÇEKİLME İŞARET ASİMETRİSİ DÜZELTİLDİ (TÜM op tipleri)
+
+**Sorun:** 3D sim yolları kanonik (+X) çerçevede `abs(retract_x)` ile kurar ve sonunda
+aynalar → gerçek çerçevede geri çekilme `bitiş + side*|retract_x|` olur. G-code emitter
+ise doğrudan gerçek çerçevede çalışıp İŞARETİ HARFİYEN kullanıyordu → `bitiş + retract_x`.
+`roller_positive_x_side = 0` olan makinelerde (ID111-1 ve ID112-1, yani SAHADAKİ İKİ
+MAKİNE DE) bu ikisi ancak kullanıcı negatif sayı yazarsa örtüşüyordu: **POZİTİF bir
+retract_x .nc'de takımı parçaya DOĞRU sürüyor, simülasyon ise uzaklaştığını gösteriyordu.**
+Aynı reçete, zıt yönler, uyarı yok.
+
+**Düzeltme:** yeni `retract_x_offset_real(retract_x, side)` (path_generator.py,
+`resolve_pass_retract` yanında) → `abs(retract_x) * sign(side)`. Emitter'ın İKİ geri
+çekilme noktası da (ileri pas + geri pas) bunu kullanıyor. Geri çekilme = "işten uzaklaş"
+demek olduğu için BÜYÜKLÜK kullanıcının, YÖN makinenin.
+
+**KAPSAM DIŞI (bilerek):** per-op TAKIM DEĞİŞİM ofsetleri (`resolve_tool_change_point`)
+harfi işaretini KORUR — orası operatörün nişan aldığı bir KONUM, "uzaklaş" hareketi değil;
+ayrıca her iki çağrı yeri zaten doğru çerçeveye çeviriyor. `_test_retract_sign.py`
+bunu ayrıca kilitliyor. `retract_z` de dokunulmadı (Z'de ayna yok, sim ve emitter zaten
+aynı işaretli değeri kullanıyor).
+
+**GERÇEK REÇETE ÜZERİNDE ÖNCE/SONRA (kanıt):** `analyze/13. uzun pasolu.ssp` (21 op,
+negatif taraf, `retract_x = -10`) HEAD worktree'si ile çalışan ağaçta aynı stub mandrel'e
+karşı üretildi → **.nc byte-aynı** (tek fark üretim zaman damgası). Harness'ın duyarlı
+olduğunu kanıtlamak için aynı reçete `+10` ile tekrar çalıştırıldı: eski kod `X217.612`,
+yeni kod `X197.612` — yani yeni kodda `+10` ile `-10` AYNI yere gidiyor, eski kodda `+10`
+20 mm parçaya doğru gidiyordu.
+
+**Test:** `_test_retract_sign.py` (6 paket) — saf yardımcı, sim↔G-code uyumu (iki taraf ×
+iki işaret), sahadaki tam senaryo, mevcut reçetelerin değişmediği, geri pas, ve takım
+değişim işaretinin KORUNDUĞU. Tam suite: yine aynı 5 eski kırık test, yeni kırık YOK.
+
+**DURUM:** headless doğrulandı. **FİZİKSEL DOĞRULAMA BEKLİYOR** — ilk çalıştırmada
+geri çekilme yönünü kuru çalıştırmayla teyit et.
+
+---
+
 ## 2026-07-31 — KIVIRMA/KESME: GERÇEK BAŞLANGIÇ + BİTİŞ NOKTASI (v1.015)
 
 **Kullanıcı raporu:** "Kıvırma op'unda Z pozisyonu ve dalma X soruyor. Bitiş noktası
@@ -52,11 +89,7 @@ kilitli (`emit_count`). UI'dan `count` bu tiplere girilemiyor (evrende yok, batc
 — yani elle düzenlenmiş `.ssp`/preset senaryosu içindi.
 
 **RAPOR EDİLDİ, DEĞİŞTİRİLMEDİ (onay bekliyor):**
-- **Geri çekilme işaret asimetrisi (TÜM op tipleri):** 3D sim `abs(retract_x)` kullanır
-  (`path_generator.py:336`), G-code emitter İŞARETLİ kullanır (`~2754`). Makineleriniz
-  `roller_positive_x_side = 0` (negatif taraf) → POZİTİF bir retract_x .nc'de parçanın
-  İÇİNE geri çeker, sim ise dışarı çektiğini gösterir (ölçülen fark: 100 mm). Mevcut
-  reçeteleriniz `-10` kullandığı için şu an güvenli, ama alan ipucu `50` gösteriyor.
+- ~~Geri çekilme işaret asimetrisi~~ → **DÜZELTİLDİ, aşağıdaki 2026-07-31b girdisine bak.**
 - **`plunge_*` X'leri makine/DRO X'idir**, parça yarıçapı değil — temas noktası r_tool
   kadar içeride (`measure_min_clearance` da böyle varsayar). Eski tooltip "mandrel
   merkezinden radyal mesafe" diyordu (yanlış, gouge riski) → düzeltildi.

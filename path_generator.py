@@ -149,6 +149,33 @@ def resolve_pass_retract(op, params):
     return _pick("retract_x"), _pick("retract_z")
 
 
+def retract_x_offset_real(retract_x, side):
+    """Pass-retract X offset in the REAL machine frame, always pointing AWAY from
+    the part. ``side`` = +1 positive-X roller, -1 negative-X roller.
+
+    A retract only ever means "pull the roller off the work", so the user sets the
+    MAGNITUDE and the direction follows the machine: +X on a positive-side roller,
+    -X on a negative-side one (the engine mirrors X around the mandrel center for
+    the latter). The sign the user types is therefore ignored.
+
+    Why this exists: the 3D sim got this right for free — it builds every path in
+    the canonical positive-X frame using ``abs(retract_x)`` and mirrors the whole
+    path at the end, which lands the retract at ``end + side*|retract_x|`` in the
+    real frame. The G-code emitter works directly in the real frame and used the
+    LITERAL sign, so ``end + retract_x``. On a negative-side machine those two
+    disagree unless the user happens to type a negative number: a positive
+    retract_x drove the tool INTO the part in the .nc while the simulation showed
+    it pulling clear — same recipe, opposite directions, no warning. This helper
+    is what makes the emitter agree with the sim.
+
+    Note this is pass retract only. The per-op TOOL-CHANGE offsets
+    (``resolve_tool_change_point``) keep their literal sign on purpose: that point
+    is a position the operator aims at, not a "get clear" move, and both call
+    sites already convert it into the right frame.
+    """
+    return abs(float(retract_x)) * (1.0 if side >= 0 else -1.0)
+
+
 def resolve_bend_points(op, retract_x_abs=50.0, default_end_x=50.0):
     """Start and end point of a cutting / bending move: ``((sx, sz), (ex, ez))``.
 
@@ -2442,6 +2469,9 @@ class PathGenerator:
         plc_mode = bool(params.get("plc_mode", False))
         plc_tolerance = float(params.get("plc_tolerance", 0.5))
         center_x = float(params.get("mandrel_pos_x_offset", 0.0))
+        # Roller side, for the pass retract: it must pull AWAY from the part, which
+        # is -X on a negative-side machine. See retract_x_offset_real.
+        ret_side = 1.0 if params.get("roller_positive_x_side", True) else -1.0
 
         if plc_mode:
             _exit_tol = float(params.get("plc_exit_tolerance", plc_tolerance))
@@ -2797,7 +2827,7 @@ class PathGenerator:
                     last_pt = path[-1]
                     ret_x_off, ret_z_off = resolve_pass_retract(op, params)  # #90 per-op
 
-                    raw_ret_x = last_pt[0] + ret_x_off
+                    raw_ret_x = last_pt[0] + retract_x_offset_real(ret_x_off, ret_side)
                     raw_ret_z = last_pt[2] + ret_z_off
 
                     rx, rz = transform_pt([raw_ret_x, 0, raw_ret_z])
@@ -2847,7 +2877,7 @@ class PathGenerator:
                     if len(bp_path) > 0:
                         bl = bp_path[-1]
                         _bp_rx_off, _bp_rz_off = resolve_pass_retract(op, params)  # #90 per-op
-                        rx, rz = transform_pt([bl[0] + _bp_rx_off, 0,
+                        rx, rz = transform_pt([bl[0] + retract_x_offset_real(_bp_rx_off, ret_side), 0,
                                                bl[2] + _bp_rz_off])
                         gcode.append(f"G0 X{rx:.3f} Z{rz:.3f} (Retract Op{op_idx+1} BP{i+1})")
                     gcode.append("")

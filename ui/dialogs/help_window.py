@@ -1051,6 +1051,19 @@ programs are migrated automatically, so every operation keeps the
 retract it had before. The 3D simulation and the exported G-code use
 the same value, so what you see is what the machine runs.
 
+The SIGN does not matter: a retract only ever means "pull the roller
+off the work", so you set the DISTANCE and the machine decides the
+direction — +X when the roller runs on the positive side of the
+mandrel, -X when it runs on the negative side. Typing 10 or -10 gives
+the same move.
+
+Before v1.015 this was not true of the exported program: the 3D view
+always pulled away, but the .nc used the sign literally, so on a
+negative-side machine a POSITIVE retract sent the tool toward the part
+while the simulation showed it clearing. If you have ever worked
+around this by typing a negative number, your programs are unchanged
+— the number you typed already pointed the right way.
+
 
 CALCULATE
 ════════════════════════════════════════════════════════════════
@@ -1682,6 +1695,18 @@ operasyonlar farklı geri çekilebilir. Yeni operasyonlar varsayılan
 50 mm'dir; alanı boş bırakmak da 50 mm demektir. Mevcut programlar
 otomatik taşınır, böylece her operasyon önceki geri çekilme değerini
 korur. 3D simülasyon ile dışa aktarılan G-code aynı değeri kullanır.
+
+İŞARET ÖNEMSİZDİR: geri çekilme her zaman "ruloyu işten uzaklaştır"
+demektir; siz MESAFEYİ girersiniz, yönü makine belirler — rulo
+mandrelin pozitif tarafındaysa +X, negatif tarafındaysa −X. 10 ya da
+−10 yazmak aynı hareketi verir.
+
+v1.015 ÖNCESİ dışa aktarılan programda bu böyle DEĞİLDİ: 3D görünüm
+her zaman dışarı çekiyordu ama .nc işareti harfiyen kullanıyordu, bu
+yüzden negatif taraflı bir makinede POZİTİF bir geri çekilme takımı
+parçaya DOĞRU gönderiyordu — simülasyon ise uzaklaştığını gösteriyordu.
+Bunu negatif sayı yazarak aşmış olanların programları DEĞİŞMEZ —
+yazdığınız sayı zaten doğru yönü gösteriyordu.
 
 
 HESAPLA

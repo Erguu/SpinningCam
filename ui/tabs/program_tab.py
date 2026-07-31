@@ -2075,7 +2075,8 @@ class ProgramTab:
                                  default_hint=50.0,
                                  tooltip="Bu operasyonun geri çekilme X ofseti (mm). "
                                          "Hareket BİTTİKTEN sonra uygulanır — roughing ile aynı. "
-                                         "Hareketin uzunluğunu ETKİLEMEZ.")
+                                         "Hareketin uzunluğunu ETKİLEMEZ. İŞARET ÖNEMSİZ — yön "
+                                         "makineden gelir (rulo negatif taraftaysa −X).")
             self._add_prop_entry(idx, "retract_z", t("lbl_op_retract_z"), op, is_float=True,
                                  default_hint=50.0,
                                  tooltip="Bu operasyonun geri çekilme Z ofseti (mm).")
@@ -2269,7 +2270,8 @@ class ProgramTab:
                              default_hint=50.0,
                              tooltip="Bu operasyonun pas geri çekilmesi için X ofseti (mm). "
                                      "Her şekillendirme pası (ve geri pası) sonrası rulo bu kadar "
-                                     "dışarı çekilir. Boş = 50 mm.")
+                                     "DIŞARI çekilir. İŞARET ÖNEMSİZ — yön makineden gelir "
+                                     "(rulo negatif taraftaysa −X). Boş = 50 mm.")
         self._add_prop_entry(idx, "retract_z", t("lbl_op_retract_z"), op, is_float=True,
                              default_hint=50.0,
                              tooltip="Bu operasyonun pas geri çekilmesi için Z ofseti (mm). Boş = 50 mm.")

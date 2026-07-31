@@ -35,6 +35,15 @@ CHANGELOG = {
          "what a flange bend usually needs. Leave them equal for the old purely "
          "radial plunge.",
          "Program List ▸ a cutting or bending operation ▸ End Z"),
+        ("The retract in the exported program now pulls the same way the 3D view does",
+         "A retract means 'pull the roller off the work', but the .nc used the sign "
+         "you typed literally while the 3D view always pulled away. On this machine "
+         "the roller runs on the negative side, so a POSITIVE retract sent the tool "
+         "toward the part in the program while the simulation showed it clearing. "
+         "The sign is now ignored: you set the distance, the machine decides the "
+         "direction. If you ever worked around this by typing a negative number, "
+         "your programs are unchanged — that number already pointed the right way.",
+         "Program List ▸ any operation ▸ Retract X"),
         ("Cutting and bending finally show their Tool Change position",
          "The setting always worked on these operations — the machine honoured it "
          "in the generated program — but the fields were never drawn, so there was "

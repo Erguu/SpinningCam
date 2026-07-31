@@ -97,6 +97,25 @@ Feed = op'un kendi Feed'i. `count` YOK SAYILIR (her zaman 1 yol).
   ama düzenlenemez alan. Takım değişim anahtarları 2026-07-21'den 07-31'e kadar tam
   olarak bu durumdaydı. Yeni alan eklerken İKİ tarafı da güncelle.
 
+### 4c. Pas geri çekilmesi — işaret/yön kuralı (2026-07-31)
+
+| Ne | Dosya | Fonksiyon |
+|----|-------|-----------|
+| Değer çözümü (op → global → 50 mm) | `path_generator.py` | `resolve_pass_retract()` |
+| **Gerçek çerçevede YÖN** | `path_generator.py` | `retract_x_offset_real(retract_x, side)` = `abs(rx)*sign(side)` |
+| Sim uygulaması (kanonik çerçeve, sonra aynalanır) | `path_generator.py` | `op_retract_x_can = abs(...)`; 3 nokta (cut/bend, ileri pas, geri pas) |
+| Emitter uygulaması (gerçek çerçeve) | `path_generator.py` | `generate_gcode` → `ret_side`; ileri pas + geri pas retract satırları |
+| Test | `_test_retract_sign.py` | 6 paket |
+
+**Kural:** geri çekilme = "işten uzaklaş". BÜYÜKLÜK kullanıcının, YÖN makinenin
+(`roller_positive_x_side`). Girilen işaret YOK SAYILIR.
+
+**KAPSAM DIŞI:** `resolve_tool_change_point` ofsetleri harfi işaretini KORUR (orası
+nişan alınan bir KONUM). `retract_z` de dokunulmadı (Z'de ayna yok).
+
+**v1.015 ÖNCESİ HATA:** emitter işareti harfiyen kullanıyordu → negatif taraflı
+makinede pozitif retract_x .nc'de parçaya doğru sürüyordu, sim ise uzaklaşıyordu.
+
 ### 5. Operasyon yönetimi (roughing / finishing)
 | Ne | Dosya | Satır/Fonksiyon |
 |----|-------|-----------------|
