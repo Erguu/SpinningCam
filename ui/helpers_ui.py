@@ -42,6 +42,55 @@ class UIHelper:
 
     def __init__(self, tooltip_label):
         self.lbl_info = tooltip_label
+        # Every input built here binds a Tk variable that is seeded from
+        # app.params ONCE, at build time, and writes back on <FocusOut>. Anything
+        # that changes params from OUTSIDE the widget (the calibration dialog's
+        # Apply buttons) therefore leaves the box showing the old number — and
+        # the next focus-out writes that stale number back over the new one.
+        # Registering the variables here lets such a caller re-sync them.
+        self._param_vars = []
+
+    def register_param_var(self, key, var, widget, getter=None):
+        """Track a Tk variable that mirrors ``app.params[key]``.
+
+        ``getter(params)`` overrides how the display value is derived, for fields
+        whose shown value is not simply params[key] (Program End follows Program
+        Start while it is unset).
+        """
+        self._param_vars.append((key, var, widget, getter))
+
+    def refresh_from_params(self, app, keys=None):
+        """Re-seed registered inputs from app.params. Returns the keys updated.
+
+        Call after changing params behind the UI's back. Entries whose widget has
+        been destroyed (tab rebuilt) are dropped instead of raising.
+        """
+        done, live = [], []
+        for key, var, widget, getter in self._param_vars:
+            try:
+                if not widget.winfo_exists():
+                    continue
+            except tk.TclError:
+                continue
+            live.append((key, var, widget, getter))
+            if keys is not None and key not in keys:
+                continue
+            try:
+                val = getter(app.params) if getter else app.params.get(key)
+                if val is None or val == "":
+                    continue
+                cur = var.get()
+                new = f"{float(val):.2f}" if isinstance(var, tk.StringVar) else (
+                    bool(val) if isinstance(var, tk.BooleanVar) else float(val))
+                if isinstance(var, tk.StringVar):
+                    if str(cur) != new:
+                        var.set(new); done.append(key)
+                elif cur != new:
+                    var.set(new); done.append(key)
+            except (tk.TclError, TypeError, ValueError):
+                continue
+        self._param_vars = live
+        return done
 
     def _field_hint_text(self, app, key, min_val, max_val):
         """Build the faded hint string: factory default + the range you can move within.
@@ -106,6 +155,7 @@ class UIHelper:
         sb.bind("<Button-1>", lambda event: event.widget.focus_force())
         sb.configure(command=on_change) # Arrows
         scroll_not_edit(sb)   # wheel scrolls the tab, never edits the value
+        self.register_param_var(key, var, sb)
         self.bind_tooltip(sb, tooltip)
         self.bind_tooltip(f, tooltip)
 
@@ -135,6 +185,7 @@ class UIHelper:
         self._add_field_hint(row, app, key, min_val, max_val)
         self.bind_tooltip(e, tooltip)
         self.bind_tooltip(f, tooltip)
+        self.register_param_var(key, var, e)
 
     def add_checkbox(self, parent, app, key, title, tooltip="", mode="all"):
         f = ttk.Frame(parent)

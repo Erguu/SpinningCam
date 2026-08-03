@@ -106,7 +106,12 @@ class SpinningApp:
             "machine_gcode_offset_z": 0.0,
             "gcode_header": "G21 G90 G18\nG54",
             "gcode_footer": "M5\nM30",
-            
+            # Program End park point. None = follow Program Start, which is what the
+            # final move always did — see path_generator.resolve_program_end.
+            "end_use_home": True,
+            "end_x": None,
+            "end_z": None,
+
             # Finishing Group Defaults (Dual Control) - Matched to Rough for consistent size
             "finish_p1_p3_x_offset_from_p2": 40.0,
             "finish_p1_z_offset_from_p2": 50.0,

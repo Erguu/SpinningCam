@@ -1910,6 +1910,27 @@ Home / Program Start position
   clear of the workpiece, chuck, and tailstock on all axes.
   Too close = crash risk. Too far = wasted cycle time.
 
+  Both Program Start fields carry a reminder of the last touch
+  calibration underneath — the raw DRO reading you entered, tagged
+  with the tool and the date. Program Start is a CAM coordinate that
+  the post-processor converts on the way out, so it will not look
+  like the DRO number; the reminder is there so you can see at a
+  glance which calibration this machine profile is standing on.
+
+Program End position
+  Where the roller parks after the last pass. It defaults to
+  "Same as Program Start", which is what the program has always
+  done — untick the box only if you want it to finish somewhere
+  else, for example clear of the tailstock for unloading.
+
+  Use this rather than putting a G0 move in the G-Code Footer. The
+  footer text is sent to the machine exactly as you type it, so it
+  is raw machine coordinates: it bypasses the axis inversion, G54
+  offset and diameter-mode conversion, it will not follow a later
+  change to the machine profile, and the 3D simulation never sees
+  it. Program End goes through the same transform as every other
+  coordinate and does show up in the simulation.
+
 Retract distances
   After each pass, the roller steps back by the retract amount
   before returning home. This prevents the roller from dragging
@@ -2145,6 +2166,26 @@ Home / Program Başlangıç Pozisyonu
   konum. Bunu tüm eksenlerde iş parçasından, bağlama aparatından
   ve puntadan güvenli şekilde uzakta bir konuma ayarlayın.
   Çok yakın = çarpışma riski. Çok uzak = gereksiz çevrim süresi.
+
+  Her iki Program Başlangıç alanının altında son temas
+  kalibrasyonunun hatırlatması vardır — girdiğiniz ham DRO okuması,
+  takım ve tarih etiketiyle. Program Başlangıcı, post-processor'ın
+  dışa aktarırken dönüştürdüğü bir CAM koordinatıdır; bu yüzden DRO
+  değerine benzemez. Hatırlatma, bu makine profilinin hangi
+  kalibrasyona dayandığını bir bakışta görebilmeniz içindir.
+
+Program Sonu konumu
+  Son pastan sonra rulonun park ettiği yer. Varsayılanı "Program
+  Başlangıcı ile aynı"dır — programın her zaman yaptığı şey budur.
+  Kutunun işaretini yalnızca program başka bir yerde bitsin
+  istiyorsanız kaldırın (örneğin parça çıkarmak için puntadan uzak).
+
+  Bunun için G-Code Alt Bilgi'ye G0 satırı YAZMAYIN. Alt bilgi metni
+  makineye yazdığınız gibi aynen gider, yani ham makine koordinatıdır:
+  eksen çevirme, G54 ofseti ve çap modu dönüşümünü atlar, makine
+  profilinde sonradan yaptığınız değişikliği takip etmez ve 3B
+  simülasyon onu hiç görmez. Program Sonu ise diğer tüm koordinatlarla
+  aynı dönüşümden geçer ve simülasyonda görünür.
 
 Geri çekilme mesafeleri
   Her pasosundan sonra, rulo home'a dönmeden önce geri çekilme

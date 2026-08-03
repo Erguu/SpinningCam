@@ -116,6 +116,31 @@ nişan alınan bir KONUM). `retract_z` de dokunulmadı (Z'de ayna yok).
 **v1.015 ÖNCESİ HATA:** emitter işareti harfiyen kullanıyordu → negatif taraflı
 makinede pozitif retract_x .nc'de parçaya doğru sürüyordu, sim ise uzaklaşıyordu.
 
+### 4d. Program Sonu park noktası + temas kalibrasyonu hatırlatması (2026-08-03)
+
+| Ne | Dosya | Fonksiyon/Anahtar |
+|----|-------|-------------------|
+| Çözücü (TEK doğruluk kaynağı) | `path_generator.py` | `resolve_program_end(params)` — `resolve_pass_retract` yanında |
+| Emitter (post-processor'dan geçer) | `path_generator.py` | `generate_gcode` sonu, `_xf_pt(_end_x_cam, _end_z_cam)` |
+| Sim (kanonik çerçeve, sonra aynalanır) | `path_generator.py` | `calculate_paths` sonu, `end_x_can` |
+| UI bölümü + kilit mantığı | `ui/tabs/machine_tab.py` | `f_end`, `_sync_end_state()`, `add_end_spinbox` |
+| Kalibrasyon hatırlatma etiketi | `ui/tabs/machine_tab.py` | `_calibration_note()`, `_add_calibration_note()`, `_refresh_cal_notes()` |
+| Profil anahtarları | `machine_loader.py` | `end_use_home`, `end_x`, `end_z` |
+| Test | `_test_program_end.py` (15), `_test_program_end_gui.py` (7) | — |
+
+**Kural:** `end_use_home` varsayılan **True** → bitiş = Program Başlangıcı = eski davranış
+birebir. Boş/bozuk alan O EKSENDE home'a düşer.
+
+**GOTCHA — footer bunun yerine GEÇMEZ:** `gcode_footer` metni `generate_gcode` sonunda
+`splitlines()` ile AYNEN eklenir. Post-processor dönüşümü YOK, makine profili
+değişikliğini takip ETMEZ, simülasyona HİÇ girmez. Park hareketi için daima
+`resolve_program_end` kullan.
+
+**GOTCHA — hatırlatma etiketi bilerek DÖNÜŞTÜRMEZ:** `calibration_last_session`'daki
+`entry_x`/`entry_z` ham DRO okumasıdır ve Program Başlangıcı bir CAM koordinatıdır;
+etiket ikisi arasında matematik YAPMAZ (kullanıcı kararı 2026-08-03) — yoksa kalibrasyon
+diyaloğuyla sessizce çelişebilecek ikinci bir dönüşüm yolu doğardı.
+
 ### 5. Operasyon yönetimi (roughing / finishing)
 | Ne | Dosya | Satır/Fonksiyon |
 |----|-------|-----------------|
@@ -245,6 +270,21 @@ makinede pozitif retract_x .nc'de parçaya doğru sürüyordu, sim ise uzaklaş�
 | Makine parametreleri | `touch_calibration.py` | `_machine_params()` |
 | CAM↔Machine dönüşümü | `touch_calibration.py` | `_cam_to_mach_x/z`, `_mach_to_cam_x/z` |
 | **Challenger Rr (eksen-fit) etiket + "Use ▸"** | `touch_calibration.py` | `_refresh_challenger()`, `_use_challenger_rt()` (Rr satırı altı) |
+| **Apply → sekme kutusunu tazeleme (2026-08-03b)** | `helpers_ui.py` | `register_param_var()`, `refresh_from_params(app)`; kanca `touch_calibration._show_applied` → `on_applied` |
+
+> **GOTCHA — params'ı UI'ın arkasından değiştiren HER KOD bunu okumalı (2026-08-03b):**
+> Sekmelerdeki girdi kutuları `app.params`'tan **BİR KEZ**, widget kurulurken tohumlanan
+> bir Tk değişkeni tutar ve `<FocusOut>`'ta o değişkeni params'a **geri yazar**. Yani
+> params'a dışarıdan yazmak yetmez: kutu eski sayıyı göstermeye devam eder (düğme
+> çalışmamış görünür) **ve bir sonraki focus-out düzeltmenin üzerine bayat değeri yazar.**
+> Böyle bir yazımdan sonra `helper.refresh_from_params(app)` çağır. Kalibrasyonun beş
+> Apply düğmesi tam olarak bu yüzden bozuktu.
+>
+> **GOTCHA — Apply'lar `mode="all"` kullanmalı, `"paths"` DEĞİL:** `on_param_change`,
+> "sadece bu pasa uygula" açıkken `mode=="paths"` düzenlemelerini `gui_pass_overrides`'a
+> saptırır (`main.py:1575`) → global bir kalibrasyon düzeltmesi tek bir pasa yazılır.
+> `_apply_blank` 2026-08-03b'ye kadar bu durumdaydı. Makine profili anahtarları
+> (`_is_machine_key`) muaf, ama `final_part_thickness_on_mandrel` öyle DEĞİL.
 
 > **Challenger Rr (2026-07-04, opt-in test):** mevcut `get_contact_radius` (kiriş/2)
 > DEĞİŞMEDİ. Kalibrasyon ekranında seçili takım için `get_contact_radius_axis` değeri

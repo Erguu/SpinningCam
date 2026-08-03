@@ -17,6 +17,43 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.016": [
+        ("Calibration ▸ Apply now really lands — and can no longer be undone by accident",
+         "The Apply buttons did change the setting, but the box on the Machine or "
+         "Process tab kept showing the OLD number, so it looked like nothing had "
+         "happened. Worse: if you later clicked into that box and clicked away "
+         "again, the old number was written back and your calibration was silently "
+         "lost. The corrected value now appears in the box immediately and stays "
+         "there. Worth re-checking your Program Start X/Z once after updating, in "
+         "case an earlier calibration was reverted this way.",
+         "Machine ▸ Touch Point Calibration ▸ Apply Correction"),
+        ("Apply Blank Thickness now always corrects the real thickness",
+         "With 'apply to this pass only' switched on, this one correction could be "
+         "written onto a single pass instead of the actual Blank Thickness setting, "
+         "leaving the real value untouched. A calibration correction is always "
+         "global now, like the other four Apply buttons.",
+         "Machine ▸ Touch Point Calibration ▸ Blank Thickness"),
+        ("New: a Program End position",
+         "The program has always finished by returning to Program Start. You can "
+         "now send the roller somewhere else instead — clear of the tailstock for "
+         "unloading, say. It stays on 'Same as Program Start' unless you untick "
+         "that box, so your existing programs run exactly as before.",
+         "Machine ▸ Program End"),
+        ("Set the end position here, not in the G-Code Footer",
+         "Footer text is sent to the machine exactly as you type it, so a G0 move "
+         "written there is raw machine coordinates: it skips the axis direction, "
+         "work offset and diameter settings, it does not follow later changes to "
+         "the machine profile, and the 3D view never shows it. Program End goes "
+         "through the same conversion as every other coordinate and does appear in "
+         "the simulation.",
+         "Machine ▸ Program End"),
+        ("Program Start and Program End now show what you calibrated against",
+         "These are program coordinates, so they never look like the reading on "
+         "your machine's DRO — which made it hard to tell which calibration a "
+         "machine profile was standing on. The last touch reading is now shown "
+         "underneath, exactly as you entered it, tagged with the tool and date.",
+         "Machine ▸ Program Start / Program End"),
+    ],
     "1.015": [
         ("Bending and cutting now have a real start point and end point",
          "You typed a Z Position and a Plunge X, and that was it — there was no "

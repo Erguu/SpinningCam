@@ -181,6 +181,9 @@ class MachineTab(ScrollableTabBase):
             e.bind("<Button-1>", lambda event: event.widget.focus_force())
             self.helper.bind_tooltip(e, tooltip)
             self.helper.bind_tooltip(f, tooltip)
+            # machine_gcode_offset_z is a calibration Apply target — see
+            # add_home_spinbox for why registration matters.
+            self.helper.register_param_var(key, var, e)
 
         add_offset_spinbox(f_offsets, "machine_gcode_offset_x", t("lbl_x_offset"),
                            "Origin dönüşümünden SONRA tüm X koordinatlarına eklenen sabit değer (G54 iş ofseti).")
@@ -203,6 +206,9 @@ class MachineTab(ScrollableTabBase):
             e.bind("<Button-1>", lambda event: event.widget.focus_force())
             self.helper.bind_tooltip(e, tooltip)
             self.helper.bind_tooltip(f, tooltip)
+
+        # Rebuilt on every _create_widgets, so drop stale label references.
+        self._cal_notes = []
 
         # Program Start / Retract
         f_home = ttk.LabelFrame(self.content, text=t("frm_home"))
@@ -230,6 +236,10 @@ class MachineTab(ScrollableTabBase):
             e.bind("<Button-1>", lambda event: event.widget.focus_force())
             self.helper.bind_tooltip(e, tooltip)
             self.helper.bind_tooltip(f, tooltip)
+            # Calibration ▸ Apply writes home_x/home_z straight into params, so
+            # this box has to be re-seeded afterwards or it will write the old
+            # value back on the next focus-out.
+            self.helper.register_param_var(key, var, e)
 
         add_home_spinbox(f_home, "home_z", t("lbl_home_z"),
                          "Programın başladığı ve her pas sonrası geri dönülen Z pozisyonu (CAM koordinatı, mutlak).")
@@ -239,6 +249,8 @@ class MachineTab(ScrollableTabBase):
         tk.Label(f_home, text=t("lbl_home_hint"),
                  font=("Arial", 8, "italic"), fg="#0055aa", wraplength=380, justify="left"
                  ).pack(anchor="w", padx=5, pady=(0, 4))
+
+        self._add_calibration_note(f_home)
 
         # Pass retract is now PER-OPERATION (#90): set Retract X / Retract Z on each
         # operation in the Program tab. The old global retract spinboxes were removed;
@@ -265,6 +277,74 @@ class MachineTab(ScrollableTabBase):
         add_rapid_rate(f_home, "rapid_rate_mm_min", t("lbl_rapid_rate"),
                        t("tip_rapid_rate"))
 
+        # Program End — where the roller parks after the last pass. Defaults to
+        # Program Start (which is what the final move always used), so leaving
+        # the checkbox ticked keeps the emitted motion exactly as it was.
+        f_end = ttk.LabelFrame(self.content, text=t("frm_program_end"))
+        f_end.pack(fill="x", padx=10, pady=5)
+
+        tk.Label(f_end, text=t("lbl_end_info"),
+                 font=("Arial", 8, "italic"), fg="gray", wraplength=380,
+                 justify="left").pack(anchor="w", padx=5, pady=(2, 4))
+
+        end_entries = []
+        var_end_home = tk.BooleanVar(
+            value=bool(self.app.params.get("end_use_home", True)))
+
+        def _sync_end_state():
+            state = "disabled" if var_end_home.get() else "normal"
+            for e in end_entries:
+                try: e.config(state=state)
+                except tk.TclError: pass
+
+        def _on_end_mode():
+            try: self.app.on_param_change("end_use_home", var_end_home.get(), "paths")
+            except Exception: pass
+            _sync_end_state()
+
+        cb_end = ttk.Checkbutton(f_end, text=t("chk_end_use_home"),
+                                 variable=var_end_home, command=_on_end_mode)
+        cb_end.pack(anchor="w", padx=5, pady=2)
+        self.helper.bind_tooltip(cb_end,
+            "İşaretliyse program, başladığı noktada biter (eski davranış). "
+            "Kaldırın ve aşağıdaki park konumunu girin.")
+
+        def add_end_spinbox(p, key, home_key, title, tooltip=""):
+            f = ttk.Frame(p)
+            f.pack(fill="x", padx=5, pady=2)
+            tk.Label(f, text=title).pack(side="left")
+            # Unset means "follow Program Start", so show that value rather than a
+            # stale factory number the operator would have to correct.
+            val = self.app.params.get(key, None)
+            if val in (None, ""):
+                val = self.app.params.get(home_key, 300.0 if key.endswith("_x") else 150.0)
+            var = tk.DoubleVar(value=float(val))
+            def on_change():
+                try: self.app.on_param_change(key, var.get(), "paths")
+                except Exception: pass
+            e = ttk.Entry(f, textvariable=var, width=10)
+            e.pack(side="right")
+            e.bind("<Return>", lambda ev: on_change())
+            e.bind("<FocusOut>", lambda ev: on_change())
+            e.bind("<Button-1>", lambda event: event.widget.focus_force())
+            self.helper.bind_tooltip(e, tooltip)
+            self.helper.bind_tooltip(f, tooltip)
+            end_entries.append(e)
+            # While unset this field mirrors Program Start, so a calibration
+            # Apply that moves home_x/home_z must move the shown value too.
+            def _shown(params, k=key, hk=home_key):
+                v = params.get(k, None)
+                return params.get(hk) if v in (None, "") else v
+            self.helper.register_param_var(key, var, e, getter=_shown)
+
+        add_end_spinbox(f_end, "end_z", "home_z", t("lbl_end_z"),
+                        "Program bittiğinde gidilecek Z pozisyonu (CAM koordinatı, mutlak).")
+        add_end_spinbox(f_end, "end_x", "home_x", t("lbl_end_x"),
+                        "Program bittiğinde gidilecek X pozisyonu (CAM koordinatı, mutlak).")
+        _sync_end_state()
+
+        self._add_calibration_note(f_end)
+
         # Touch Point Calibration
         f_touch = ttk.LabelFrame(self.content, text=t("frm_touch"))
         f_touch.pack(fill="x", padx=10, pady=10)
@@ -275,7 +355,18 @@ class MachineTab(ScrollableTabBase):
 
         def _open_touch_calibration():
             from ui.dialogs.touch_calibration import TouchCalibrationDialog
-            TouchCalibrationDialog(self.content.winfo_toplevel(), self.app)
+            dlg = TouchCalibrationDialog(
+                self.content.winfo_toplevel(), self.app,
+                on_applied=lambda: self.helper.refresh_from_params(self.app))
+            # The dialog writes calibration_last_session on close, so re-read it
+            # then — otherwise the reminder labels keep showing the old reading
+            # until the tab happens to be rebuilt. Guarded on the widget because
+            # <Destroy> also fires for every child of the dialog, and deferred
+            # because the session is stored while the teardown is still running.
+            def _on_dlg_close(ev, d=dlg):
+                if ev.widget is d:
+                    self.content.after_idle(self._refresh_cal_notes)
+            dlg.bind("<Destroy>", _on_dlg_close)
 
         btn_touch = tk.Button(f_touch, text=t("btn_touch_cal"),
                               command=_open_touch_calibration,
@@ -988,6 +1079,52 @@ class MachineTab(ScrollableTabBase):
             return
         save_machine_profile(path, profile)
         messagebox.showinfo(t("btn_save_profile"), f"Saved:\n{path}", parent=self.content)
+
+    # ── Touch-calibration reminder ────────────────────────────────────────
+    # Program Start / End are CAM-frame numbers that go through the
+    # post-processor before they reach the machine, so they never resemble the
+    # DRO reading the operator calibrated against. These labels simply echo that
+    # reading back verbatim next to the fields — no conversion, so there is
+    # nothing here that can quietly disagree with the calibration dialog. The
+    # tool and timestamp are shown so a stale session is visible at a glance.
+
+    def _calibration_note(self):
+        """Text for the touch-calibration labels, or None if never calibrated."""
+        cal = self.app.params.get("calibration_last_session", {}) or {}
+        cx = str(cal.get("entry_x", "")).strip()
+        cz = str(cal.get("entry_z", "")).strip()
+        if not cx and not cz:
+            return None
+        axes = [s for s in (f"X {cx}" if cx else "", f"Z {cz}" if cz else "") if s]
+        tag = [s for s in (str(cal.get("tool_var", "")).strip(),
+                           str(cal.get("saved_at", "")).strip()) if s]
+        txt = "{} DRO {}".format(t("lbl_cal_touch"), "  ".join(axes))
+        if tag:
+            txt += "   ({})".format(", ".join(tag))
+        return txt
+
+    def _add_calibration_note(self, parent):
+        """Pack a touch-calibration reminder label and register it for refresh."""
+        if not hasattr(self, "_cal_notes"):
+            self._cal_notes = []
+        lbl = tk.Label(parent, text=self._calibration_note() or t("lbl_cal_none"),
+                       font=("Arial", 8, "italic"), fg="#666",
+                       wraplength=380, justify="left")
+        lbl.pack(anchor="w", padx=5, pady=(0, 4))
+        self._cal_notes.append(lbl)
+
+    def _refresh_cal_notes(self):
+        """Re-read the stored session after the calibration dialog closes.
+
+        Updates the labels in place rather than calling refresh_ui(), which would
+        rebuild the whole tab and throw away the scroll position.
+        """
+        txt = self._calibration_note() or t("lbl_cal_none")
+        for lbl in list(getattr(self, "_cal_notes", [])):
+            try:
+                lbl.config(text=txt)
+            except tk.TclError:      # label belonged to a destroyed rebuild
+                self._cal_notes.remove(lbl)
 
     def sync_params(self):
         if hasattr(self, 'txt_header'):

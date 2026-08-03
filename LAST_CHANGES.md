@@ -5,6 +5,110 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-03b — KALİBRASYON "Apply" DÜĞMELERİ: değer kutuya ULAŞMIYORDU (+ sessiz geri alma) (v1.016)
+
+**Kullanıcı raporu:** "Kalibrasyon penceresindeki düğmeler, özellikle önerilen X/Z
+değerini ilgili girdiye yazması gereken düğmeler" kontrol edilsin.
+
+**BULGU 1 — bayat Tk değişkeni (5 düğmenin HEPSİ).** `_apply_home_x/_apply_home_z/
+_apply_offset/_apply_blank/_apply_off_z` `app.on_param_change(...)` çağırıyor → params
+GÜNCELLENİYOR. Ama Makine/Proses sekmesindeki her girdi kutusu, widget kurulurken BİR KEZ
+`app.params`'tan tohumlanan bir `tk.DoubleVar/StringVar` tutuyor ve `<FocusOut>`'ta o
+değişkeni params'a GERİ YAZIYOR. Hiçbir yerde yeniden senkron yoktu (`refresh_ui` sadece
+dil değişiminde ve proje açmada çağrılıyor). Sonuç:
+
+1. Apply'a basınca kutu ESKİ sayıyı göstermeye devam ediyor → düğme çalışmamış gibi
+   görünüyor (kullanıcının fark ettiği semptom bu).
+2. **Daha kötüsü:** kullanıcı sonra o alana tıklayıp başka yere geçince `<FocusOut>`
+   bayat değeri params'ın ÜZERİNE yazıyor → **kalibrasyon sessizce geri alınıyor.**
+
+Gerçek widget'larla üretildi (`-396 → apply -400.5 → kutu -396 → focus-out → params -396`).
+
+**Düzeltme (merkezî):** `UIHelper` artık kurduğu her param-bağlı Tk değişkenini kaydediyor
+(`register_param_var`) ve `refresh_from_params(app)` ile hepsini params'tan yeniden
+tohumluyor (ölü widget'ları eleyerek). `add_spinbox`/`add_scale` + makine sekmesinin kendi
+kapanışları (`add_home_spinbox`, `add_offset_spinbox`, `add_end_spinbox`) kayıt yapıyor.
+`TouchCalibrationDialog(..., on_applied=)` yeni geri çağrısı **`_show_applied` içinden**
+tetikleniyor — TÜM Apply yolları oradan geçtiği için hatırlanması gereken tek yer orası.
+Makine sekmesi dialogu açarken `on_applied=lambda: self.helper.refresh_from_params(self.app)`
+veriyor. Program Sonu alanları `getter=` ile kayıtlı: **kilitliyken** Program Başlangıcı'nı
+takip eder, **açıkken** girilen park noktası yerinde kalır.
+
+**BULGU 2 — `_apply_blank` yanlış moddaydı.** Diğer dördü `mode="all"` kullanırken bu
+`mode="paths"` kullanıyordu. `on_param_change`, "sadece bu pasa uygula" açıkken
+`mode=="paths"` düzenlemelerini `gui_pass_overrides`'a SAPTIRIYOR (main.py:1575) →
+kalibrasyon düzeltmesi TEK BİR PASA yazılır, gerçek `final_part_thickness_on_mandrel`
+değişmezdi. `"all"` yapıldı. (`final_part_thickness_on_mandrel` makine profili anahtarı
+DEĞİL, yani `_is_machine_key` muafiyeti onu korumuyordu.)
+
+**Sorunsuz bulunanlar:** "Use ▸" (challenger Rr) yalnızca diyaloğun KENDİ `entry_rt`
+kutusuna yazar — çapraz pencere sorunu yok, `tools.json`'a dokunmaz. "Check Consistency"
+salt-okunur. Apply sonrası `_kill_x`/`_kill_z` düğmeleri devre dışı bırakıyor → aynı
+ölçümün iki kez uygulanması (delta'nın iki katına çıkması) zaten engelli, doğru davranış.
+
+**Test:** `_test_calibration_apply.py` (7 kontrol, gerçek Tk) — beş hedefin de kayıtlı
+girdisi var, Apply sonrası kutu güncel, focus-out artık geri almıyor, Program Sonu
+takibi/bağımsızlığı, ölü widget elemesi, ve beş çağrının da `mode="all"` olduğu.
+Tüm paket çalıştırıldı: HEAD'de zaten kırık 5 test dışında regresyon YOK.
+**GERÇEK PENCEREDE GUI SMOKE BEKLİYOR.**
+
+---
+
+## 2026-08-03 — PROGRAM SONU park noktası + Program Başlangıcı/Sonu altında TEMAS KALİBRASYONU hatırlatması (v1.016)
+
+**Soru neydi:** "Program başlangıç konumum var ama bitiş konumum yok — Makine
+ayarlarındaki G-Code Alt Bilgi (footer) bölümünü mü kullanmalıyım?"
+
+**Cevap: hayır.** Bitiş konumu ZATEN vardı, ayrı bir alan olarak yoktu: son hareket
+her zaman Program Başlangıcı'na dönüyordu (`path_generator.py` `generate_gcode` sonu +
+`calculate_paths` "Final Return to Home"). Eksik olan tek şey BAŞKA bir yere park
+edebilmekti. Footer bunun için YANLIŞ yer çünkü footer metni makineye **aynen** gider:
+post-processor dönüşümünü (eksen çevirme, G54 ofseti, çap modu) atlar, sonradan makine
+profili değişirse takip etmez ve 3B simülasyon onu HİÇ görmez (sim/.nc ayrışması —
+2026-07-31'de retract işaretinde tam olarak bu ısırmıştı).
+
+**(1) `resolve_program_end(params)` — YENİ, `path_generator.py`, `resolve_pass_retract`
+yanında.** `end_use_home` (vars. **True**) → `(home_x, home_z)`. Yani anahtarları
+taşımayan her reçete/profil için **hareket birebir eskisi gibi**. False ise `end_x`/`end_z`
+kullanılır; alan boş/bozuksa o EKSEN home'a düşer (eksen bazında fallback).
+
+İki tüketici de aynı çözücüyü çağırır → sim ile .nc asla ayrışamaz:
+- Emitter: `generate_gcode` sonu, `_xf_pt` ile dönüştürülür (diğer tüm koordinatlar gibi).
+- Sim: `calculate_paths` sonu; kanonik +X çerçevesinde `end_x_can` kurulur, negatif
+  taraflı makinede yolların geri kalanıyla birlikte aynalanır.
+
+**(2) Makine sekmesi "Program Sonu" bölümü** (`machine_tab.py`, Program Başlangıcı'ndan
+hemen sonra): "Program Başlangıcı ile aynı" onay kutusu (varsayılan İŞARETLİ) + Sonu Z/X
+alanları. İşaretliyken alanlar KİLİTLİ ve Program Başlangıcı değerleriyle DOLU gösterilir
+(boş = "başlangıcı takip et" demek, operatöre düzeltmesi gereken bayat bir fabrika sayısı
+gösterilmez).
+
+**(3) Temas kalibrasyonu hatırlatması** — Program Başlangıcı VE Program Sonu alanlarının
+altında, gri italik tek satır:
+`Son temas kalibrasyonu: DRO X 270  Z 190   (T0102, 2026-08-01 09:12)`
+`params["calibration_last_session"]`'dan **HAM, DÖNÜŞTÜRÜLMEDEN** okunur (`entry_x`/
+`entry_z`), takım (`tool_var`) + tarih (`saved_at`) etiketiyle. **Neden dönüşüm YOK
+(kullanıcı kararı):** Program Başlangıcı bir CAM koordinatıdır (-396), DRO okuması ise
+başka bir çerçevede başka bir noktadır (270); ikisini birbirine çevirmek sessizce
+kalibrasyon diyaloğuyla çelişebilecek İKİNCİ bir matematik yolu yaratırdı. Birebir yankı
+yalan söyleyemez. Etiket, bayat bir oturumu bir bakışta görünür kılar.
+Kalibrasyon diyaloğu kapanınca `<Destroy>` ile `_refresh_cal_notes()` tetiklenir (etiket
+yerinde güncellenir; `refresh_ui()` DEĞİL — o tüm sekmeyi kurup kaydırma konumunu atardı).
+
+**Anahtarlar:** `end_use_home` / `end_x` / `end_z` → `MACHINE_PROFILE_KEYS` (aktif makine
+profiline otomatik kaydolur, settings.json'a değil) + `config_schema.py` iki şemada da.
+
+**.nc'de TEK görünür fark (varsayılanda):** başlığa bir YORUM satırı eklendi —
+`(Program End: X=300, Z=150)`. Hareket satırları değişmedi; SCL/PLC yolu yorumları
+atladığı için (`recipe_to_scl.parse_gcode`) PLC çıktısı da etkilenmez.
+
+**Test:** `_test_program_end.py` (15 kontrol — çözücü/emitter/sim, dönüşüm, negatif-taraf
+aynalama, sim↔.nc uyumu) + `_test_program_end_gui.py` (gerçek Tk, 7 kontrol). Tüm headless
+paket çalıştırıldı: HEAD'de zaten kırık olanlar dışında regresyon YOK.
+**GERÇEK PENCEREDE GUI SMOKE + FİZİKSEL park doğrulaması BEKLİYOR.**
+
+---
+
 ## 2026-07-31b — GERİ ÇEKİLME İŞARET ASİMETRİSİ DÜZELTİLDİ (TÜM op tipleri)
 
 **Sorun:** 3D sim yolları kanonik (+X) çerçevede `abs(retract_x)` ile kurar ve sonunda

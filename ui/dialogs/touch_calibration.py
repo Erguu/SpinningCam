@@ -33,9 +33,14 @@ class TouchCalibrationDialog(tk.Toplevel):
     C_LBL   = "#cce0ff"
     C_GHOST = "#334455"
 
-    def __init__(self, parent, app):
+    def __init__(self, parent, app, on_applied=None):
         super().__init__(parent)
         self.app = app
+        # Called after every Apply. The Apply buttons write straight into
+        # app.params, but the Machine / Process tab inputs hold Tk variables
+        # seeded at build time — without this they keep showing the OLD number
+        # and write it back over the correction on their next focus-out.
+        self._on_applied = on_applied
         self.title("Touch Point Calibration")
         self.geometry("1060x680")
         self.minsize(820, 520)
@@ -1192,7 +1197,12 @@ class TouchCalibrationDialog(tk.Toplevel):
                 "Check the surface type selection.", parent=self)
             return
         old = float(self.app.params.get("final_part_thickness_on_mandrel", 2.0))
-        self.app.on_param_change("final_part_thickness_on_mandrel", self._new_blank, "paths")
+        # Mode "all", not "paths", to match the other four Apply buttons. With
+        # mode="paths" and "apply to this pass only" switched on, on_param_change
+        # diverts the value into gui_pass_overrides instead of params — so the
+        # calibration would land on a single pass and leave the real thickness
+        # untouched. A calibration correction is always global.
+        self.app.on_param_change("final_part_thickness_on_mandrel", self._new_blank, "all")
         self._show_applied(f"Blank Thickness:  {old:.3f}  →  {self._new_blank:.3f} mm")
         self._kill_x();  self._redraw()
 
@@ -1212,6 +1222,13 @@ class TouchCalibrationDialog(tk.Toplevel):
 
     def _show_applied(self, msg):
         self.lbl_apply.config(text="✓  " + msg, fg="lime")
+        # Push the new value out to the tab inputs. Every Apply path ends here,
+        # so this is the one place that has to remember.
+        if self._on_applied is not None:
+            try:
+                self._on_applied()
+            except Exception:
+                pass
 
     def _kill_x(self):
         for b in (self.btn_home_x, self.btn_offset, self.btn_blank):

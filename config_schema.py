@@ -75,7 +75,10 @@ class SettingsSchema(BaseModel):
     home_z: Optional[float] = None
     retract_x: Optional[float] = None
     retract_z: Optional[float] = None
-    
+    end_use_home: Optional[Any] = None   # True/absent = Program End follows Program Start
+    end_x: Optional[float] = None
+    end_z: Optional[float] = None
+
     # G-Code
     gcode_header: Optional[str] = None
     gcode_footer: Optional[str] = None
@@ -114,6 +117,9 @@ class MachineProfileSchema(BaseModel):
     home_z: Optional[float] = None
     retract_x: Optional[float] = None
     retract_z: Optional[float] = None
+    end_use_home: Optional[Any] = None
+    end_x: Optional[float] = None
+    end_z: Optional[float] = None
     roller_positive_x_side: Optional[Any] = None
     workspace_show: Optional[Any] = None
     workspace_x_min: Optional[float] = None

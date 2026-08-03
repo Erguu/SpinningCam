@@ -149,6 +149,38 @@ def resolve_pass_retract(op, params):
     return _pick("retract_x"), _pick("retract_z")
 
 
+def resolve_program_end(params):
+    """Program END park point ``(x, z)`` in CAM coordinates.
+
+    Defaults to Program Start (``home_x``/``home_z``) — the point the final move
+    has always used — so a recipe or machine profile without the keys emits
+    byte-identical G-code. Set ``end_use_home`` False to park somewhere other
+    than where the program began (clear of the tailstock for unloading, say).
+
+    Why this is a real parameter and not a line in the G-Code Footer: the footer
+    template is written out VERBATIM, while every coordinate the engine emits
+    goes through the post-processor transform (axis inversion, G54 offset,
+    diameter mode). A hand-typed footer move is therefore raw machine
+    coordinates that silently stop matching once the machine profile changes,
+    and it never reaches the 3D simulation at all.
+    """
+    hx = float(params.get("home_x", 300.0))
+    hz = float(params.get("home_z", 150.0))
+    if params.get("end_use_home", True):
+        return hx, hz
+
+    def _pick(k, dflt):
+        v = params.get(k, None)
+        try:
+            if v not in (None, ""):
+                return float(v)
+        except (TypeError, ValueError):
+            pass
+        return dflt
+
+    return _pick("end_x", hx), _pick("end_z", hz)
+
+
 def retract_x_offset_real(retract_x, side):
     """Pass-retract X offset in the REAL machine frame, always pointing AWAY from
     the part. ``side`` = +1 positive-X roller, -1 negative-X roller.
@@ -1082,7 +1114,13 @@ class PathGenerator:
 
         # [NEW] Final Return to Home
         # User requested roller to return to Safety Home Position at end.
-        home_pt = np.array([home_x_can, 0, home_z])
+        # The target is the Program End point, which defaults to Program Start —
+        # so with no end point set this is the same move it always was. Built in
+        # the canonical positive-X frame like everything else here, then mirrored
+        # below with the rest of the paths when the roller sits on the -X side.
+        end_x_cam, end_z_cam = resolve_program_end(params)
+        end_x_can = center_x + abs(end_x_cam - center_x)
+        home_pt = np.array([end_x_can, 0, end_z_cam])
 
         if np.linalg.norm(current_pt - home_pt) > 1.0:
             for seg in self._safe_rapid_segments(current_pt, home_pt, home_x_can):
@@ -2593,6 +2631,9 @@ class PathGenerator:
             f"(Output Mode: {'DIAMETER' if dia_mode else 'RADIUS'})",
             f"(G54 Offset: X={off_x}, Z={off_z})",
             f"(Program Start: X={params.get('home_x', 300.0)}, Z={params.get('home_z', 150.0)}) (PLC handles actual homing)",
+            "(Program End: X={:g}, Z={:g}){}".format(
+                *resolve_program_end(params),
+                "" if params.get("end_use_home", True) else " (park position)"),
             "(Retract: per operation)",
             "(--- PARCA / BLANK ---)",
             f"(Blank Radius: {params.get('blank_radius', 0.0)} mm)",
@@ -2887,11 +2928,16 @@ class PathGenerator:
             logger.warning(f"[TILT] {len(self.last_kinematic_warnings)} kinematic reachability "
                            f"issue(s) in generated G-code; first: {self.last_kinematic_warnings[0]}")
 
-        # Final Safety Return (Use transformed coordinates)
+        # Final Safety Return (Use transformed coordinates).
+        # Program End defaults to Program Start, so this stays byte-identical for
+        # every existing recipe. Note it goes through _xf_pt like every other
+        # coordinate — unlike the footer template below, which is emitted raw.
+        _end_x_cam, _end_z_cam = resolve_program_end(params)
+        end_x_machine, end_z_machine = _xf_pt(_end_x_cam, _end_z_cam)
         gcode.append("(--- PROGRAM SONU GUVENLI DONUS ---)")
-        gcode.append(f"G0 Z{home_z_machine:.3f}")
-        gcode.append(f"G0 X{home_x_machine:.3f}")
-        
+        gcode.append(f"G0 Z{end_z_machine:.3f}")
+        gcode.append(f"G0 X{end_x_machine:.3f}")
+
         footer_tmpl = params.get("gcode_footer", "M5\nM30")
         gcode.extend(footer_tmpl.splitlines())
         gcode.append("%")
