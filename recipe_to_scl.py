@@ -11,7 +11,9 @@ Usage:
 SCL Output Format:
     Creates a DATA_BLOCK with:
     - Header: RecipeHeader UDT (Name, LineCount, Valid, PreScanned, MinX, MaxX, MinZ, MaxZ)
-    - Lines: Array[0..N-1] of RecipeLine UDT (X, Z, F, CMD, Param) — dynamic size, min 999
+    - Lines: Array[0..N-1] of RecipeLine UDT (X, Z, F, CMD, Param) — dynamic size,
+      min 999. NOTE: the load-memory PLC design (02b_RecipePrograms.scl) expects
+      the array to match DB_SelectedRecipe; the default [0..999] satisfies that.
 
 Author: SpinningCam Project
 Version: 2.0 - Updated to match PLC_Recipe_Format_Spec
@@ -440,12 +442,15 @@ class GCodeToSCLConverter:
                      custom_array_size: int = None) -> str:
         """
         Generate SCL Data Block code matching PLC spec.
-        
+
         Args:
             db_name: Name of the Data Block (e.g., "DB_RecipeProgram1")
             program_title: Human-readable program title (max 20 chars)
             force: If True, generate SCL even if line count exceeds limit
-            custom_array_size: If set, overrides the auto-calculated array upper bound
+            custom_array_size: If set, overrides the auto-calculated array upper
+                bound. CAUTION: READ_DBL copies the recipe into DB_SelectedRecipe,
+                whose layout is Array[0..999] — a different size must be matched
+                on the PLC side or the copy fails at STATE_RECIPE_LOAD.
 
         Returns:
             SCL code as string
@@ -518,14 +523,21 @@ class GCodeToSCLConverter:
             scl_lines.append("// ============================================")
         scl_lines.append("")
         
-        # Data Block declaration
+        # Data Block declaration. The attribute block must match
+        # 02b_RecipePrograms.scl exactly (TIA V17 / S7-1214C, verified 2026-08-04):
+        #   - S7_Optimized_Access FALSE: READ_DBL needs source and destination on
+        #     the same access type, and an optimized DB may not contain a STRUCT.
+        #   - UNLINKED must come BEFORE NON_RETAIN (reversed order fails to
+        #     generate; omitting UNLINKED silently keeps the DB in work memory).
         scl_lines.append(f'DATA_BLOCK "{db_name}"')
-        scl_lines.append("{ S7_Optimized_Access := 'TRUE' }")
-        scl_lines.append("VERSION : 0.1")
+        scl_lines.append("{ S7_Optimized_Access := 'FALSE' }")
+        scl_lines.append("VERSION : 0.2")
+        scl_lines.append("UNLINKED")
         scl_lines.append("NON_RETAIN")
         scl_lines.append("    VAR ")
         scl_lines.append('        Header : "RecipeHeader";')
-        # Array size: user-specified or auto-calculated (minimum 999 for compatibility)
+        # Array size: user-specified or auto-calculated (minimum 999 so the
+        # default matches DB_SelectedRecipe's Array[0..999]).
         if custom_array_size is not None:
             array_max = max(custom_array_size - 1, line_count - 1)
         else:

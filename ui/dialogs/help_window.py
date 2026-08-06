@@ -2142,6 +2142,16 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  lowers clearance below the normal G-code path
                  (it warns if the target can't be met safely).
 
+                 The generated block is a LOAD-MEMORY recipe DB
+                 (standard access, UNLINKED) matching the PLC's
+                 DB_RecipeProgram1..10 layout. It cannot be
+                 monitored online — that is expected; the PLC
+                 copies it into DB_SelectedRecipe at cycle start.
+                 The array size is asked on export; the default
+                 1000 matches DB_SelectedRecipe. A different size
+                 must also be matched on the PLC side or the copy
+                 fails at recipe load.
+
 Recipe CSV       A simplified pass-by-pass parameter table.
                  Useful for documentation, setup sheets, and
                  importing into other tools.
@@ -2382,6 +2392,16 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   tolerans dışa aktarımda bütçenize otomatik oturtulur —
                   clearance normal G-code yolunun altına asla düşürülmez
                   (hedef güvenle karşılanamazsa uyarır).
+
+                  Üretilen blok YÜK-BELLEĞİ (load memory) reçete
+                  DB'sidir (standart erişim, UNLINKED) — PLC'deki
+                  DB_RecipeProgram1..10 düzeniyle aynıdır. Online
+                  izlenemez — bu normaldir; PLC çevrim başında
+                  DB_SelectedRecipe'e kopyalar. Dizi boyutu dışa
+                  aktarımda sorulur; varsayılan 1000,
+                  DB_SelectedRecipe ile eşleşir. Farklı bir boyut
+                  PLC tarafında da eşleştirilmelidir, yoksa kopya
+                  reçete yüklemede başarısız olur.
 
                   TARET / TAKIM TABLOSU: Her SCL reçetesinin başlığına
                   taret düzeni (yuva→takım-kodu, yuva sayısı, açılar)

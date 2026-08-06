@@ -68,6 +68,7 @@ i18n.py                                  ← Çok dilli metin (EN/TR/ES), t(key)
 | UI dialog + limit kontrolü | `ui/main_window.py` | `export_scl_action()` satır 502 |
 | PLC format tam spec | `CAM_INTERFACE_SPEC.md` | Tüm doküman |
 | PLC data type tanımları | `CAM_INTERFACE_SPEC.md` | Bölüm 10 |
+| **DB blok öznitelikleri (load-memory, 2026-08-06)** | `recipe_to_scl.py` | `generate_scl()` DATA_BLOCK bloğu — `'FALSE'` erişim + `UNLINKED` (NON_RETAIN'den ÖNCE) + `VERSION : 0.2`; dizi boyu DİNAMİK (kullanıcı isteği, varsayılan 1000 = `DB_SelectedRecipe`); sözleşme = `02b_RecipePrograms.scl` başlık yorumu |
 
 ### 4b. Kesme / Kıvırma (cutting / bending) — 2026-07-31, v1.015
 

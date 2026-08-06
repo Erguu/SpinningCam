@@ -5,6 +5,45 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-06 — SCL EXPORT: yük-belleği (load memory) reçete DB formatı
+
+**Neden:** Saha devreye alma (2026-08-04) PLC tarafını değiştirdi — reçete DB'leri
+artık SADECE yük belleğinde duruyor, FB_Process seçileni `READ_DBL` ile
+`DB_SelectedRecipe`'e kopyalıyor. Yeni beklenen blok formatı projedeki
+`02b_RecipePrograms.scl` başlığında belgeli. CAM export'u eski formatı
+(`S7_Optimized_Access := 'TRUE'`, UNLINKED yok, değişken dizi boyu) üretiyordu —
+optimize DB `READ_DBL` tarafından REDDEDİLİR, UNLINKED eksikliği ise SESSİZCE
+iş belleği tüketir.
+
+**Değişiklik (`recipe_to_scl.py` `generate_scl`):**
+1. `{ S7_Optimized_Access := 'FALSE' }` (READ_DBL aynı erişim tipi ister;
+   optimize DB STRUCT içeremez)
+2. `UNLINKED` eklendi — `NON_RETAIN`'den ÖNCE (sıra kritik: ters sıra TIA V17'de
+   blok üretmez; satır eksikse sessiz)
+3. `VERSION : 0.2`
+
+**Dizi boyutu (2026-08-07 KULLANICI KARARI — dinamik KALDI):** İlk uygulamada
+dizi sabit `Array[0..999]` yapılmıştı (02b: "Must match DB_SelectedRecipe
+exactly"); kullanıcı esnekliği geri istedi → `custom_array_size` + export'taki
+"Reçete Database Boyutu" sorusu + auto-tune hedef boyutlandırması GERİ GELDİ,
+eski davranışla birebir (varsayılan/minimum 1000). Soru metnine ve help'e uyarı
+eklendi: 1000 dışı bir boyut PLC tarafında da eşleştirilmezse READ_DBL kopyası
+STATE_RECIPE_LOAD'da başarısız olur.
+
+**UI/i18n:** `dlg_array_prompt` (EN/TR/ES) artık DB_SelectedRecipe uyarısı
+içeriyor. Help (EN+TR SCL bölümü): yük-belleği bloğu + "online izlenemez
+normaldir" + dizi boyutu uyarısı.
+
+**Geri almak için:** `generate_scl`'de attribute bloğunu eski haline döndür
+(`'TRUE'`, `VERSION : 0.1`, UNLINKED'i sil) — ama 2026-08-04 sonrası PLC
+projesiyle ESKİ format çalışmaz.
+
+**Test:** `_test_tool_table.py` 7/7 PASS; attribute-sırası + dinamik dizi
+doğrulaması scratchpad'de headless PASS. GUI smoke + gerçek TIA import
+DOĞRULAMASI BEKLİYOR.
+
+---
+
 ## 2026-08-03b — KALİBRASYON "Apply" DÜĞMELERİ: değer kutuya ULAŞMIYORDU (+ sessiz geri alma) (v1.016)
 
 **Kullanıcı raporu:** "Kalibrasyon penceresindeki düğmeler, özellikle önerilen X/Z

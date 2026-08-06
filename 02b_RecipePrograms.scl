@@ -1,0 +1,207 @@
+// =============================================================================
+// 02b_RecipePrograms.scl
+// Recipe program data blocks (DB_RecipeProgram1..10)
+// Kept separate from 02_DataBlocks.scl so real recipe data is not overwritten
+// when 02_DataBlocks.scl is regenerated.
+// Depends on: 01_DataTypes.scl (RecipeHeader, RecipeLine UDTs)
+//
+// *** DO NOT REGENERATE THIS FILE AFTER CAM RECIPES HAVE BEEN IMPORTED ***
+// (warning added 2026-08-06, field commissioning)
+// The BEGIN blocks below are EMPTY -- these declarations exist only so the
+// project compiles before any CAM file arrives. The real recipe data lives in
+// the CAM-generated files (gcodes/DB_RecipeProgramN.scl), which declare the
+// SAME block names and overwrite these when imported. Generating blocks from
+// THIS file after a CAM import therefore replaces every recipe with all-zero
+// data -- and because the DBs are UNLINKED (load memory only, not monitorable
+// online), the wipe is invisible until a cycle start copies zeros into
+// DB_SelectedRecipe. Pre-scan now catches that as 16#0313 (missing END marker),
+// but the recipes are still gone: re-import the gcodes files to restore them.
+// Import order when starting from scratch: 02b first (structure), CAM files
+// after (data). Never the other way, never 02b again afterwards.
+//
+// =============================================================================
+// LOAD-MEMORY RECIPES (2026-08-04) -- read this before editing or regenerating
+// =============================================================================
+// These DBs live in LOAD MEMORY ONLY. They cost zero work memory. FB_Process
+// copies the selected one into "DB_SelectedRecipe" (work memory) with READ_DBL
+// in STATE_RECIPE_LOAD(11), and everything downstream runs from that buffer.
+// Design + gate-test evidence: Program/docs/LOADMEM_COPY_ON_SELECT.md
+//
+// THREE THINGS THE CAM POST-PROCESSOR MUST EMIT, EXACTLY:
+//
+//   1. { S7_Optimized_Access := 'FALSE' }   -- standard access.
+//      READ_DBL requires source and destination to have the SAME access type,
+//      and an optimized DB may not contain a STRUCT (RecipeLine is a UDT).
+//      An optimized recipe DB is REFUSED by READ_DBL at runtime.
+//
+//   2. UNLINKED  -- and it MUST come BEFORE NON_RETAIN.
+//      Verified on TIA V17 / S7-1214C 2026-08-04: NON_RETAIN then UNLINKED
+//      will NOT generate blocks from the source. The order below is the one
+//      that works.
+//
+//      *** OMITTING UNLINKED FAILS SILENTLY. ***
+//      The recipe then sits in work memory, READ_DBL still succeeds (it reads
+//      the DB's start values either way), every test still passes, and the
+//      only symptom is that ~4-12 KB of work memory per recipe is quietly
+//      consumed again. It will not surface until the CPU runs out. Wrong
+//      ORDER is loud (nothing generates); a MISSING line is silent.
+//
+//   3. Array[0..999] -- 1000 lines. Must match DB_SelectedRecipe exactly.
+//      Header.LineCount is validated against 1..1000 in STATE_PRE_SCAN(12).
+//
+// A load-memory-only DB CANNOT be monitored online -- that is expected, and is
+// the quickest proof the attribute took effect. To inspect recipe data, run a
+// cycle and look at DB_SelectedRecipe instead.
+//
+// Load memory cost: 10 x ~12 KB = ~120 KB of the 1214C's 4 MB. Not a concern.
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// DB_RecipeProgram1 - Recipe data for Program 1
+// -----------------------------------------------------------------------------
+DATA_BLOCK "DB_RecipeProgram1"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.2
+UNLINKED
+NON_RETAIN
+    VAR
+        Header : "RecipeHeader";                // Program name, LineCount, Valid, bounding box, tool table
+        Lines  : Array[0..999] of "RecipeLine"; // 1000 lines max
+    END_VAR
+BEGIN
+END_DATA_BLOCK
+
+// -----------------------------------------------------------------------------
+// DB_RecipeProgram2 - Recipe data for Program 2
+// -----------------------------------------------------------------------------
+DATA_BLOCK "DB_RecipeProgram2"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.2
+UNLINKED
+NON_RETAIN
+    VAR
+        Header : "RecipeHeader";
+        Lines  : Array[0..999] of "RecipeLine";
+    END_VAR
+BEGIN
+END_DATA_BLOCK
+
+// -----------------------------------------------------------------------------
+// DB_RecipeProgram3 - Recipe data for Program 3
+// -----------------------------------------------------------------------------
+DATA_BLOCK "DB_RecipeProgram3"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.2
+UNLINKED
+NON_RETAIN
+    VAR
+        Header : "RecipeHeader";
+        Lines  : Array[0..999] of "RecipeLine";
+    END_VAR
+BEGIN
+END_DATA_BLOCK
+
+// -----------------------------------------------------------------------------
+// DB_RecipeProgram4 - Recipe data for Program 4
+// -----------------------------------------------------------------------------
+DATA_BLOCK "DB_RecipeProgram4"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.2
+UNLINKED
+NON_RETAIN
+    VAR
+        Header : "RecipeHeader";
+        Lines  : Array[0..999] of "RecipeLine";
+    END_VAR
+BEGIN
+END_DATA_BLOCK
+
+// -----------------------------------------------------------------------------
+// DB_RecipeProgram5 - Recipe data for Program 5
+// -----------------------------------------------------------------------------
+DATA_BLOCK "DB_RecipeProgram5"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.2
+UNLINKED
+NON_RETAIN
+    VAR
+        Header : "RecipeHeader";
+        Lines  : Array[0..999] of "RecipeLine";
+    END_VAR
+BEGIN
+END_DATA_BLOCK
+
+// -----------------------------------------------------------------------------
+// DB_RecipeProgram6 - Recipe data for Program 6   (new 2026-08-04)
+// -----------------------------------------------------------------------------
+DATA_BLOCK "DB_RecipeProgram6"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.2
+UNLINKED
+NON_RETAIN
+    VAR
+        Header : "RecipeHeader";
+        Lines  : Array[0..999] of "RecipeLine";
+    END_VAR
+BEGIN
+END_DATA_BLOCK
+
+// -----------------------------------------------------------------------------
+// DB_RecipeProgram7 - Recipe data for Program 7   (new 2026-08-04)
+// -----------------------------------------------------------------------------
+DATA_BLOCK "DB_RecipeProgram7"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.2
+UNLINKED
+NON_RETAIN
+    VAR
+        Header : "RecipeHeader";
+        Lines  : Array[0..999] of "RecipeLine";
+    END_VAR
+BEGIN
+END_DATA_BLOCK
+
+// -----------------------------------------------------------------------------
+// DB_RecipeProgram8 - Recipe data for Program 8   (new 2026-08-04)
+// -----------------------------------------------------------------------------
+DATA_BLOCK "DB_RecipeProgram8"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.2
+UNLINKED
+NON_RETAIN
+    VAR
+        Header : "RecipeHeader";
+        Lines  : Array[0..999] of "RecipeLine";
+    END_VAR
+BEGIN
+END_DATA_BLOCK
+
+// -----------------------------------------------------------------------------
+// DB_RecipeProgram9 - Recipe data for Program 9   (new 2026-08-04)
+// -----------------------------------------------------------------------------
+DATA_BLOCK "DB_RecipeProgram9"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.2
+UNLINKED
+NON_RETAIN
+    VAR
+        Header : "RecipeHeader";
+        Lines  : Array[0..999] of "RecipeLine";
+    END_VAR
+BEGIN
+END_DATA_BLOCK
+
+// -----------------------------------------------------------------------------
+// DB_RecipeProgram10 - Recipe data for Program 10  (new 2026-08-04)
+// -----------------------------------------------------------------------------
+DATA_BLOCK "DB_RecipeProgram10"
+{ S7_Optimized_Access := 'FALSE' }
+VERSION : 0.2
+UNLINKED
+NON_RETAIN
+    VAR
+        Header : "RecipeHeader";
+        Lines  : Array[0..999] of "RecipeLine";
+    END_VAR
+BEGIN
+END_DATA_BLOCK
