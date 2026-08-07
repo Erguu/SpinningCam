@@ -79,6 +79,10 @@ Purpose: let a maintenance agent improve **stability, performance, bugs, and str
   paths + session state → **do not commit it**. Defaults live in `main.py` `_load_settings`.
 - **`app_version` is forced from `version.py`** after settings load AND excluded from the
   customer-settings merge in `_load_machine_profile`. Version = build constant, never from a file.
+  Bumping is a **three-file ritual**: `version.py` + a top entry in `changelog.py` (operator
+  wording) + a `LAST_CHANGES.md` note. A Stop hook
+  (`.claude/hooks/version_bump_check.py`) asks once per session when shippable code moved
+  since the last bump — the answer is the user's, not the agent's.
 - **`update_geometry` must be called after `load_step`** or `get_radius_fast` measures a stale/
   default cone (documented gotcha). Mandrel `props`: `min_z`, `top_z`, `br` (base radius).
 - **Reach/angle/clearance coupling** (the subtle engine area — read `LAST_CHANGES` 2026-07-05b):

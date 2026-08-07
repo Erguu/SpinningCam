@@ -11,5 +11,20 @@
       "WebSearch(*)"
     ],
     "deny": []
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.claude/hooks/version_bump_check.py\"",
+            "timeout": 25,
+            "statusMessage": "Checking for a missed version bump"
+          }
+        ]
+      }
+    ]
   }
 }

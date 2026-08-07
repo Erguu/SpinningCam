@@ -17,6 +17,27 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.017": [
+        ("Exported SCL now matches the machine's current PLC — re-export your recipes",
+         "After the commissioning in August the PLC keeps recipes in load memory and "
+         "copies the selected one across at run time. The data block written by this "
+         "program is built for that: it is no longer optimised, it is marked UNLINKED "
+         "so it does not eat working memory, and it is stamped version 0.2. An .scl "
+         "file exported before this update will not load into the current PLC project, "
+         "so export your recipes again.",
+         "File ▸ Export SCL for TIA Portal (.scl)"),
+        ("A recipe block you cannot watch online is normal now",
+         "Because the block lives in load memory, TIA Portal will not show live values "
+         "for it — there is nothing to monitor until the PLC copies the recipe into "
+         "DB_SelectedRecipe. That is the intended behaviour, not a failed import.",
+         "File ▸ Export SCL for TIA Portal (.scl)"),
+        ("Recipe database size is still yours to choose — but keep the PLC in step",
+         "The size question at export time is unchanged and still defaults to 1000. "
+         "The one thing to watch: if you pick anything other than 1000, the array in "
+         "DB_SelectedRecipe on the PLC has to be given the same size, otherwise the "
+         "recipe copy fails while loading. The prompt and the help page now say so.",
+         "File ▸ Export SCL for TIA Portal (.scl) ▸ Recipe Database Size"),
+    ],
     "1.016": [
         ("Calibration ▸ Apply now really lands — and can no longer be undone by accident",
          "The Apply buttons did change the setting, but the box on the Machine or "

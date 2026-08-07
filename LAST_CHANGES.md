@@ -5,6 +5,32 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-07 — SÜRÜM 1.017 + "sürüm artırmayı unutma" kancası
+
+**Neden:** Aşağıdaki 2026-08-06 SCL değişikliği commit+push edildi ama
+`version.py` 1.016'da kaldı — yani müşteri açısından format değişikliği
+sürümsüz gitti (eski .scl'ler geçersizken kullanıcı bunu changelog'da göremezdi).
+
+**Değişiklik:**
+1. `version.py` → `APP_VERSION = "1.017"`; `changelog.py`'ye 1.017 girdisi
+   (yeni DB formatı + "online izlenemez normaldir" + dizi boyutu uyarısı).
+2. Yeni Stop kancası `.claude/hooks/version_bump_check.py` +
+   `.claude/settings.json` `hooks.Stop`: son `version.py` commit'inden BU YANA
+   sevk edilebilir kod (.py/.json; docs, `backup/`, `tool_geometry/`, `_diag*`,
+   `_test*`, `settings.json` HARİÇ) değiştiyse oturum başına BİR KEZ sorar.
+   Sessiz geçer: değişiklik yoksa, sadece dokümansa, ya da o oturumda zaten
+   bump yapıldıysa çıktı üretmez.
+
+**Geri almak için:** `.claude/settings.json` içindeki `hooks` bloğunu sil
+(kanca dosyası kalabilir, tek başına çalışmaz).
+
+**Test:** kanca pipe-test edildi — mevcut ağaçta doğru 3 dosyayı yakaladı
+(`i18n.py`, `recipe_to_scl.py`, `ui/dialogs/help_window.py`); marker (aynı
+oturum tekrar), `stop_hook_active` döngü koruması ve boş stdin yolları sessiz
+çıkış verdi.
+
+---
+
 ## 2026-08-06 — SCL EXPORT: yük-belleği (load memory) reçete DB formatı
 
 **Neden:** Saha devreye alma (2026-08-04) PLC tarafını değiştirdi — reçete DB'leri
