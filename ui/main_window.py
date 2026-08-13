@@ -312,7 +312,17 @@ class SpinningCamWindow(tk.Tk):
             filetypes=[(t("fd_spinning_project"), "*.ssp"), (t("fd_all_files"), "*.*")]
         )
         if path:
-             if self.app.load_project(path):
+             # A program stores the whole params dict, machine settings included.
+             # Those stay as the operator has them unless they say otherwise here
+             # (field incident 2026-08-14 — an old program silently restored an
+             # old PLC line limit, which autosave then made permanent).
+             def _ask_machine_conflicts(conflicts):
+                 from ui.dialogs.project_params_diff import ProjectParamsDiffDialog
+                 dlg = ProjectParamsDiffDialog(self, conflicts,
+                                               filename=os.path.basename(path))
+                 return dlg.result
+
+             if self.app.load_project(path, on_machine_conflict=_ask_machine_conflicts):
                  self.lbl_info.config(text=f"Loaded Project: {os.path.basename(path)}")
                  if hasattr(self, 'ui_machine'): self.ui_machine.refresh_ui()
                  if hasattr(self, 'ui_process'): self.ui_process.refresh_ui()
@@ -1041,6 +1051,40 @@ class SpinningCamWindow(tk.Tk):
             logger.error(f"Orphan-command check failed, exporting unchanged: {e}")
             return self.app.params
 
+    def _blocked_by_missing_tools(self):
+        """Refuse to export when an operation uses a tool this computer doesn't have.
+
+        The tool library is local (tools.json, never carried inside a .ssp), so a
+        program written elsewhere can name a tool that isn't here. Every other
+        tool value re-syncs from the library on each calculation; this one cannot,
+        and the operation keeps the roller reach saved in the file — a reach
+        calibrated on another machine. Reach is the clearance, so the quiet
+        outcome is a gouge or a collision.
+
+        Blocks like the turret/tool-table check does: say which tool, which
+        operations, and stop. Returns True when the export must not proceed.
+        """
+        try:
+            missing = self.app.missing_library_tools()
+        except Exception as e:
+            # A check must never be the reason an export fails.
+            logger.error(f"Missing-tool check failed, exporting unchanged: {e}")
+            return False
+        if not missing:
+            return False
+
+        lines = []
+        for m in missing:
+            saved = m.get("r_tool")
+            saved_txt = f"{float(saved):.3f} mm" if isinstance(saved, (int, float)) \
+                else t("mt_no_reach")
+            lines.append(t("mt_row").format(tool=m["tool_id"], reach=saved_txt,
+                                            ops=", ".join(m["ops"])))
+        messagebox.showerror(
+            t("mt_title"),
+            t("mt_body").format(n=len(missing), rows="\n".join(lines)))
+        return True
+
     def save_gcode_logic(self):
         if hasattr(self, 'ui_machine'):
             self.ui_machine.sync_params()
@@ -1049,6 +1093,11 @@ class SpinningCamWindow(tk.Tk):
 
         if not getattr(self.app.path_gen, 'last_calculated_paths', None):
             messagebox.showwarning(t("msg_no_paths_title"), t("msg_no_paths"))
+            return
+
+        # A tool this computer does not have means an un-syncable roller reach
+        # in the toolpath — refuse before a file exists.
+        if self._blocked_by_missing_tools():
             return
 
         _p = self.resolve_export_params()
@@ -1206,6 +1255,11 @@ class SpinningCamWindow(tk.Tk):
         if hasattr(self, 'ui_machine'):
             self.ui_machine.sync_params()
 
+        # A tool this computer does not have means an un-syncable roller reach in
+        # the recipe — refuse before the name/layout dialogs, like the turret check.
+        if self._blocked_by_missing_tools():
+            return
+
         # Settle out-of-range pass triggers BEFORE the first generate, so every
         # later step (line count, auto-tune, the written file) sees one and the
         # same program. _xp replaces self.app.params for the rest of this export.
@@ -1224,6 +1278,20 @@ class SpinningCamWindow(tk.Tk):
             _pre_converter = GCodeToSCLConverter()
             _pre_converter.parse_gcode(gcode_str)
             _parsed_line_count = len(_pre_converter.lines)
+        except ValueError as _pe:
+            # A custom command's P will not fit the PLC Param byte. Say so now
+            # rather than swallowing it and failing after the name dialogs — the
+            # CAM never ships a P other than the one that was typed.
+            _pe_msg = str(_pe)
+            if _pe_msg.startswith("PARAM_RANGE:"):
+                _, _mc, _pv = _pe_msg.split(":", 2)
+                messagebox.showerror(
+                    t("msg_export_error_title"),
+                    f"{_mc} P{_pv}: P must be a whole number between 0 and 255 "
+                    f"(the PLC Param field is one byte).\n\n"
+                    f"Fix the custom command in the Machine tab.")
+                return
+            _parsed_line_count = None
         except Exception:
             _parsed_line_count = None
 
@@ -1250,14 +1318,19 @@ class SpinningCamWindow(tk.Tk):
         if not db_name:
             return
 
+        # A distinct Header.sName per program, so the HMI can tell the operator
+        # which recipe is loaded — seed the title from the DB's slot number rather
+        # than shipping "SpinningCam Program" for all ten.
+        _slot = "".join(ch for ch in db_name if ch.isdigit())
+        _default_title = f"Program {_slot}" if _slot else "SpinningCam Program"
         program_title = simpledialog.askstring(
             t("dlg_prog_title_title"),
             t("dlg_prog_title_prompt"),
-            initialvalue="SpinningCam Program",
+            initialvalue=_default_title,
             parent=self
         )
         if not program_title:
-            program_title = "SpinningCam Program"
+            program_title = _default_title
 
         auto = (bool(_xp.get("plc_auto_tune", False))
                 and bool(_xp.get("plc_mode", False)))
@@ -1311,28 +1384,46 @@ class SpinningCamWindow(tk.Tk):
             p["plc_tolerance"] = fit_tol
             p["plc_exit_tolerance"] = fit_tol
             gcode_str = self.app.path_gen.generate_gcode(params=p)
-            # Size the DB array to the entered target (e.g. 350 -> Array[0..349]),
-            # not a fixed [0..999]. generate_scl's max(size-1, line_count-1) guard
-            # still grows the array if the fitted line count exceeds the target.
+            # Size the DB to the entered target (e.g. 350 -> 4 chunks of 100),
+            # not a fixed 1000. chunk_geometry still grows the capacity if the
+            # fitted line count exceeds the target, and rounds it up to whole
+            # arrays so every chunk is the same length.
             custom_array_size = target
             autofit_note = t("msg_autotune_note").format(
                 tol=_fmt(fit_tol), lines=fit_lines, cl=_fmt(fit_cl))
-        elif _parsed_line_count is not None:
-            _default_array = max(_parsed_line_count, 1000)
-            _array_size_str = simpledialog.askstring(
-                t("dlg_array_title"),
-                t("dlg_array_prompt").format(_parsed_line_count, _parsed_line_count, _default_array),
-                initialvalue=str(_default_array),
-                parent=self
-            )
-            if _array_size_str is None:
-                return
-            try:
-                custom_array_size = max(int(_array_size_str), _parsed_line_count)
-            except ValueError:
-                custom_array_size = _default_array
+            _layout_line_count = fit_lines
         else:
             custom_array_size = None
+            _layout_line_count = _parsed_line_count
+
+        # Recipe DB layout: total capacity + lines per chunk array (Lines1..LinesN).
+        # The PLC reads the recipe one declared array at a time, so both numbers
+        # must match its loader — see letter_spinningcam_chunked_recipes.md.
+        from recipe_to_scl import DEFAULT_CHUNK_SIZE
+        chunk_size = int(_xp.get("scl_chunk_size", DEFAULT_CHUNK_SIZE) or 0)
+        if _layout_line_count is not None:
+            from ui.dialogs.scl_layout import SclLayoutDialog
+            _dlg = SclLayoutDialog(
+                self,
+                line_count=_layout_line_count,
+                capacity=(custom_array_size if custom_array_size is not None
+                          else max(_layout_line_count, 1000)),
+                chunk_size=chunk_size,
+                capacity_locked=auto,
+            )
+            if _dlg.result is None:
+                return
+            chunk_size = _dlg.result["chunk_size"]
+            if not auto:
+                custom_array_size = _dlg.result["capacity"]
+            # Remember the geometry: it is a property of the PLC on the other end,
+            # not of this one program, so the next export should not re-ask blind.
+            if chunk_size != int(_xp.get("scl_chunk_size", -1) or 0):
+                _xp["scl_chunk_size"] = chunk_size
+                try:
+                    self.app.on_param_change("scl_chunk_size", chunk_size, "none")
+                except Exception:
+                    pass
 
         default_name = db_name + ".scl"
         scl_path = filedialog.asksaveasfilename(
@@ -1344,6 +1435,20 @@ class SpinningCamWindow(tk.Tk):
         if not scl_path:
             return
 
+        # The DB name is what TIA imports, not the file name: saving program 5's
+        # data in a block still called DB_RecipeProgram1 overwrites program 1.
+        _db_slot = "".join(ch for ch in db_name if ch.isdigit())
+        _file_slot = "".join(ch for ch in os.path.splitext(os.path.basename(scl_path))[0]
+                             if ch.isdigit())
+        if _db_slot and _file_slot and _db_slot != _file_slot:
+            if not messagebox.askyesno(
+                    t("msg_slot_mismatch_title"),
+                    t("msg_slot_mismatch").format(
+                        db=db_name, file=os.path.basename(scl_path),
+                        dbnum=_db_slot, filenum=_file_slot),
+                    icon='warning'):
+                return
+
         success, stats = ExportManager.export_scl(
             scl_filepath=scl_path,
             db_name=db_name,
@@ -1351,6 +1456,7 @@ class SpinningCamWindow(tk.Tk):
             force=force_flag,
             params=_xp,
             custom_array_size=custom_array_size,
+            chunk_size=chunk_size,
             gcode_string=gcode_str
         )
 
@@ -1373,11 +1479,19 @@ class SpinningCamWindow(tk.Tk):
                     force=True,
                     params=_xp,
                     custom_array_size=custom_array_size,
+                    chunk_size=chunk_size,
                     gcode_string=gcode_str
                 )
             else:
                 messagebox.showinfo(t("msg_cancelled_title"), t("msg_cancelled"))
                 return
+
+        # The generated file failed its own chunk-mapping self-check; nothing was
+        # written (a scrambled recipe compiles cleanly in TIA, so it must not ship).
+        if not success and stats.get('geometry_error'):
+            messagebox.showerror(t("msg_export_error_title"),
+                                 stats.get('message', t("msg_scl_error")))
+            return
 
         # Turret/tool-table validation failed inside the writer (backstop — the
         # pre-check above normally catches this first).
@@ -1396,6 +1510,10 @@ class SpinningCamWindow(tk.Tk):
                 scl_bytes=stats.get('scl_size_bytes', 0),
                 plc_bytes=stats.get('estimated_plc_bytes', 0)
             )
+            _geo = stats.get('geometry') or {}
+            if _geo.get('chunked'):
+                msg += "\n" + t("msg_scl_layout_line").format(
+                    n=_geo['chunk_count'], m=_geo['chunk_size'])
             if autofit_note:
                 msg = f"{autofit_note}\n\n{msg}"
             messagebox.showinfo(t("msg_scl_complete_title"), msg)

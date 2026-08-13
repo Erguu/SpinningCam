@@ -81,6 +81,8 @@ CRITICAL_MODULES = [
     "recipe_explain",                 # provenance + recipe audit, lazily imported
     "ui.dialogs.recipe_audit",        # "Preview & Analyze" UI, lazily imported
     "ui.dialogs.orphan_commands",     # out-of-range pass trigger prompt, lazily imported
+    "ui.dialogs.scl_layout",          # recipe DB chunk-layout picker, lazily imported
+    "ui.dialogs.project_params_diff", # machine settings inside a .ssp, lazily imported
 ]
 
 

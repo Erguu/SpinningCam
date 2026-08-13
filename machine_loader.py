@@ -20,6 +20,7 @@ MACHINE_PROFILE_KEYS = [
     "cylinder_x_pos", "cylinder_z_base",
     "plc_mode", "plc_tolerance", "plc_exit_tolerance",
     "plc_auto_tune", "plc_target_lines",
+    "scl_chunk_size",   # recipe DB chunk geometry — belongs to the PLC, per machine
     "turret_slots", "turret_auto_angles",
     "gcode_resolution", "gcode_header", "gcode_footer",
     "max_spin_rpm",
@@ -60,6 +61,56 @@ def get_unique_types(base_dir: str) -> list:
         if tc not in seen:
             seen[tc] = p
     return list(seen.items())   # [(type_code, profile), ...]
+
+
+def _same_value(a, b) -> bool:
+    """True when two saved param values mean the same thing.
+
+    JSON round-trips turn 1000 into 1000.0 and lists/dicts into fresh objects, so
+    a bare ``!=`` would report differences that are not differences. Numbers are
+    compared numerically (with a hair of tolerance for float noise), bools
+    strictly (True must not equal 1.0 — plc_mode is stored both ways in the wild),
+    and containers by their JSON text.
+    """
+    if isinstance(a, bool) or isinstance(b, bool):
+        return bool(a) == bool(b) and isinstance(a, bool) == isinstance(b, bool)
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return abs(float(a) - float(b)) <= 1e-9
+    if isinstance(a, (list, dict)) or isinstance(b, (list, dict)):
+        try:
+            return json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
+        except (TypeError, ValueError):
+            return a == b
+    return a == b
+
+
+def diff_machine_params(current: dict, loaded: dict) -> list:
+    """Machine-profile settings that a loaded .ssp disagrees with.
+
+    A saved program stores the WHOLE params dict, machine settings included, so
+    opening an old program used to silently restore that day's machine setup —
+    program start position, PLC/recipe settings, turret table (field incident,
+    2026-08-14). Those belong to the machine in front of the operator, not to the
+    program, so the loader now asks instead of assuming.
+
+    Only keys actually present in the file are considered: programs saved by old
+    builds carry none, and a missing key is not a disagreement.
+
+    Returns ``[{'key', 'current', 'loaded'}, ...]`` in MACHINE_PROFILE_KEYS order
+    (stable, so the dialog does not reshuffle between loads).
+    """
+    out = []
+    for k in MACHINE_PROFILE_KEYS:
+        if k not in loaded or k not in current:
+            continue
+        if not _same_value(current[k], loaded[k]):
+            out.append({"key": k, "current": current[k], "loaded": loaded[k]})
+    return out
+
+
+def strip_machine_params(loaded: dict) -> dict:
+    """A copy of a loaded program's params with every machine-profile key removed."""
+    return {k: v for k, v in loaded.items() if k not in set(MACHINE_PROFILE_KEYS)}
 
 
 def load_machine_profile(path: str) -> dict:

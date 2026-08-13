@@ -212,7 +212,8 @@ class ExportManager:
                    force: bool = False,
                    params: dict = None,
                    custom_array_size: int = None,
-                   gcode_string: Optional[str] = None) -> Tuple[bool, dict]:
+                   gcode_string: Optional[str] = None,
+                   chunk_size: int = None) -> Tuple[bool, dict]:
         """
         Export G-code as SCL Data Block for TIA Portal.
         
@@ -231,7 +232,10 @@ class ExportManager:
             db_name: Data Block name (e.g., "DB_RecipeProgram1")
             program_title: Human-readable program title
             force: If True, ignore line count limit warnings
-            
+            custom_array_size: Total recipe capacity in elements
+            chunk_size: Recipe lines per declared array (Lines1..LinesN);
+                None/0 = legacy single Lines array. Must match the PLC loader.
+
         Returns:
             Tuple of (success: bool, stats: dict with conversion statistics)
             If line limit exceeded and force=False, stats will contain 'limit_exceeded' key
@@ -244,7 +248,8 @@ class ExportManager:
                 scl_code = converter.generate_scl(
                     db_name, program_title,
                     force=force, params=params,
-                    custom_array_size=custom_array_size
+                    custom_array_size=custom_array_size,
+                    chunk_size=chunk_size
                 )
                 from pathlib import Path
                 out_path = Path(scl_filepath)
@@ -253,6 +258,7 @@ class ExportManager:
                 rapid_count  = sum(1 for l in converter.lines if l.cmd == 0)
                 linear_count = sum(1 for l in converter.lines if l.cmd == 1)
                 tool_count   = sum(1 for l in converter.lines if l.cmd == 10)
+                from recipe_to_scl import chunk_geometry
                 stats = {
                     'total_lines': len(converter.lines),
                     'rapid_moves': rapid_count,
@@ -261,6 +267,8 @@ class ExportManager:
                     'db_name': db_name,
                     'scl_size_bytes': len(scl_code.encode('utf-8')),
                     'estimated_plc_bytes': len(converter.lines) * 12,
+                    'geometry': chunk_geometry(len(converter.lines),
+                                               custom_array_size, chunk_size),
                 }
                 return True, stats
             output_path, stats = converter.convert_file(
@@ -292,6 +300,26 @@ class ExportManager:
                 return False, {
                     'tool_table_error': True,
                     'message': error_msg[len("TOOL_TABLE:"):]
+                }
+            if error_msg.startswith("GEOMETRY:"):
+                # The generated file failed its own chunk-mapping self-check. A
+                # scrambled recipe compiles cleanly in TIA, so nothing is written.
+                return False, {
+                    'geometry_error': True,
+                    'message': ("The generated recipe failed its chunk-geometry "
+                                "self-check and was NOT written:\n\n"
+                                + error_msg[len("GEOMETRY:"):])
+                }
+            if error_msg.startswith("PARAM_RANGE:"):
+                # A custom command's P does not fit the PLC's Param Byte. The CAM
+                # will not quietly ship a different number than the one typed —
+                # say which command, and let the user fix it.
+                _, _mcode, _p = error_msg.split(":", 2)
+                return False, {
+                    'param_range_error': True,
+                    'message': (f"{_mcode} P{_p}: P must be a whole number "
+                                f"between 0 and 255 (the PLC Param is one byte). "
+                                f"Fix the custom command in the Machine tab.")
                 }
             print(f"SCL Export Error: {e}")
             return False, {}

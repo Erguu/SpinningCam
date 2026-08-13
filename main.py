@@ -138,6 +138,11 @@ class SpinningApp:
             "plc_tolerance": 0.5,
             "plc_auto_tune": False,     # auto-fit tolerance to a PLC line budget
             "plc_target_lines": 1000,   # target max recipe lines when auto_tune is on
+            # SCL recipe DB layout: lines per declared array (Lines1..LinesN).
+            # The PLC copies the recipe out of load memory one declared array at a
+            # time (READ_DBL silently truncates a 12 KB block), so this must match
+            # its loader. 0 = legacy single Lines array.
+            "scl_chunk_size": 100,
 
             # Recipe-carried turret / tool table (CAM_TOOL_TABLE_HANDOVER.md).
             # 4 physical slots; code 0 = empty. Emitted into every SCL recipe header
@@ -394,6 +399,40 @@ class SpinningApp:
                 logger.warning("Tool %s: calibrated r_tool=%.3f < disc radius=%.3f — possible "
                                "mis-calibration, roller may gouge the part.",
                                op.get("tool_id"), lib_r, float(radius))
+
+    def missing_library_tools(self):
+        """Active operations whose tool_id is not in this computer's tool library.
+
+        The blind spot left by ``sync_operation_r_tools``: it skips an operation
+        whose tool it cannot find (``tl is None: continue``), so that operation
+        silently keeps the ``r_tool`` copy saved inside the .ssp — a reach
+        calibrated on some other machine, or for a tool that no longer exists.
+        Reach IS the clearance, so a stale one gouges or collides. Everything
+        else about tooling self-corrects from the library; this case cannot,
+        because there is nothing to correct from.
+
+        Disabled operations are ignored — they are skipped everywhere in path
+        generation, so they cannot reach a file.
+
+        Returns ``[{'tool_id', 'ops': [display names], 'r_tool': saved value}, ...]``
+        ordered by first appearance. Empty list = nothing to report. Never raises:
+        with no library loaded at all it reports nothing rather than blocking
+        every export.
+        """
+        if not self.tool_library:
+            return []
+        known = {tl.get("id") for tl in self.tool_library}
+        found = {}
+        for i, op in enumerate(self.params.get("operations", [])):
+            if not op.get("enabled", True):
+                continue
+            tid = op.get("tool_id")
+            if tid is None or tid in known:
+                continue
+            entry = found.setdefault(tid, {"tool_id": tid, "ops": [],
+                                           "r_tool": op.get("r_tool")})
+            entry["ops"].append(op.get("name") or f"{op.get('type', 'Op')} #{i + 1}")
+        return list(found.values())
 
     def check_angled_clearance(self):
         """ADVISORY ONLY (2026-07-03) — never alters a toolpath.
@@ -1933,7 +1972,22 @@ class SpinningApp:
                 return False
         return False
 
-    def load_project(self, filepath):
+    def load_project(self, filepath, on_machine_conflict=None):
+        """Load a .ssp program.
+
+        Machine settings are NOT taken from the file by default. A program stores
+        the whole params dict, so opening one saved weeks ago used to silently
+        restore that day's machine setup — and the next Machine-tab edit then
+        wrote it permanently into the profile via autosave (field incident,
+        2026-08-14). The machine in front of the operator wins unless they say
+        otherwise.
+
+        ``on_machine_conflict`` lets the UI ask. It receives the diff list from
+        ``machine_loader.diff_machine_params`` and returns ``{key: value}`` for the
+        rows where the operator chose the program's value (``{}`` = keep all of
+        mine), or ``None`` to abort the load. Omitted — headless callers, the old
+        PyVista buttons — means keep all of mine, silently and safely.
+        """
         if filepath and os.path.exists(filepath):
             try:
                 with open(filepath, "r") as f:
@@ -1942,7 +1996,24 @@ class SpinningApp:
                     # not a per-program setting — preserve it across a load.
                     _show_adv = self.params.get("op_view_show_advanced", False)
                     loaded_params = d.get("params", {})
+
+                    from machine_loader import diff_machine_params, strip_machine_params
+                    _conflicts = diff_machine_params(self.params, loaded_params)
+                    _accepted = {}
+                    if _conflicts and on_machine_conflict is not None:
+                        _accepted = on_machine_conflict(_conflicts)
+                        if _accepted is None:
+                            logger.info("Project load cancelled at the machine-settings prompt.")
+                            return False
+                    # Drop every machine key, then put back only the ones the
+                    # operator explicitly accepted.
+                    loaded_params = strip_machine_params(loaded_params)
+
                     self.params.update(loaded_params)
+                    if _accepted:
+                        self.params.update(_accepted)
+                        logger.info("Project load: took %d machine setting(s) from the file: %s",
+                                    len(_accepted), ", ".join(sorted(_accepted)))
                     self.params["op_view_show_advanced"] = _show_adv
                     # Customize-View column/tag config IS per program: if the
                     # loaded file has none, drop any stale in-memory config so

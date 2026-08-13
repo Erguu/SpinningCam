@@ -2102,6 +2102,13 @@ are in the Process & Visual tab, since they only affect the
 drawing. How far it is drawn extended is read from your M40
 command, so the picture cannot disagree with the program.
 
+The P value of any custom command — M40 included — is exported
+to the PLC exactly as you typed it. The CAM does not rescale or
+reinterpret it; what the number means is defined on the PLC
+side. P must be a whole number from 0 to 255, because the PLC's
+Param field is one byte; anything else is refused at export
+rather than quietly rounded.
+
 TO SEE WHAT A PROGRAM ACTUALLY CONTAINS, use
 Help ▸ Preview & Analyze. It lists every M-code the program will
 carry, in the order the machine will execute them, each with its
@@ -2122,6 +2129,44 @@ never edited for you.
 
 Two commands on the SAME pass both run, in table order (top
 first). Use the ▲ ▼ buttons to set that order.
+
+
+TOOLS THIS COMPUTER DOES NOT HAVE
+════════════════════════════════════════════════════════════════
+The tool library is local to each computer — it is never carried
+inside a program file. A program only records WHICH tool each
+operation uses; the tool's calibrated reach is refreshed from
+your own library before every calculation, so your calibration
+always wins.
+
+The one case that cannot self-correct is a tool your library does
+not contain: there is nothing to refresh from, so the operation
+keeps the reach saved inside the program file — calibrated on
+another machine. Reach is the clearance, so export is BLOCKED
+with a window naming the tool and the operations using it.
+
+Fix it by adding the tool in the Tools window, or by importing
+the tool library from the machine the program came from
+(Tools ▸ Export / Import).
+
+
+OPENING A SAVED PROGRAM (.ssp)
+════════════════════════════════════════════════════════════════
+A program file also carries the machine settings that were in
+force when it was saved. Those are NOT applied to your machine.
+The part shape, operations and passes come from the file as
+always, but Program Start / End, offsets, workspace limits, PLC
+and recipe settings and the turret table stay as YOU have them.
+
+If the file disagrees, a window lists each setting side by side —
+yours and the program's. Every row starts on "Mine", so pressing
+OK without reading changes nothing. Click a row (or press Space)
+to take that one value from the program instead. "Don't open"
+abandons the load.
+
+Why: the machine in front of you is the real one. Before this,
+opening an old program silently restored that day's settings, and
+the next edit on the Machine tab made them permanent.
 
 
 EXPORT FORMATS
@@ -2147,10 +2192,26 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  DB_RecipeProgram1..10 layout. It cannot be
                  monitored online — that is expected; the PLC
                  copies it into DB_SelectedRecipe at cycle start.
-                 The array size is asked on export; the default
-                 1000 matches DB_SelectedRecipe. A different size
-                 must also be matched on the PLC side or the copy
-                 fails at recipe load.
+
+                 RECIPE DATABASE LAYOUT: asked on export. The lines
+                 are split into chunk arrays — Lines1..Lines10, each
+                 100 lines by default — because the PLC copies the
+                 recipe out of load memory one declared array at a
+                 time. Global line g lands at
+                 Lines[(g / 100) + 1][g mod 100]; the line count in
+                 the header still counts globally.
+
+                 BOTH NUMBERS MUST MATCH THE PLC'S LOADER. Too few
+                 arrays is a TIA compile error (harmless), but a
+                 wrong chunk SIZE compiles cleanly and reassembles
+                 the recipe scrambled — the dialog warns when you
+                 leave the layout the PLC expects. The geometry is
+                 written into the file as "// CHUNKS: 10 x 100" and
+                 the export refuses to write a file whose mapping
+                 does not check out.
+
+                 Chunk size 0 emits the old single Lines array; the
+                 current PLC loader cannot read it.
 
 Recipe CSV       A simplified pass-by-pass parameter table.
                  Useful for documentation, setup sheets, and
@@ -2354,6 +2415,13 @@ Process & Visual sekmesindedir; yalnızca çizimi etkilerler.
 Ne kadar uzamış çizileceği M40 komutunuzdan okunur, böylece
 resim programla çelişemez.
 
+Herhangi bir özel komutun P değeri — M40 dahil — PLC'ye tam
+olarak yazdığınız gibi aktarılır. CAM bu sayıyı ölçeklemez,
+yeniden yorumlamaz; ne anlama geldiği PLC tarafında tanımlıdır.
+PLC'nin Param alanı tek bayt olduğu için P, 0 ile 255 arasında
+tam sayı olmalıdır; başka bir değer sessizce yuvarlanmaz,
+dışa aktarımda reddedilir.
+
 BİR PROGRAMDA GERÇEKTE NE OLDUĞUNU GÖRMEK İÇİN
 Yardım ▸ Önizle ve Analiz Et'i kullanın. Programın taşıyacağı
 bütün M-code'ları, makinenin çalıştıracağı sırayla ve
@@ -2374,6 +2442,45 @@ tablonuz sizin yerinize hiç değiştirilmez.
 
 Aynı pasa konan iki komutun İKİSİ de çalışır, tablo sırasıyla
 (üstteki önce). Sırayı ▲ ▼ düğmeleriyle ayarlayın.
+
+
+BU BİLGİSAYARDA OLMAYAN TAKIMLAR
+════════════════════════════════════════════════════════════════
+Takım kütüphanesi her bilgisayara özeldir — program dosyasının
+içinde TAŞINMAZ. Program yalnızca hangi operasyonun hangi takımı
+kullandığını kaydeder; takımın kalibre edilmiş erişimi her
+hesaplamadan önce sizin kütüphanenizden tazelenir, yani sizin
+kalibrasyonunuz her zaman kazanır.
+
+Kendi kendini düzeltemeyen tek durum: kütüphanenizde OLMAYAN bir
+takım. Tazelenecek bir kaynak yoktur, bu yüzden operasyon program
+dosyasında kayıtlı erişimi kullanmaya devam eder — başka bir
+makinede kalibre edilmiş bir değeri. Erişim = clearance olduğundan
+dışa aktarma ENGELLENİR; pencere takımı ve onu kullanan
+operasyonları adıyla söyler.
+
+Çözüm: takımı Takımlar penceresinden ekleyin ya da programın
+geldiği makinenin takım kütüphanesini içe aktarın
+(Takımlar ▸ Dışa / İçe Aktar).
+
+
+KAYITLI PROGRAM (.ssp) AÇMA
+════════════════════════════════════════════════════════════════
+Program dosyası, kaydedildiği andaki makine ayarlarını da içinde
+taşır. Bunlar makinenize UYGULANMAZ. Parça şekli, operasyonlar ve
+pasolar her zamanki gibi dosyadan gelir; ama Program Başlangıç /
+Sonu, ofsetler, çalışma alanı sınırları, PLC ve reçete ayarları ile
+taret tablosu SİZDEKİ gibi kalır.
+
+Dosya farklıysa, her ayarı yan yana gösteren bir pencere açılır —
+sizinki ve programdaki. Her satır "Benimki" ile başlar; okumadan
+Tamam'a basmak hiçbir şeyi değiştirmez. Bir satıra tıklayarak
+(veya Boşluk tuşuyla) o değeri programdan alabilirsiniz. "Açma"
+düğmesi yüklemeyi tamamen iptal eder.
+
+Neden: karşınızdaki makine gerçek olandır. Bundan önce eski bir
+program açmak o günün ayarlarını sessizce geri getiriyordu ve
+Makine sekmesindeki ilk düzenleme bunu kalıcı hale getiriyordu.
 
 
 DIŞA AKTARMA FORMATLARI
@@ -2397,11 +2504,26 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   DB'sidir (standart erişim, UNLINKED) — PLC'deki
                   DB_RecipeProgram1..10 düzeniyle aynıdır. Online
                   izlenemez — bu normaldir; PLC çevrim başında
-                  DB_SelectedRecipe'e kopyalar. Dizi boyutu dışa
-                  aktarımda sorulur; varsayılan 1000,
-                  DB_SelectedRecipe ile eşleşir. Farklı bir boyut
-                  PLC tarafında da eşleştirilmelidir, yoksa kopya
-                  reçete yüklemede başarısız olur.
+                  DB_SelectedRecipe'e kopyalar.
+
+                  REÇETE DATABASE DÜZENİ: dışa aktarımda sorulur.
+                  Satırlar parça dizilerine bölünür — Lines1..Lines10,
+                  varsayılan olarak her biri 100 satır — çünkü PLC
+                  reçeteyi yük belleğinden her seferinde bir dizi
+                  olarak kopyalar. Global g satırı
+                  Lines[(g / 100) + 1][g mod 100] konumuna düşer;
+                  başlıktaki satır sayısı yine GLOBAL sayar.
+
+                  HER İKİ SAYI DA PLC YÜKLEYİCİSİYLE AYNI OLMALIDIR.
+                  Dizi sayısı az olursa TIA derleme hatası verir
+                  (zararsız), ama parça BOYUTU yanlışsa dosya sorunsuz
+                  derlenir ve reçete karışık birleştirilir — PLC'nin
+                  beklediği düzenden çıkınca pencere uyarır. Geometri
+                  dosyaya "// CHUNKS: 10 x 100" olarak yazılır ve
+                  eşlemesi tutmayan bir dosya hiç yazılmaz.
+
+                  Parça boyutu 0, eski tek Lines dizisini üretir;
+                  mevcut PLC yükleyicisi bunu okuyamaz.
 
                   TARET / TAKIM TABLOSU: Her SCL reçetesinin başlığına
                   taret düzeni (yuva→takım-kodu, yuva sayısı, açılar)

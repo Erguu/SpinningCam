@@ -272,10 +272,136 @@ STRINGS = {
     "dlg_prog_title_prompt":    {"EN": "Enter program title (for header comment):",
                                  "TR": "Program başlığını girin (başlık yorumu için):",
                                  "ES": "Ingrese el título del programa (para comentario de encabezado):"},
-    "dlg_array_title":          {"EN": "Recipe Database Size",      "TR": "Reçete Database Boyutu",     "ES": "Tamaño de Base de Datos de Receta"},
-    "dlg_array_prompt":         {"EN": "G-code analyzed: {} lines will be generated.\n\nHow many elements should the PLC recipe database have?\n(Minimum: {}, recommended: {})\n\nCaution: 1000 matches the PLC's DB_SelectedRecipe buffer.\nA different size must also be matched on the PLC side,\nor the READ_DBL copy fails at recipe load.",
-                                 "TR": "G-code analiz edildi: {} satır oluşturulacak.\n\nPLC reçete database'i kaç elemanlı olsun?\n(Minimum: {}, önerilen: {})\n\nDikkat: 1000, PLC'deki DB_SelectedRecipe tamponuyla eşleşir.\nFarklı bir boyut PLC tarafında da eşleştirilmelidir,\nyoksa READ_DBL kopyası reçete yüklemede başarısız olur.",
-                                 "ES": "G-code analizado: {} líneas serán generadas.\n\n¿Cuántos elementos debe tener la base de datos de receta PLC?\n(Mínimo: {}, recomendado: {})\n\nPrecaución: 1000 coincide con el búfer DB_SelectedRecipe del PLC.\nUn tamaño diferente también debe ajustarse en el lado del PLC,\no la copia READ_DBL fallará al cargar la receta."},
+    # Export blocked: an operation uses a tool that is not in this tool library.
+    "mt_title":                 {"EN": "Tool Not in This Tool Library", "TR": "Takım Bu Kütüphanede Yok", "ES": "Herramienta No Está en Esta Biblioteca"},
+    "mt_body":                  {"EN": "Export stopped: {n} tool(s) used by this program are not in this computer's tool library.\n\n"
+                                       "{rows}\n\n"
+                                       "Every other tool value is refreshed from the library before each calculation, but a tool "
+                                       "that is not here cannot be — so these operations are still using the roller reach saved "
+                                       "inside the program file, calibrated on another machine. Reach is the clearance, so the "
+                                       "roller could gouge the part or hit the mandrel.\n\n"
+                                       "Add the tool in the Tools window (or import the tool library from the machine this "
+                                       "program came from), then export again.",
+                                 "TR": "Dışa aktarma durduruldu: Bu programın kullandığı {n} takım, bu bilgisayarın takım "
+                                       "kütüphanesinde yok.\n\n"
+                                       "{rows}\n\n"
+                                       "Diğer tüm takım değerleri her hesaplamadan önce kütüphaneden yenilenir, ama burada "
+                                       "olmayan bir takım yenilenemez — yani bu operasyonlar hâlâ program dosyasının içinde "
+                                       "kayıtlı, BAŞKA bir makinede kalibre edilmiş merdane erişimini kullanıyor. Erişim = "
+                                       "clearance demektir; merdane parçayı yiyebilir veya mandrele çarpabilir.\n\n"
+                                       "Takımı Takımlar penceresinden ekleyin (ya da programın geldiği makinenin takım "
+                                       "kütüphanesini içe aktarın) ve yeniden dışa aktarın.",
+                                 "ES": "Exportación detenida: {n} herramienta(s) usadas por este programa no están en la "
+                                       "biblioteca de herramientas de este equipo.\n\n"
+                                       "{rows}\n\n"
+                                       "Todos los demás valores de herramienta se actualizan desde la biblioteca antes de cada "
+                                       "cálculo, pero una herramienta que no está aquí no puede actualizarse — así que estas "
+                                       "operaciones siguen usando el alcance del rodillo guardado dentro del archivo del "
+                                       "programa, calibrado en otra máquina. El alcance es la holgura, así que el rodillo podría "
+                                       "dañar la pieza o golpear el mandril.\n\n"
+                                       "Agregue la herramienta en la ventana Herramientas (o importe la biblioteca de la máquina "
+                                       "de la que vino este programa) y exporte de nuevo."},
+    "mt_row":                   {"EN": "  • {tool} — saved reach {reach}   (used by: {ops})",
+                                 "TR": "  • {tool} — kayıtlı erişim {reach}   (kullanan: {ops})",
+                                 "ES": "  • {tool} — alcance guardado {reach}   (usado por: {ops})"},
+    "mt_no_reach":              {"EN": "not set",      "TR": "ayarlı değil",  "ES": "sin definir"},
+
+    # Machine settings carried inside a saved program (.ssp) — asked on load.
+    "diff_title":               {"EN": "Machine Settings in This Program", "TR": "Bu Programdaki Makine Ayarları", "ES": "Ajustes de Máquina en Este Programa"},
+    "diff_head":                {"EN": "This program was saved with {n} machine setting(s) different from yours.",
+                                 "TR": "Bu program, sizinkinden farklı {n} makine ayarıyla kaydedilmiş.",
+                                 "ES": "Este programa se guardó con {n} ajuste(s) de máquina distintos a los suyos."},
+    "diff_info":                {"EN": "Your machine's settings are kept unless you tick a row. The part shape and the "
+                                       "operations always come from the program — only the settings below are in question.",
+                                 "TR": "Bir satırı işaretlemezseniz makinenizin ayarları korunur. Parça şekli ve "
+                                       "operasyonlar her zaman programdan gelir — burada sadece aşağıdaki ayarlar söz konusu.",
+                                 "ES": "Se conservan los ajustes de su máquina salvo que marque una fila. La forma de la "
+                                       "pieza y las operaciones siempre vienen del programa — aquí solo se trata de los ajustes de abajo."},
+    "diff_col_setting":         {"EN": "Setting",        "TR": "Ayar",            "ES": "Ajuste"},
+    "diff_col_mine":            {"EN": "Yours (now)",    "TR": "Sizinki (şu an)", "ES": "El suyo (ahora)"},
+    "diff_col_file":            {"EN": "In the program", "TR": "Programdaki",     "ES": "En el programa"},
+    "diff_col_use":             {"EN": "Use",            "TR": "Kullanılacak",    "ES": "Usar"},
+    "diff_use_mine":            {"EN": "Mine",           "TR": "Benimki",         "ES": "El mío"},
+    "diff_use_file":            {"EN": "Program's",      "TR": "Programdaki",     "ES": "El del programa"},
+    "diff_hint":                {"EN": "Click a row (or press Space) to switch it between Mine and Program's.",
+                                 "TR": "Bir satıra tıklayın (veya Boşluk tuşu) — Benimki ↔ Programdaki arasında değişir.",
+                                 "ES": "Haga clic en una fila (o pulse Espacio) para alternar entre El mío y El del programa."},
+    "diff_all_mine":            {"EN": "Keep all mine",  "TR": "Hepsi benimki",   "ES": "Conservar todos los míos"},
+    "diff_all_file":            {"EN": "Use all from the program", "TR": "Hepsi programdaki", "ES": "Usar todos los del programa"},
+    "diff_cancel_load":         {"EN": "Don't open",     "TR": "Açma",            "ES": "No abrir"},
+    "diff_on":                  {"EN": "On",             "TR": "Açık",            "ES": "Sí"},
+    "diff_off":                 {"EN": "Off",            "TR": "Kapalı",          "ES": "No"},
+    "diff_items":               {"EN": "{n} item(s)",    "TR": "{n} kayıt",       "ES": "{n} elemento(s)"},
+
+    # Recipe DB layout (capacity + chunk arrays) — asked at SCL export time.
+    "dlg_layout_title":         {"EN": "Recipe Database Layout",    "TR": "Reçete Database Düzeni",     "ES": "Diseño de Base de Datos de Receta"},
+    "dlg_layout_lines":         {"EN": "G-code analyzed: {n} recipe lines will be written.",
+                                 "TR": "G-code analiz edildi: {n} reçete satırı yazılacak.",
+                                 "ES": "G-code analizado: se escribirán {n} líneas de receta."},
+    "dlg_layout_info":          {"EN": "The PLC copies the recipe out of load memory one declared array at a time, "
+                                       "so the lines are split into Lines1..LinesN. These two numbers must match the "
+                                       "PLC's loader exactly.",
+                                 "TR": "PLC reçeteyi yük belleğinden her seferinde bir dizi olarak kopyalar, bu yüzden "
+                                       "satırlar Lines1..LinesN dizilerine bölünür. Bu iki sayı PLC yükleyicisiyle "
+                                       "birebir aynı olmalıdır.",
+                                 "ES": "El PLC copia la receta de la memoria de carga un arreglo declarado a la vez, "
+                                       "por eso las líneas se dividen en Lines1..LinesN. Estos dos números deben "
+                                       "coincidir exactamente con el cargador del PLC."},
+    "dlg_layout_capacity":      {"EN": "Total recipe size (elements):", "TR": "Toplam reçete boyutu (eleman):", "ES": "Tamaño total de receta (elementos):"},
+    "dlg_layout_locked":        {"EN": "set by the auto-tune target", "TR": "oto-ayar hedefiyle belirlendi", "ES": "definido por el objetivo de auto-ajuste"},
+    "dlg_layout_split":         {"EN": "Split into chunk arrays (required by the PLC loader)",
+                                 "TR": "Parça dizilerine böl (PLC yükleyicisi için gerekli)",
+                                 "ES": "Dividir en arreglos por bloques (requerido por el cargador PLC)"},
+    "dlg_layout_chunk":         {"EN": "Lines per array (chunk):",   "TR": "Dizi başına satır (parça):", "ES": "Líneas por arreglo (bloque):"},
+    "dlg_layout_preview":       {"EN": "Lines1..Lines{last} : Array[0..{hi}] — {n} x {m} = {cap} elements\nEND marker  -> Lines{ea}[{ei}]",
+                                 "TR": "Lines1..Lines{last} : Array[0..{hi}] — {n} x {m} = {cap} eleman\nEND işareti -> Lines{ea}[{ei}]",
+                                 "ES": "Lines1..Lines{last} : Array[0..{hi}] — {n} x {m} = {cap} elementos\nMarca END   -> Lines{ea}[{ei}]"},
+    "dlg_layout_preview_legacy": {"EN": "Lines : Array[0..{hi}] (single array)\nEND marker  -> Lines[{end}]",
+                                  "TR": "Lines : Array[0..{hi}] (tek dizi)\nEND işareti -> Lines[{end}]",
+                                  "ES": "Lines : Array[0..{hi}] (arreglo único)\nMarca END   -> Lines[{end}]"},
+    "dlg_layout_bad":           {"EN": "Enter a whole number in each field.",
+                                 "TR": "Her alana bir tam sayı girin.",
+                                 "ES": "Ingrese un número entero en cada campo."},
+    "dlg_layout_warn_small":    {"EN": "⚠ Smaller than the {n} lines being written — it will be grown automatically.",
+                                 "TR": "⚠ Yazılacak {n} satırdan küçük — otomatik olarak büyütülecek.",
+                                 "ES": "⚠ Menor que las {n} líneas a escribir — se aumentará automáticamente."},
+    "dlg_layout_warn_round":    {"EN": "⚠ Rounded up to {cap} so every array holds the same number of lines.",
+                                 "TR": "⚠ Her dizi aynı sayıda satır tutsun diye {cap} değerine yuvarlandı.",
+                                 "ES": "⚠ Redondeado a {cap} para que cada arreglo tenga la misma cantidad de líneas."},
+    "dlg_layout_warn_geo":      {"EN": "⚠ {m} lines per array is not what the PLC loader expects ({rm}). A wrong chunk "
+                                       "size still compiles in TIA and reassembles the recipe scrambled — nothing "
+                                       "downstream catches it. Confirm with the PLC side first.",
+                                 "TR": "⚠ Dizi başına {m} satır, PLC yükleyicisinin beklediği değer değil ({rm}). Yanlış "
+                                       "parça boyutu TIA'da yine de derlenir ve reçeteyi karışık birleştirir — sonraki "
+                                       "hiçbir adım bunu yakalamaz. Önce PLC tarafıyla teyit edin.",
+                                 "ES": "⚠ {m} líneas por arreglo no es lo que espera el cargador PLC ({rm}). Un tamaño de "
+                                       "bloque incorrecto igual compila en TIA y rearma la receta desordenada — nada "
+                                       "posterior lo detecta. Confirme primero con el lado PLC."},
+    "dlg_layout_warn_count":    {"EN": "⚠ {n} arrays instead of the {rn} the PLC loader names: too few is a TIA compile "
+                                       "error, too many silently drops the tail of the program.",
+                                 "TR": "⚠ PLC yükleyicisinin adlandırdığı {rn} dizi yerine {n} dizi: az olması TIA "
+                                       "derleme hatası, fazla olması programın sonunu sessizce düşürür.",
+                                 "ES": "⚠ {n} arreglos en lugar de los {rn} que nombra el cargador PLC: menos es un error "
+                                       "de compilación en TIA, más descarta silenciosamente el final del programa."},
+    "dlg_layout_warn_legacy":   {"EN": "⚠ Single-array (legacy) output. The current PLC loader cannot read this — "
+                                       "use it only for older firmware.",
+                                 "TR": "⚠ Tek dizili (eski) çıktı. Mevcut PLC yükleyicisi bunu okuyamaz — sadece eski "
+                                       "firmware için kullanın.",
+                                 "ES": "⚠ Salida de arreglo único (heredada). El cargador PLC actual no puede leerla — "
+                                       "úsela solo para firmware antiguo."},
+    "msg_scl_layout_line":      {"EN": "Layout: {n} arrays x {m} lines (Lines1..Lines{n})",
+                                 "TR": "Düzen: {n} dizi x {m} satır (Lines1..Lines{n})",
+                                 "ES": "Diseño: {n} arreglos x {m} líneas (Lines1..Lines{n})"},
+    "msg_slot_mismatch_title":  {"EN": "Program Slot Mismatch",      "TR": "Program Slotu Uyuşmuyor",    "ES": "Discrepancia de Ranura"},
+    "msg_slot_mismatch":        {"EN": "The data block is named \"{db}\" but the file is being saved as \"{file}\".\n\n"
+                                       "Importing it would overwrite recipe program {dbnum}, not {filenum}.\n\n"
+                                       "Save it anyway?",
+                                 "TR": "Veri bloğu adı \"{db}\" ama dosya \"{file}\" olarak kaydediliyor.\n\n"
+                                       "İçe aktarıldığında {filenum} değil, {dbnum} numaralı reçete programı "
+                                       "üzerine yazılır.\n\nYine de kaydedilsin mi?",
+                                 "ES": "El bloque de datos se llama \"{db}\" pero el archivo se guarda como \"{file}\".\n\n"
+                                       "Al importarlo se sobrescribiría el programa de receta {dbnum}, no {filenum}.\n\n"
+                                       "¿Guardar de todos modos?"},
     "msg_limit_exceeded_title": {"EN": "Line Limit Exceeded",       "TR": "Satır Limiti Aşıldı",        "ES": "Límite de Líneas Superado"},
     "msg_limit_exceeded":       {"EN": "⚠️ Recipe line limit exceeded!\n\nCurrent line count: {actual}\nMaximum limit: {max_l}\nExcess: {excess} lines\n\nThe PLC program may not be able to process files exceeding this limit.\n\nDo you want to continue anyway?",
                                  "TR": "⚠️ Recipe satır limiti aşıldı!\n\nMevcut satır sayısı: {actual}\nMaksimum limit: {max_l}\nAşım: {excess} satır\n\nPLC programı bu limiti aşan dosyaları işleyemeyebilir.\n\nYine de devam etmek istiyor musunuz?",

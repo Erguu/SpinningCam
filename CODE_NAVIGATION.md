@@ -69,6 +69,30 @@ i18n.py                                  ← Çok dilli metin (EN/TR/ES), t(key)
 | PLC format tam spec | `CAM_INTERFACE_SPEC.md` | Tüm doküman |
 | PLC data type tanımları | `CAM_INTERFACE_SPEC.md` | Bölüm 10 |
 | **DB blok öznitelikleri (load-memory, 2026-08-06)** | `recipe_to_scl.py` | `generate_scl()` DATA_BLOCK bloğu — `'FALSE'` erişim + `UNLINKED` (NON_RETAIN'den ÖNCE) + `VERSION : 0.2`; dizi boyu DİNAMİK (kullanıcı isteği, varsayılan 1000 = `DB_SelectedRecipe`); sözleşme = `02b_RecipePrograms.scl` başlık yorumu |
+| **Parçalı diziler `Lines1..LinesN` (2026-08-14)** | `recipe_to_scl.py` | `chunk_geometry()` (saf matematik: g → `Lines[g//m+1][g%m]`, kapasite tam diziye yuvarlanır) + `generate_scl(chunk_size=...)`; `// CHUNKS: n x m` başlık satırı; `chunk_size=0` = eski tek dizi |
+| **Üretilen dosyanın kendi kendini doğrulaması** | `recipe_to_scl.py` | `check_scl_geometry()` — `generate_scl` kendi çıktısını doğrular, tutmazsa `ValueError('GEOMETRY:...')` (dosya YAZILMAZ); CLI: `python recipe_to_scl.py --check dosya.scl` |
+| Düzen sorma penceresi (kapasite + parça boyutu, canlı önizleme) | `ui/dialogs/scl_layout.py` | `SclLayoutDialog` — PLC referans geometrisi `PLC_REFERENCE_GEOMETRY` (10 × 100); ayar `params["scl_chunk_size"]` (makine profiline yazılır) |
+
+### 4c. .ssp içindeki MAKİNE ayarları — 2026-08-14 (saha olayı)
+
+`save_project` TÜM `params`'ı yazar (43/50 makine anahtarı dahil). Eskiden
+`load_project` bunu süzmeden uyguluyordu → eski program açmak makine ayarlarını
+geri alıyor, sonraki Makine-sekmesi düzenlemesi `autosave_machine_profile` ile
+KALICI yapıyordu. Artık makine anahtarları dosyadan uygulanmaz; fark varsa sorulur.
+
+| Ne | Dosya | Satır/Fonksiyon |
+|----|-------|-----------------|
+| Fark tespiti (sadece `MACHINE_PROFILE_KEYS`, normalize karşılaştırma) | `machine_loader.py` | `diff_machine_params()`, `_same_value()` (JSON gidiş-dönüşü fark DEĞİL; `True` ≠ `1.0`) |
+| Makine anahtarlarını süz | `machine_loader.py` | `strip_machine_params()` |
+| Yükleme politikası (varsayılan "benimki"; `None` = iptal) | `main.py` | `load_project(filepath, on_machine_conflict=None)` |
+| Soru penceresi (Ayar/Sizinki/Programdaki/Kullanılacak) | `ui/dialogs/project_params_diff.py` | `ProjectParamsDiffDialog`; etiket haritası `_LABELS` (mevcut Makine-sekmesi i18n anahtarları) |
+| Pencereyi bağlama | `ui/main_window.py` | `open_project_action` → `_ask_machine_conflicts` |
+
+**GOTCHA:** `save_project` makine anahtarlarını yazmaya DEVAM ediyor — bilerek;
+karşılaştırmanın "programdaki" tarafı odur. Yazmayı kesersek eski dosyalarla
+karşılaştırma yapılamaz.
+
+| Kütüphanede olmayan takım → export ENGELİ | `main.py` `missing_library_tools()` + `ui/main_window.py` `_blocked_by_missing_tools()` (hem .nc hem .scl) | `sync_operation_r_tools`'un kör noktası: bulunamayan takım ATLANIR → op, .ssp'deki bayat `r_tool`'u (başka makinenin kalibrasyonu) kullanmaya devam eder |
 
 ### 4b. Kesme / Kıvırma (cutting / bending) — 2026-07-31, v1.015
 
