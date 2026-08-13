@@ -17,6 +17,45 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.018": [
+        ("Recipes are now written in blocks of 100 lines — re-export for the current PLC",
+         "The PLC could not reliably read a whole recipe in one piece: it reported "
+         "success while part of the program arrived empty. Once this ran roughly 900 "
+         "zero-length moves with the line counter advancing normally. The recipe is now "
+         "written as ten blocks of a hundred lines so the PLC can fetch and check them "
+         "one at a time. An .scl exported before this update will not load into the "
+         "current PLC project — export your recipes again.",
+         "File ▸ Export SCL for TIA Portal (.scl)"),
+        ("The recipe database question now shows what you are about to get",
+         "One window replaces the old size prompt: total recipe size and lines per "
+         "block, with the resulting layout spelled out as you type, plus a warning if "
+         "you move away from what the PLC expects. Getting the block size wrong still "
+         "passes the TIA compiler but scrambles the recipe, so the export now checks "
+         "its own file and refuses to write one that does not add up.",
+         "File ▸ Export SCL for TIA Portal (.scl) ▸ Recipe Database Layout"),
+        ("Opening a program no longer changes your machine settings behind your back",
+         "A saved program also stores the machine settings from the day it was saved, "
+         "and opening it used to apply them silently — one operator got an old PLC line "
+         "limit back this way. The part shape and operations still come from the file, "
+         "but machine settings now stay as YOU have them. If the file disagrees, a "
+         "window lists each one side by side; every row starts on yours, so pressing OK "
+         "without reading changes nothing.",
+         "File ▸ Open Project (.ssp)"),
+        ("Export stops if the program uses a tool you do not have",
+         "The tool library belongs to the computer, not to the program. If an operation "
+         "names a tool that is not in your library, its roller reach cannot be refreshed "
+         "and the operation keeps a reach calibrated on another machine — which is the "
+         "clearance, so the roller could gouge the part or hit the mandrel. Export now "
+         "stops and names the tool and the operations using it.",
+         "File ▸ Export G-code / Export SCL"),
+        ("Each recipe gets its own name, and a wrong slot is caught",
+         "The program title now defaults to the data block's number instead of "
+         "'SpinningCam Program' for every recipe, so the HMI can tell the operator which "
+         "one is loaded. And if the block name and the file name point at different "
+         "program numbers, you are asked before saving — importing that would overwrite "
+         "the wrong recipe.",
+         "File ▸ Export SCL for TIA Portal (.scl)"),
+    ],
     "1.017": [
         ("Exported SCL now matches the machine's current PLC — re-export your recipes",
          "After the commissioning in August the PLC keeps recipes in load memory and "

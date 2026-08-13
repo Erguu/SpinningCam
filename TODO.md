@@ -3,6 +3,59 @@
 
 ---
 
+## PLC / SCL — 2026-08-14 (implemented, verification pending)
+
+### 96. Chunked recipe arrays `Lines1..LinesN` — confirm against the real PLC
+
+**Done in the CAM** (see LAST_CHANGES 2026-08-14): chunked export with the
+geometry asked at export time, `// CHUNKS: n x m` header, and a self-check that
+refuses to write a file whose mapping does not hold. Driven by
+`letter_spinningcam_chunked_recipes.md`.
+
+**Version bump deliberately deferred** (user, 2026-08-14): stays at 1.017 until
+the PLC side confirms the TIA import and the final chunk geometry. Bump together
+with whatever that confirmation changes, so the changelog states the format the
+machine actually runs.
+
+**Still open — none of it is CAM work, but it decides whether the default is right:**
+- GUI smoke of the new layout dialog in the real window (headless only so far).
+- Send the PLC side ONE re-exported test file and have them run it through their
+  `tools/split_recipe_db.py --check`; cross-check against our
+  `python recipe_to_scl.py --check <file>`. The two validators should agree.
+- Confirm the default geometry after their hardware test. They said they may
+  halve it to 50 × 20 if a chunk still fails to arrive, or enlarge it if
+  transfers prove comfortable. If it changes, the only edits are
+  `main.py` `"scl_chunk_size"` and `PLC_REFERENCE_GEOMETRY` in
+  `ui/dialogs/scl_layout.py` (the warning threshold) — the emitter follows.
+- Re-export every recipe already in their repository: four of the five still
+  carry `S7_Optimized_Access := 'TRUE'` and none are chunked.
+
+---
+
+## UI Wording — 2026-07-30 (not started)
+
+### 93. Rename the "Custom Commands" table title to "Adding M code"
+
+**Why (user, 2026-07-30):** operators do not read "Custom Commands" as "this is
+where I add my M-codes". The table on the Machine tab is in practice the M-code
+entry point, so the title should say that plainly.
+
+**Where:** the LabelFrame title comes from the i18n key `frm_custom_cmds`
+(`i18n.py:519`), rendered at `ui/tabs/machine_tab.py:629`. Pure view-layer —
+`custom_commands` stays the param/settings key, no schema or `.ssp` change.
+
+**Action:**
+- `i18n.py:519` → EN `"Adding M code"`, plus TR / ES translations
+  (TR e.g. "M kodu ekleme").
+- Sweep the other user-facing strings that point at this table by its old name so
+  the wording stays consistent: `i18n.py` (`orc_*` hint at :66, back-support note
+  at :461–463, M-code description help at :553–555) and `changelog.py`
+  (:22, :34, :40, :45, :56–60 — historical entries, decide whether to leave them
+  as-is since they describe past versions).
+- `help_window.py` `_C` dict (EN+TR) per the help-window update policy.
+
+---
+
 ## Features — 2026-07-23 (scoping — user session, NOT started)
 
 > Four items raised by the user. **#3 (reverse for finishing) turned out to be

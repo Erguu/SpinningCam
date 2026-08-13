@@ -5,6 +5,159 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-14 — SÜRÜM 1.018
+
+`version.py` → `1.018` + `changelog.py` 1.018 girdisi (5 operatör-dilinde madde:
+parçalı reçete + yeni düzen penceresi + .ssp makine ayarı sorusu + kütüphanede
+olmayan takım engeli + reçete başına ayrı isim/slot uyarısı). Bu oturumun üç
+değişikliğini kapsıyor (aşağıdaki üç girdi).
+
+**NOT:** Sürüm önce bilerek ertelenmişti (PLC teyidi bekleniyordu), kullanıcı
+kararıyla commit öncesi artırıldı. TIA import doğrulaması hâlâ BEKLİYOR —
+teyit sonrası geometri değişirse (örn. 50 × 20) yeni bir bump gerekir.
+
+---
+
+## 2026-08-14 — KÜTÜPHANEDE OLMAYAN TAKIM DIŞA AKTARMAYI ENGELLİYOR
+
+**Neden:** Makine ayarları soruşturmasında çıkan kör nokta. `sync_operation_r_tools`
+bulamadığı takımı ATLIYOR (`tl is None: continue`) — yani o operasyon .ssp'nin
+içinde kayıtlı `r_tool`'u, yani BAŞKA bir makinede kalibre edilmiş merdane
+erişimini kullanmaya devam ediyor. Erişim = clearance olduğu için sonuç sessiz
+bir dalma (gouge) ya da çarpışma. Takımla ilgili diğer her şey kütüphaneden
+kendini düzeltiyor; bu tek durum düzeltemiyor, çünkü düzeltilecek kaynak yok.
+
+**Değişiklik:**
+1. `main.py` `missing_library_tools()`: AKTİF operasyonlardan `tool_id`'si
+   kütüphanede olmayanlar → `[{tool_id, ops, r_tool}]`, ilk görülme sırasında.
+   Pasif op'lar atlanır (zaten yola çıkmıyorlar). Kütüphane HİÇ yüklenmemişse
+   boş döner — kimseyi kilitlemez.
+2. `ui/main_window.py` `_blocked_by_missing_tools()`: takımı, dosyada kayıtlı
+   erişimi ve onu kullanan operasyonları adıyla sayan bir hata penceresi; taret
+   kontrolüyle aynı üslup. Hem `save_gcode_logic` hem `export_scl_action`
+   başında çağrılıyor — dosya oluşmadan, isim/düzen pencerelerinden ÖNCE.
+   .nc de engelleniyor çünkü bayat erişim takım YOLUNU bozar, sadece reçeteyi değil.
+3. i18n: `mt_title` / `mt_body` / `mt_row` / `mt_no_reach` (EN+TR+ES).
+4. `help_window` EN+TR yeni bölüm.
+
+**Geri almak için:** iki export fonksiyonundaki `_blocked_by_missing_tools()`
+çağrısını kaldırın (kontrol kalır, engelleme kalkar).
+
+**Test:** `_test_missing_tools.py` — 16/16 GEÇTİ (tespit + gruplama + op adı /
+tip-numara yedeği; pasif op, `tool_id`'siz op, BOŞ kütüphane ve op'suz program
+ENGELLEMEZ; mesaj 3 dilde takım+erişim+op adlarıyla render oluyor).
+**BEKLİYOR:** gerçek pencerede GUI smoke.
+
+---
+
+## 2026-08-14 — .ssp AÇARKEN MAKİNE AYARLARI ARTIK SORULUYOR (saha olayı)
+
+**Neden:** Operatör eski bir programı açtı ve PLC satır limiti (ve onunla birlikte
+her makine ayarı) o programın kaydedildiği güne geri döndü. Kök neden:
+`save_project` (`main.py`) TÜM `params` sözlüğünü dosyaya yazıyor — 50 makine
+anahtarının 43'ü dahil — ve `load_project` bunu SÜZMEDEN `params.update()` ile
+geri uyguluyordu. Dahası, sonrasında Makine sekmesinde herhangi bir alana
+dokunulunca `on_param_change` → `autosave_machine_profile` bayat değerleri
+`machines/<id>.json`'a KALICI olarak yazıyordu. Yeniden başlatınca düzelmiş
+görünmesinin sebebi: açılışta makine profili `params`'ın üzerine uygulanıyor —
+yani autosave tetiklenmediyse kendi kendini onarıyordu.
+
+**Değişiklik (kullanıcı kararı: sadece makine ayarları sorulsun, varsayılan
+"benimki"):**
+1. `machine_loader.py`: `diff_machine_params()` (yalnızca `MACHINE_PROFILE_KEYS`,
+   dosyada BULUNAN anahtarlar; sayısal/bool/liste farkları `_same_value` ile
+   normalize edilir → JSON gidiş-dönüşü fark SAYILMAZ) + `strip_machine_params()`.
+2. `main.py` `load_project(filepath, on_machine_conflict=None)`: makine anahtarları
+   dosyadan ARTIK UYGULANMIYOR; sadece operatörün açıkça kabul ettiği satırlar
+   geri yazılıyor. Geri çağırma verilmezse (headless, eski PyVista düğmeleri)
+   sessizce "hepsi benimki" — güvenli taraf. Geri çağırma `None` dönerse yükleme
+   iptal edilir.
+3. `ui/dialogs/project_params_diff.py` (YENİ): Ayar | Sizinki | Programdaki |
+   Kullanılacak tablosu. Her satır "Benimki"de başlar (okumadan Tamam = hiçbir şey
+   değişmez); satıra tıklama/Boşluk ile değişir; "Hepsi benimki" / "Hepsi
+   programdaki" toplu düğmeleri; "Açma" = yüklemeyi iptal. Etiketler Makine
+   sekmesindeki mevcut i18n etiketlerinden gelir; liste/sözlük değerler "n kayıt"
+   olarak özetlenir.
+4. `ui/main_window.py` `open_project_action` pencereyi geri çağırma olarak veriyor.
+5. NOT: `save_project` makine anahtarlarını yazmaya DEVAM ediyor — bilerek.
+   Karşılaştırmanın "programdaki değer" tarafı oradan geliyor; artık sessizce
+   uygulanmadığı için zararsız.
+
+**Geri almak için:** `ui/main_window.py`'de `on_machine_conflict=` argümanını
+kaldırın (pencere hiç açılmaz, makine ayarları yine korunur). Eski "program
+kazanır" davranışına dönmek için `load_project`'teki `strip_machine_params`
+çağrısını kaldırın — ÖNERİLMEZ, saha olayının kökeni budur.
+
+**Test:** `_test_project_machine_params.py` — 21/21 GEÇTİ (fark tespiti, JSON
+gidiş-dönüşü, `True` ≠ `1.0`, eski programda makine anahtarı yoksa hiç sormama,
+varsayılan/hepsini-al/tek-satır/iptal yolları, program geometrisinin HER ZAMAN
+uygulanması, eski davranışın regresyon nöbeti). Pencere EN+TR headless sürüldü.
+**BEKLİYOR:** gerçek pencerede GUI smoke.
+
+---
+
+## 2026-08-14 — SCL EXPORT: parçalı reçete dizileri (`Lines1..LinesN`)
+
+**Neden:** PLC ekibinin mektubu (`letter_spinningcam_chunked_recipes.md`,
+2026-08-14). `READ_DBL` bu CPU'da ~12 KB'lık bloğu GÜVENİLİR ŞEKİLDE
+getirmiyor: `RET_VAL = 0` + `BUSY = FALSE` (yani "başarılı") dönerken hedefte
+delikler kalıyor — 2026-08-13'te sahada iki kez gözlendi (bir kez sadece ~850.
+satırdan sonrası, bir kez ~200 civarı + gerisi sıfır). 38 satırlık programda
+eksik END markerı PLC'yi durdurdu; 999 satırlıkta END marker gelen bölgeye
+denk geldiği için makine ÇALIŞTI ve ~900 sıfır-uzunluklu hareketi X0/Z0'da
+yaptı. Artık reçete parça parça çekiliyor; `READ_DBL`'in `VARIANT` kaynağı
+DERLEME zamanında çözüldüğü için dilim/değişken indeks kabul etmiyor — bir
+alt-aralık ancak KENDİ bildirimi ise aktarılabilir. Bölme bunun için.
+
+**Değişiklik:**
+1. `recipe_to_scl.py`:
+   - `chunk_geometry()` (saf, test edilebilir): global satır g →
+     `Lines[(g // m) + 1][g % m]`; kapasite tam sayıda diziye YUKARI yuvarlanır
+     (yarım dizi = diğerlerinden farklı uzunlukta bir parça demek olurdu).
+   - `generate_scl(..., chunk_size=100)` → `Lines1..LinesN` bildirimleri +
+     `// CHUNKS: n x m` başlık satırı (PLC tarafı bunu parse ediyor) + parça
+     başına bölüm yorumu. `chunk_size=0` eski tek `Lines` dizisini üretir.
+     `Header.LineCount` GLOBAL saymaya devam eder; `CMD := 99` END markerı yine
+     global `LineCount-1`'de, sadece kendi parçasının adı altında.
+   - `check_scl_geometry()` + `generate_scl`'in KENDİ çıktısını doğrulaması:
+     tutmazsa `ValueError('GEOMETRY:...')` ve dosya HİÇ YAZILMAZ. Sebep: doğru
+     dizi sayısı + YANLIŞ parça boyutu TIA'da sorunsuz derlenir ve reçeteyi
+     karışık birleştirir; derleyici de, sonraki hiçbir adım da yakalamaz.
+   - CLI: `--chunk-size`, `--array-size`, `--check dosya.scl` (doğrulayıcı).
+2. `ui/dialogs/scl_layout.py` (YENİ): dışa aktarımda tek pencere — toplam
+   kapasite + parça boyutu, CANLI önizleme ("Lines1..Lines10 : Array[0..99] —
+   10 x 100 = 1000 eleman / END → Lines3[53]") ve PLC'nin beklediği düzenden
+   (10 × 100) sapınca uyarı. Eski "dizi boyutu" askstring'inin yerini aldı.
+3. `ui/main_window.py` `export_scl_action`: yeni pencere; `chunk_size` export'a
+   geçiriliyor ve `params["scl_chunk_size"]` olarak hatırlanıyor (makine
+   profiline yazılır — geometri PLC'nin özelliği, tek bir programın değil).
+   Ayrıca mektubun 4. ve 5. maddeleri: DB adındaki slot numarası dosya adıyla
+   uyuşmazsa UYARIR (import yanlış programın üzerine yazardı) ve program
+   başlığı varsayılanı artık slot'tan türer ("Program 5") — her reçete için
+   aynı 'SpinningCam Program' değil.
+4. `main.py` varsayılan `scl_chunk_size: 100`; `machine_loader.MACHINE_PROFILE_KEYS`
+   + `packaging_manifest.CRITICAL_MODULES` güncellendi.
+5. Doküman: `CAM_INTERFACE_SPEC.md` §3.1 güncellendi (eski şablon hâlâ
+   `'TRUE'`/`VERSION 0.1`/UNLINKED'siz idi) + yeni §3.2 (parça geometrisi,
+   uyuşmazlık tablosu); `help_window` EN+TR; `CODE_NAVIGATION.md`.
+
+**Geri almak için:** Dışa aktarım penceresinde parça boyutuna `0` girin (tek
+`Lines` dizisi, eski davranış). Kalıcı için `main.py`'de `"scl_chunk_size": 0`.
+
+**Test:** `_test_scl_chunks.py` — 40/40 GEÇTİ. Mektuptaki eşleme örnekleri
+(0→Lines1[0], 100→Lines2[0], 207→Lines3[7], 998→Lines10[98]), 50 × 20'ye
+küçültme, eski tek-dizi yolu, 1000 satırı aşan zorlanmış program; ve
+doğrulayıcının bozuk dosyaları REDDETMESİ (yanlış parça boyutu, eksik dizi,
+satır boşluğu, kayıp END markerı, yanlış LineCount). Mevcut paketler de geçiyor:
+`_test_tool_table.py`, `_test_scl_inspector.py`, `_test_gcode_not_plc.py`,
+`check_packaging.py`. Pencere headless sürüldü (canlı önizleme + kilitli
+kapasite + geçersiz girdi → OK devre dışı).
+
+**BEKLİYOR:** gerçek pencerede GUI smoke; PLC tarafında TIA import + `--check`
+karşılıklı doğrulaması; mektubun istediği tek test dosyasının gönderilmesi.
+
+---
+
 ## 2026-08-07 — SÜRÜM 1.017 + "sürüm artırmayı unutma" kancası
 
 **Neden:** Aşağıdaki 2026-08-06 SCL değişikliği commit+push edildi ama
