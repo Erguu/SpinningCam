@@ -195,9 +195,14 @@ before this change still load; `Checksum` is ignored entirely when the flag is
 clear, so `0` must not be read as "none". `recipe_to_scl.py --check` recomputes
 it offline.
 
-NOTE: the two fields must exist in the PLC's `RecipeHeader` UDT (at the END of
-the struct, after `ToolAngle_List`) before such a file will import. Export with
-`--no-checksum` while that is outstanding.
+The two fields live in the PLC's `RecipeHeader` UDT, at the END of the struct
+after `ToolAngle_List` — **present on the PLC side as of 2026-08-14**, so every
+export carries a checksum and nothing special is needed. The header grew from 72
+to 78 bytes (`ProvidesChecksum` at 72.0, `Checksum` at 74.0), which is why every
+recipe exported before this must be regenerated.
+
+`--no-checksum` (`emit_checksum=False`) remains only as an escape hatch for a PLC
+project whose UDT predates the change.
 
 ---
 

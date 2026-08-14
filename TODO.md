@@ -12,17 +12,23 @@ geometry asked at export time, `// CHUNKS: n x m` header, and a self-check that
 refuses to write a file whose mapping does not hold. Driven by
 `letter_spinningcam_chunked_recipes.md`.
 
-### 97. Recipe header checksum — waiting on the PLC's UDT
+### 97. Recipe header checksum — CAM done, PLC UDT in place
 
 Implemented (LAST_CHANGES 2026-08-14): `Header.ProvidesChecksum` +
 `Header.Checksum`, algorithm agreed against the letter's worked example (1383).
 
-**Blocking their side, not ours:** the two fields must be added to the
-`RecipeHeader` UDT (at the END, after `ToolAngle_List`) before any checksummed
-export will import into TIA. Until then, export with `--no-checksum`
-(`emit_checksum=False`) — the GUI always emits.
+**UDT gap CLOSED (user, 2026-08-14): the PLC side now carries both fields**, so
+every export writes a checksum and `--no-checksum` is no longer needed for the
+handover — it stays only for a PLC project that predates the change. Note the
+header grew 72 → 78 bytes, so every recipe exported before this is unloadable
+and must be regenerated (`DB_RecipeProgram1..5`).
 
 Open:
+- **Import `DB_RecipeProgram9_checksum_test.scl` and confirm** the header shows
+  `ProvidesChecksum = TRUE` and `Checksum = 9593624`, then run a cycle so the PLC
+  actually recomputes and compares (no 16#0316). This is the first end-to-end
+  proof of BOTH letters — chunked layout and checksum — on real hardware.
+- Regenerate `DB_RecipeProgram2..5` from the real part programs once that passes.
 - Send them one re-exported program carrying a checksum; they will extend
   `tools/split_recipe_db.py --check` to verify it offline. Our
   `recipe_to_scl.py --check` already does.

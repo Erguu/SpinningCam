@@ -95,11 +95,12 @@ We would be glad to have `tools/split_recipe_db.py` to compare against.
 
 ## Two things to flag back
 
-**The UDT has to land before any of this imports.** Adding the fields changes the
-block layout, so a checksummed export will not import until `RecipeHeader`
-carries them. We have an escape hatch for the gap: `--no-checksum` emits neither
-field, which your side reads as "no checksum" and skips the check. Tell us when
-the UDT is in and we will stop using it.
+**The UDT is in — confirmed on your side 2026-08-14**, so we are emitting the
+checksum on every export and the `--no-checksum` escape hatch is not in use. It
+stays in the tool only for a project that predates the change. Reminder of the
+consequence you already flagged: the header grows 72 → 78 bytes, so every recipe
+exported before this is unloadable and needs regenerating — `DB_RecipeProgram1`
+included, not just the stale `2..5`.
 
 **`ChecksumXZ` is not implemented.** Your reasoning for excluding X and Z
 convinced us, and you asked for the bit-pattern variant as a separate field and a
