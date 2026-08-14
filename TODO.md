@@ -12,6 +12,29 @@ geometry asked at export time, `// CHUNKS: n x m` header, and a self-check that
 refuses to write a file whose mapping does not hold. Driven by
 `letter_spinningcam_chunked_recipes.md`.
 
+### 97. Recipe header checksum — waiting on the PLC's UDT
+
+Implemented (LAST_CHANGES 2026-08-14): `Header.ProvidesChecksum` +
+`Header.Checksum`, algorithm agreed against the letter's worked example (1383).
+
+**Blocking their side, not ours:** the two fields must be added to the
+`RecipeHeader` UDT (at the END, after `ToolAngle_List`) before any checksummed
+export will import into TIA. Until then, export with `--no-checksum`
+(`emit_checksum=False`) — the GUI always emits.
+
+Open:
+- Send them one re-exported program carrying a checksum; they will extend
+  `tools/split_recipe_db.py --check` to verify it offline. Our
+  `recipe_to_scl.py --check` already does.
+- Optional second stage they offered: `ChecksumXZ` over the raw float bit
+  patterns (`struct.unpack('<I', struct.pack('<f', v))[0]` per X then Z), as a
+  SEPARATE field. Not implemented — only worth doing if they ask.
+- Their carried-over questions are answered in the reply: chunk size IS a
+  parameter (default 100), and `// CHUNKS: n x m` is emitted on every chunked
+  export, not just the test file.
+
+---
+
 **Version bump deliberately deferred** (user, 2026-08-14): stays at 1.017 until
 the PLC side confirms the TIA import and the final chunk geometry. Bump together
 with whatever that confirmation changes, so the changelog states the format the

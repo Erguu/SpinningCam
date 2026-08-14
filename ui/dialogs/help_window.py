@@ -2213,6 +2213,14 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  Chunk size 0 emits the old single Lines array; the
                  current PLC loader cannot read it.
 
+                 CHECKSUM: the header also carries a checksum over
+                 the emitted lines, shown when the export finishes.
+                 The PLC recomputes it after loading and refuses to
+                 run if it disagrees (error 16#0316) — that catches
+                 a recipe that arrived complete but wrong, which the
+                 PLC's own line check cannot see. If a load is
+                 refused, quote this number and re-export.
+
 Recipe CSV       A simplified pass-by-pass parameter table.
                  Useful for documentation, setup sheets, and
                  importing into other tools.
@@ -2524,6 +2532,15 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
 
                   Parça boyutu 0, eski tek Lines dizisini üretir;
                   mevcut PLC yükleyicisi bunu okuyamaz.
+
+                  SAĞLAMA (checksum): başlık, yazılan satırlar
+                  üzerinden bir sağlama değeri de taşır; dışa aktarma
+                  bitince gösterilir. PLC yükledikten sonra bunu
+                  yeniden hesaplar ve uyuşmazsa çalışmayı reddeder
+                  (hata 16#0316) — bu, PLC'nin kendi satır kontrolünün
+                  göremediği "eksiksiz geldi ama yanlış" durumunu
+                  yakalar. Yükleme reddedilirse bu sayıyı bildirip
+                  yeniden dışa aktarın.
 
                   TARET / TAKIM TABLOSU: Her SCL reçetesinin başlığına
                   taret düzeni (yuva→takım-kodu, yuva sayısı, açılar)

@@ -213,7 +213,8 @@ class ExportManager:
                    params: dict = None,
                    custom_array_size: int = None,
                    gcode_string: Optional[str] = None,
-                   chunk_size: int = None) -> Tuple[bool, dict]:
+                   chunk_size: int = None,
+                   emit_checksum: bool = True) -> Tuple[bool, dict]:
         """
         Export G-code as SCL Data Block for TIA Portal.
         
@@ -235,6 +236,8 @@ class ExportManager:
             custom_array_size: Total recipe capacity in elements
             chunk_size: Recipe lines per declared array (Lines1..LinesN);
                 None/0 = legacy single Lines array. Must match the PLC loader.
+            emit_checksum: Write the RecipeHeader integrity fields. Escape hatch
+                only — the PLC UDT must carry them before such a file imports.
 
         Returns:
             Tuple of (success: bool, stats: dict with conversion statistics)
@@ -249,7 +252,8 @@ class ExportManager:
                     db_name, program_title,
                     force=force, params=params,
                     custom_array_size=custom_array_size,
-                    chunk_size=chunk_size
+                    chunk_size=chunk_size,
+                    emit_checksum=emit_checksum
                 )
                 from pathlib import Path
                 out_path = Path(scl_filepath)
@@ -258,7 +262,7 @@ class ExportManager:
                 rapid_count  = sum(1 for l in converter.lines if l.cmd == 0)
                 linear_count = sum(1 for l in converter.lines if l.cmd == 1)
                 tool_count   = sum(1 for l in converter.lines if l.cmd == 10)
-                from recipe_to_scl import chunk_geometry
+                from recipe_to_scl import chunk_geometry, recipe_checksum
                 stats = {
                     'total_lines': len(converter.lines),
                     'rapid_moves': rapid_count,
@@ -269,6 +273,8 @@ class ExportManager:
                     'estimated_plc_bytes': len(converter.lines) * 12,
                     'geometry': chunk_geometry(len(converter.lines),
                                                custom_array_size, chunk_size),
+                    'checksum': (recipe_checksum(converter.lines, len(converter.lines))
+                                 if emit_checksum else None),
                 }
                 return True, stats
             output_path, stats = converter.convert_file(

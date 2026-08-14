@@ -33,6 +33,13 @@ CHANGELOG = {
          "passes the TIA compiler but scrambles the recipe, so the export now checks "
          "its own file and refuses to write one that does not add up.",
          "File ▸ Export SCL for TIA Portal (.scl) ▸ Recipe Database Layout"),
+        ("The PLC can now tell whether the recipe it loaded is the one you exported",
+         "Each recipe carries a checksum over its own lines. The PLC recomputes it "
+         "after loading and refuses to run if the two disagree, which catches a recipe "
+         "that arrived complete but wrong — something its line-by-line check cannot "
+         "see. The number is shown when the export finishes; if the machine ever "
+         "refuses a recipe, quote it and export again.",
+         "File ▸ Export SCL for TIA Portal (.scl)"),
         ("Opening a program no longer changes your machine settings behind your back",
          "A saved program also stores the machine settings from the day it was saved, "
          "and opening it used to apply them silently — one operator got an old PLC line "

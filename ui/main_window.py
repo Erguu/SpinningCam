@@ -1514,6 +1514,10 @@ class SpinningCamWindow(tk.Tk):
             if _geo.get('chunked'):
                 msg += "\n" + t("msg_scl_layout_line").format(
                     n=_geo['chunk_count'], m=_geo['chunk_size'])
+            # Worth showing: it is the number the PLC will recompute and compare,
+            # so it is what to quote when a load is refused with 16#0316.
+            if stats.get('checksum') is not None:
+                msg += "\n" + t("msg_scl_checksum_line").format(ck=stats['checksum'])
             if autofit_note:
                 msg = f"{autofit_note}\n\n{msg}"
             messagebox.showinfo(t("msg_scl_complete_title"), msg)

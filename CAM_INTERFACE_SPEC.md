@@ -153,6 +153,52 @@ python recipe_to_scl.py --check gcodes/DB_RecipeProgram5.scl
 Legacy single-`Lines` output is still selectable (chunk size 0) for older PLC
 firmware, but the current loader cannot read it.
 
+### 3.3 Header Checksum (2026-08-14)
+
+Chunk verification proves every line was *written* (each staging line's `CMD` is
+poisoned with `16#FF` and must come back overwritten). It cannot prove the right
+data arrived: a complete-but-stale chunk, chunks reassembled at the wrong stride,
+or a line whose `CMD` lands while its `X`/`Z`/`F` do not all pass it. The header
+carries a checksum to close that gap.
+
+```scl
+Header.ProvidesChecksum := TRUE;
+Header.Checksum := 9593624;
+```
+
+Two 32-bit accumulators, natural wraparound at 2³², no modulo, no floating point:
+
+```
+sumA := 0 ; sumB := 0
+for g := 0 to LineCount-1:          // emitted lines ONLY, never the padding
+    sumA := sumA + CMD[g] + Param[g] + F[g]
+    sumB := sumB + sumA
+Checksum := sumB XOR (sumA + LineCount)
+```
+
+`sumB` weights each line by its position, so any permutation — the geometry
+mismatch of §3.2 — changes the result. `LineCount` is folded in so a truncated
+recipe cannot coincidentally match. Agreed worked example: lines
+`(20,120,0) (0,0,0) (1,0,250) (99,0,0)` with `LineCount = 4` give **1383**.
+
+**`X` and `Z` are deliberately excluded.** They are IEEE-754 `Real`: the CAM
+computes in float64, the PLC in float32, so any value-based scheme (including
+`ROUND(X * 1000)`) eventually disagrees on a perfectly valid recipe, and a
+checksum that cries wolf gets ignored on the day it is real. A separate
+`ChecksumXZ` over the raw bit patterns is available as an independent second
+field if the PLC side wants it — never folded into `Checksum`.
+
+The PLC recomputes during reassembly and raises `16#0316` ("Recipe checksum
+mismatch — re-export and re-import the recipe") on disagreement.
+`ProvidesChecksum = FALSE` is accepted and skips the check, so recipes exported
+before this change still load; `Checksum` is ignored entirely when the flag is
+clear, so `0` must not be read as "none". `recipe_to_scl.py --check` recomputes
+it offline.
+
+NOTE: the two fields must exist in the PLC's `RecipeHeader` UDT (at the END of
+the struct, after `ToolAngle_List`) before such a file will import. Export with
+`--no-checksum` while that is outstanding.
+
 ---
 
 ## 4. RecipeLine Fields

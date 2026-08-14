@@ -5,6 +5,54 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-14 — SCL BAŞLIK SAĞLAMASI (checksum)
+
+**Neden:** PLC ekibinin ikinci mektubu (`letter_spinningcam_recipe_checksum.md`).
+Parça doğrulaması her satırın YAZILDIĞINI kanıtlıyor (staging satırlarının `CMD`'si
+`16#FF` ile zehirleniyor, üzerine yazılmak ZORUNDA) ama DOĞRU verinin geldiğini
+kanıtlayamıyor. Üç hata tipi bu kontrolden geçiyor: eksiksiz ama BAYAT bir parça
+(eski flash imajı), yanlış sırayla/adımla birleştirilmiş parçalar (yani geçen
+mektubun "tehlikeli" satırı), ve `CMD`'si gelip `X`/`Z`/`F`'i gelmeyen satır
+(12 bayttan sadece 1'i doğrulanıyordu).
+
+**Değişiklik:**
+1. `recipe_to_scl.py` `recipe_checksum()`: iki 32-bit akümülatör, 2³²'de doğal
+   taşma (modulo YOK — bu CPU'da bölme en pahalı işlem), float YOK.
+   `sumB` her satırı KONUMUYLA ağırlıklandırır → permütasyon sonucu değiştirir;
+   `LineCount` XOR'a katılır → kesilmiş reçete tesadüfen tutmaz.
+   **Mutabakat: mektubun örneği 1383 döndü** (ara akümülatörler de birebir).
+2. Emisyon: `Header.ProvidesChecksum := TRUE;` + `Header.Checksum := <n>;`,
+   `ToolAngle_List`'ten SONRA (mektup: yeni alanlar struct'ın SONUNA).
+3. `check_scl_geometry()` sağlamayı dosyadan yeniden hesaplayıp karşılaştırıyor —
+   `--check` artık tek bir bozuk `F` değerini bile yakalıyor (geometri kusursuz
+   olsa bile). Sağlama yoksa UYARI verir, hata değil.
+4. Kaçış kapağı: `emit_checksum=False` / CLI `--no-checksum`. **Gerekli olabilir:**
+   PLC'nin `RecipeHeader` UDT'si iki alanı almadan bu dosyalar TIA'ya IMPORT
+   EDİLEMEZ. PLC tarafı `ProvidesChecksum=FALSE`'ı kabul edip kontrolü atlıyor.
+5. Sağlama değeri export bitiş mesajında gösteriliyor (`msg_scl_checksum_line`) —
+   `16#0316` ile reddedilen bir yüklemede bildirilecek sayı budur.
+
+**X ve Z BİLEREK dışarıda:** IEEE-754 `Real`; CAM float64, PLC float32 hesaplar.
+Değer tabanlı her şema (`ROUND(X*1000)` dahil) er geç GEÇERLİ bir reçetede
+uyuşmazlık verir; boşuna öten alarm, gerçek olduğu gün de yok sayılır. Mektup
+ayrı bir `ChecksumXZ` (ham bit deseni) öneriyor — İSTENİRSE ayrı alan olarak,
+asla `Checksum`'a katılmadan. ŞU AN UYGULANMADI.
+
+**SÜRÜM:** Kullanıcı kararıyla **1.018'de KALDI** — ayrı bump YOK. 1.018 henüz
+müşteriye çıkmadığı için sağlama da onun içeriğine dahil; `changelog.py`'deki
+1.018 girdisine bir madde eklendi ki sürümün anlattığı şey gerçekle örtüşsün.
+
+**Geri almak için:** `--no-checksum` (CLI) veya `emit_checksum=False`.
+
+**Test:** `_test_recipe_checksum.py` — 29/29 GEÇTİ (mektubun örneği + ara
+akümülatörler; sıra-duyarlılık, parça permütasyonu, kesilme, tek `F`/`Param`
+değişimi; padding kapsam DIŞI; 2³² taşması; X/Z farklı ama CMD/Param/F aynı →
+AYNI sağlama; doğrulayıcının yanlış/eksik sağlamayı reddetmesi; `--no-checksum`
+ve legacy yolları). **BEKLİYOR:** PLC'nin UDT'ye alanları eklemesi, sonra TIA
+import.
+
+---
+
 ## 2026-08-14 — SÜRÜM 1.018
 
 `version.py` → `1.018` + `changelog.py` 1.018 girdisi (5 operatör-dilinde madde:

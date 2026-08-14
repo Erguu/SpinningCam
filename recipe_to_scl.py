@@ -109,6 +109,46 @@ def normalize_turret(params: dict):
     return codes, angles, auto, tool_count
 
 
+def recipe_checksum(lines, line_count: int = None) -> int:
+    """Order-sensitive 32-bit checksum over the emitted recipe lines.
+
+    Spec + reference implementation: letter_spinningcam_recipe_checksum.md
+    (PLC team, 2026-08-14). The PLC recomputes this after reassembling the chunks
+    and refuses to run on a mismatch (16#0316).
+
+    Two accumulators with natural wraparound at 2**32 — no modulo (a division per
+    line is the most expensive thing on this CPU), no floating point. ``sumB``
+    makes it order-sensitive, so chunks reassembled in the wrong order or at the
+    wrong stride change the result; ``LineCount`` is folded in so a truncated
+    recipe cannot coincidentally match.
+
+    ``lines`` is a sequence of ``(CMD, Param, F)`` triples, or of RecipeLineData.
+    Only the first ``line_count`` are covered — emitted lines only, never the
+    padding up to the declared capacity.
+
+    X and Z are deliberately excluded: they are IEEE-754 Reals, computed here in
+    float64 and on the PLC in float32, so any value-based scheme eventually
+    disagrees on a perfectly valid recipe. A checksum that cries wolf gets
+    ignored on the day it is real. (The letter offers a separate ``ChecksumXZ``
+    over the raw bit patterns as a later, independent field — deliberately NOT
+    folded in here.)
+    """
+    M = 0xFFFFFFFF
+    a = b = 0
+    n = 0
+    for item in lines:
+        if line_count is not None and n >= line_count:
+            break
+        if isinstance(item, RecipeLineData):
+            cmd, param, f = item.cmd, item.param, item.f
+        else:
+            cmd, param, f = item
+        a = (a + int(cmd) + int(param) + int(f)) & M
+        b = (b + a) & M
+        n += 1
+    return (b ^ ((a + (line_count if line_count is not None else n)) & M)) & M
+
+
 def chunk_geometry(line_count: int, capacity: int = None,
                    chunk_size: int = DEFAULT_CHUNK_SIZE) -> dict:
     """Resolve the declared array geometry for ``line_count`` recipe lines.
@@ -156,6 +196,9 @@ _DECL_RE = re.compile(r'^\s*Lines(\d*)\s*:\s*Array\[\s*0\s*\.\.\s*(\d+)\s*\]\s*o
 _ASSIGN_RE = re.compile(r'\bLines(\d*)\[\s*(\d+)\s*\]\.X\s*:=', re.IGNORECASE)
 _CMD_RE = re.compile(r'\bLines(\d*)\[\s*(\d+)\s*\]\.CMD\s*:=\s*(\d+)', re.IGNORECASE)
 _LINECOUNT_RE = re.compile(r'\bHeader\.LineCount\s*:=\s*(\d+)', re.IGNORECASE)
+_FIELD_RE = re.compile(r'\bLines(\d*)\[\s*(\d+)\s*\]\.(F|CMD|Param)\s*:=\s*(-?\d+)', re.IGNORECASE)
+_PROVIDES_CK_RE = re.compile(r'\bHeader\.ProvidesChecksum\s*:=\s*(TRUE|FALSE)', re.IGNORECASE)
+_CHECKSUM_RE = re.compile(r'\bHeader\.Checksum\s*:=\s*(\d+)', re.IGNORECASE)
 _DBNAME_RE = re.compile(r'^\s*DATA_BLOCK\s+"([^"]+)"', re.IGNORECASE)
 
 
@@ -276,9 +319,42 @@ def check_scl_geometry(scl_text: str) -> dict:
             errors.append(f"END marker (CMD := {CMD_PROGRAM_END}) is not at global line "
                           f"{line_count - 1}.")
 
+    # Header checksum: recompute from the lines actually written, so a bad export
+    # is caught at the desk instead of at the machine (the PLC would stop with
+    # 16#0316). Only meaningful once the mapping above holds.
+    m = _PROVIDES_CK_RE.search(scl_text)
+    provides_ck = (m.group(1).upper() == "TRUE") if m else False
+    m = _CHECKSUM_RE.search(scl_text)
+    stated_ck = int(m.group(1)) if m else None
+    computed_ck = None
+    if provides_ck and line_count is not None and not errors:
+        fields = {}
+        for m in _FIELD_RE.finditer(scl_text):
+            arr = int(m.group(1)) if m.group(1) else 1
+            g = (arr - 1) * chunk_size + int(m.group(2))
+            fields.setdefault(g, {})[m.group(3).upper()] = int(m.group(4))
+        try:
+            triples = [(fields[g]["CMD"], fields[g]["PARAM"], fields[g]["F"])
+                       for g in range(line_count)]
+        except KeyError as e:
+            triples = None
+            errors.append(f"Cannot verify the checksum: a line is missing field {e}.")
+        if triples is not None:
+            computed_ck = recipe_checksum(triples, line_count)
+            if stated_ck is None:
+                errors.append("Header.ProvidesChecksum is TRUE but Header.Checksum is missing.")
+            elif stated_ck != computed_ck:
+                errors.append(f"Header.Checksum is {stated_ck} but the emitted lines "
+                              f"compute to {computed_ck}.")
+    elif not provides_ck:
+        warnings.append("No checksum (Header.ProvidesChecksum is not TRUE) — the PLC "
+                        "will load this but cannot verify what it reassembled.")
+
     return {"ok": not errors, "errors": errors, "warnings": warnings,
             "chunked": chunked, "chunk_count": chunk_count, "chunk_size": chunk_size,
-            "capacity": capacity, "line_count": line_count, "db_name": db_name}
+            "capacity": capacity, "line_count": line_count, "db_name": db_name,
+            "provides_checksum": provides_ck, "checksum": stated_ck,
+            "computed_checksum": computed_ck}
 
 
 @dataclass
@@ -630,7 +706,8 @@ class GCodeToSCLConverter:
                      force: bool = False,
                      params: dict = None,
                      custom_array_size: int = None,
-                     chunk_size: int = None) -> str:
+                     chunk_size: int = None,
+                     emit_checksum: bool = True) -> str:
         """
         Generate SCL Data Block code matching PLC spec.
 
@@ -648,6 +725,13 @@ class GCodeToSCLConverter:
                 line g at ``Lines[(g // chunk_size) + 1][g % chunk_size]``. The
                 PLC's chunked loader must use the SAME size — see the
                 ``// CHUNKS: n x m`` header line this emits.
+            emit_checksum: Write ``Header.ProvidesChecksum`` + ``Header.Checksum``
+                (letter_spinningcam_recipe_checksum.md). Escape hatch only: the
+                fields must exist in the PLC's ``RecipeHeader`` UDT before such a
+                file will import, so pass False if the PLC side has not been
+                updated yet. FALSE is a valid answer to the PLC — it accepts the
+                flag being clear and skips the check, which is how recipes
+                exported before this change still load.
 
         Returns:
             SCL code as string
@@ -776,6 +860,18 @@ class GCodeToSCLConverter:
         # Recipe-carried tool table (validates against used tool codes; may raise
         # ValueError('TOOL_TABLE:...')).
         scl_lines.extend(self._tool_table_scl(params or {}))
+        # Checksum LAST, after ToolAngle_List — the PLC team asked for the new
+        # RecipeHeader fields at the end of the struct so their diff stays
+        # reviewable, and this mirrors that order.
+        if emit_checksum:
+            scl_lines.append("    ")
+            scl_lines.append("    // --- Integrity ---")
+            scl_lines.append("    // Order-sensitive sum over CMD+Param+F of lines 0..LineCount-1.")
+            scl_lines.append("    // The PLC recomputes it after reassembling the chunks and refuses")
+            scl_lines.append("    // to run on a mismatch (16#0316). X/Z are excluded on purpose:")
+            scl_lines.append("    // float32-vs-float64 rounding would eventually cry wolf.")
+            scl_lines.append("    Header.ProvidesChecksum := TRUE;")
+            scl_lines.append(f"    Header.Checksum := {recipe_checksum(self.lines, line_count)};")
         scl_lines.append("    ")
         scl_lines.append(f"    // Recipe Lines ({line_count} total)")
 
@@ -828,7 +924,8 @@ class GCodeToSCLConverter:
                      force: bool = False,
                      params: dict = None,
                      custom_array_size: int = None,
-                     chunk_size: int = None) -> Tuple[str, dict]:
+                     chunk_size: int = None,
+                     emit_checksum: bool = True) -> Tuple[str, dict]:
         """
         Convert G-code file to SCL file.
         
@@ -858,7 +955,8 @@ class GCodeToSCLConverter:
         # Generate SCL
         scl_code = self.generate_scl(db_name, program_title, force=force, params=params,
                                      custom_array_size=custom_array_size,
-                                     chunk_size=chunk_size)
+                                     chunk_size=chunk_size,
+                                     emit_checksum=emit_checksum)
 
         # Write output
         with open(scl_path, 'w', encoding='utf-8') as f:
@@ -880,6 +978,7 @@ class GCodeToSCLConverter:
             'scl_size_bytes': len(scl_code.encode('utf-8')),
             'estimated_plc_bytes': len(self.lines) * 12,  # 12 bytes per line
             'geometry': chunk_geometry(len(self.lines), custom_array_size, chunk_size),
+            'checksum': recipe_checksum(self.lines, len(self.lines)) if emit_checksum else None,
             'bounds': {
                 'min_x': self.min_x,
                 'max_x': self.max_x,
@@ -920,6 +1019,9 @@ TIA Portal Import:
     parser.add_argument('--array-size', type=int, default=None,
                        help='Total recipe capacity in elements (default: max(lines, 1000), '
                             'rounded up to a whole number of chunks)')
+    parser.add_argument('--no-checksum', action='store_true',
+                       help='Do not write Header.ProvidesChecksum / Header.Checksum. '
+                            'Use only while the PLC RecipeHeader UDT still lacks the fields.')
     parser.add_argument('--name', '-n', default='DB_RecipeProgram1',
                        help='Data Block name (default: DB_RecipeProgram1)')
     parser.add_argument('--title', '-t', default='SpinningCam Program',
@@ -936,8 +1038,11 @@ TIA Portal Import:
             report = check_scl_geometry(f.read())
         layout = (f"{report['chunk_count']} x {report['chunk_size']}"
                   if report["chunked"] else f"single Array[0..{report['chunk_size'] - 1}]")
+        ck = report.get("checksum")
+        ck_txt = (f", checksum={ck} (verified)" if report.get("provides_checksum") and ck is not None
+                  else ", no checksum")
         print(f"{args.input}: {report.get('db_name') or '?'} — {layout}, "
-              f"LineCount={report.get('line_count')}")
+              f"LineCount={report.get('line_count')}{ck_txt}")
         for w in report["warnings"]:
             print(f"  ! {w}")
         for e in report["errors"]:
@@ -957,7 +1062,8 @@ TIA Portal Import:
             db_name=args.name,
             program_title=args.title,
             custom_array_size=args.array_size,
-            chunk_size=args.chunk_size
+            chunk_size=args.chunk_size,
+            emit_checksum=not args.no_checksum
         )
 
         geo = stats.get('geometry', {})
@@ -968,6 +1074,8 @@ TIA Portal Import:
                   f"END marker at Lines{geo['end_array']}[{geo['end_index']}]")
         else:
             print(f"Layout: legacy single Lines Array[0..{geo.get('capacity', 1000) - 1}]")
+        if stats.get('checksum') is not None:
+            print(f"Checksum: {stats['checksum']}  (Header.ProvidesChecksum := TRUE)")
         print(f"\n--- SCL Statistics ---")
         print(f"Data Block: {stats['db_name']}")
         print(f"Total Lines: {stats['total_lines']} / {MAX_LINES}")

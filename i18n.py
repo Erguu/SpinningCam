@@ -392,6 +392,9 @@ STRINGS = {
     "msg_scl_layout_line":      {"EN": "Layout: {n} arrays x {m} lines (Lines1..Lines{n})",
                                  "TR": "Düzen: {n} dizi x {m} satır (Lines1..Lines{n})",
                                  "ES": "Diseño: {n} arreglos x {m} líneas (Lines1..Lines{n})"},
+    "msg_scl_checksum_line":    {"EN": "Checksum: {ck}  (the PLC re-checks this after loading)",
+                                 "TR": "Sağlama: {ck}  (PLC yükledikten sonra bunu yeniden doğrular)",
+                                 "ES": "Suma de verificación: {ck}  (el PLC la reverifica al cargar)"},
     "msg_slot_mismatch_title":  {"EN": "Program Slot Mismatch",      "TR": "Program Slotu Uyuşmuyor",    "ES": "Discrepancia de Ranura"},
     "msg_slot_mismatch":        {"EN": "The data block is named \"{db}\" but the file is being saved as \"{file}\".\n\n"
                                        "Importing it would overwrite recipe program {dbnum}, not {filenum}.\n\n"
