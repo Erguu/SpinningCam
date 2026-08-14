@@ -48,8 +48,8 @@ müşteriye çıkmadığı için sağlama da onun içeriğine dahil; `changelog.
 akümülatörler; sıra-duyarlılık, parça permütasyonu, kesilme, tek `F`/`Param`
 değişimi; padding kapsam DIŞI; 2³² taşması; X/Z farklı ama CMD/Param/F aynı →
 AYNI sağlama; doğrulayıcının yanlış/eksik sağlamayı reddetmesi; `--no-checksum`
-ve legacy yolları). **BEKLİYOR:** PLC'nin UDT'ye alanları eklemesi, sonra TIA
-import.
+ve legacy yolları). **DOĞRULANDI (2026-08-14):** PLC UDT'ye alanları ekledi,
+TIA import + makinede çevrim sorunsuz — 16#0316 YOK.
 
 ---
 
@@ -61,8 +61,9 @@ olmayan takım engeli + reçete başına ayrı isim/slot uyarısı). Bu oturumun
 değişikliğini kapsıyor (aşağıdaki üç girdi).
 
 **NOT:** Sürüm önce bilerek ertelenmişti (PLC teyidi bekleniyordu), kullanıcı
-kararıyla commit öncesi artırıldı. TIA import doğrulaması hâlâ BEKLİYOR —
-teyit sonrası geometri değişirse (örn. 50 × 20) yeni bir bump gerekir.
+kararıyla commit öncesi artırıldı. **TIA import 2026-08-14'te DOĞRULANDI**;
+geometri 10 x 100'de kaldı, yani bu sürüm makinenin çalıştırdığı formatı
+anlatıyor. Sağlama (checksum) da bilerek 1.018'in içinde — ayrı bump YOK.
 
 ---
 
@@ -201,8 +202,9 @@ satır boşluğu, kayıp END markerı, yanlış LineCount). Mevcut paketler de g
 `check_packaging.py`. Pencere headless sürüldü (canlı önizleme + kilitli
 kapasite + geçersiz girdi → OK devre dışı).
 
-**BEKLİYOR:** gerçek pencerede GUI smoke; PLC tarafında TIA import + `--check`
-karşılıklı doğrulaması; mektubun istediği tek test dosyasının gönderilmesi.
+**DOĞRULANDI (2026-08-14):** TIA import + makinede çevrim sorunsuz; geometri
+varsayılan 10 x 100'de kaldı. Test dosyası `DB_RecipeProgram9_checksum_test.scl`
+gönderildi. KALAN: gerçek pencerede GUI smoke (kullanıcı doğrulaması bekliyor).
 
 ---
 

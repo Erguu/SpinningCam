@@ -3,16 +3,20 @@
 
 ---
 
-## PLC / SCL — 2026-08-14 (implemented, verification pending)
+## PLC / SCL — 2026-08-14 (VERIFIED ON HARDWARE)
 
-### 96. Chunked recipe arrays `Lines1..LinesN` — confirm against the real PLC
+### 96. Chunked recipe arrays `Lines1..LinesN` — ✅ Done, confirmed on the machine
 
-**Done in the CAM** (see LAST_CHANGES 2026-08-14): chunked export with the
-geometry asked at export time, `// CHUNKS: n x m` header, and a self-check that
-refuses to write a file whose mapping does not hold. Driven by
-`letter_spinningcam_chunked_recipes.md`.
+Chunked export with the geometry asked at export time, `// CHUNKS: n x m` header,
+and a self-check that refuses to write a file whose mapping does not hold. Driven
+by `letter_spinningcam_chunked_recipes.md`. **TIA import + PLC run confirmed by
+the user 2026-08-14** — the geometry stayed at the default 10 x 100.
 
-### 97. Recipe header checksum — CAM done, PLC UDT in place
+If the PLC team ever retunes it (they floated 50 x 20), only two numbers move:
+`main.py` `"scl_chunk_size"` and `PLC_REFERENCE_GEOMETRY` in
+`ui/dialogs/scl_layout.py`. The emitter follows whatever it is given.
+
+### 97. Recipe header checksum — ✅ Done, confirmed on the machine
 
 Implemented (LAST_CHANGES 2026-08-14): `Header.ProvidesChecksum` +
 `Header.Checksum`, algorithm agreed against the letter's worked example (1383).
@@ -23,12 +27,12 @@ handover — it stays only for a PLC project that predates the change. Note the
 header grew 72 → 78 bytes, so every recipe exported before this is unloadable
 and must be regenerated (`DB_RecipeProgram1..5`).
 
+**End-to-end proof done (user, 2026-08-14):** imported and run on the machine
+with no 16#0316 — both letters, chunked layout and checksum, verified together.
+
 Open:
-- **Import `DB_RecipeProgram9_checksum_test.scl` and confirm** the header shows
-  `ProvidesChecksum = TRUE` and `Checksum = 9593624`, then run a cycle so the PLC
-  actually recomputes and compares (no 16#0316). This is the first end-to-end
-  proof of BOTH letters — chunked layout and checksum — on real hardware.
-- Regenerate `DB_RecipeProgram2..5` from the real part programs once that passes.
+- Regenerate `DB_RecipeProgram1..5` from the real part programs. All of them: the
+  header grew 72 -> 78 bytes, so even `1` is unloadable now.
 - Send them one re-exported program carrying a checksum; they will extend
   `tools/split_recipe_db.py --check` to verify it offline. Our
   `recipe_to_scl.py --check` already does.
@@ -40,11 +44,6 @@ Open:
   export, not just the test file.
 
 ---
-
-**Version bump deliberately deferred** (user, 2026-08-14): stays at 1.017 until
-the PLC side confirms the TIA import and the final chunk geometry. Bump together
-with whatever that confirmation changes, so the changelog states the format the
-machine actually runs.
 
 **Still open — none of it is CAM work, but it decides whether the default is right:**
 - GUI smoke of the new layout dialog in the real window (headless only so far).
