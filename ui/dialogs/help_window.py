@@ -1917,6 +1917,14 @@ Home / Program Start position
   like the DRO number; the reminder is there so you can see at a
   glance which calibration this machine profile is standing on.
 
+  A saved .nc file opens with two moves to this position (Z first,
+  then X) so the control starts from a known point. A PLC recipe
+  (SCL) does NOT: the machine homes before every run, so those two
+  moves would only pull the roller back to zero after homing — or
+  after the operator has jogged it in. The recipe therefore starts
+  straight into the program. Program End is unaffected; the roller
+  still parks here when the program finishes.
+
 Program End position
   Where the roller parks after the last pass. It defaults to
   "Same as Program Start", which is what the program has always
@@ -2252,6 +2260,14 @@ Home / Program Başlangıç Pozisyonu
   dışa aktarırken dönüştürdüğü bir CAM koordinatıdır; bu yüzden DRO
   değerine benzemez. Hatırlatma, bu makine profilinin hangi
   kalibrasyona dayandığını bir bakışta görebilmeniz içindir.
+
+  Kaydedilen .nc dosyası bu konuma iki hareketle başlar (önce Z,
+  sonra X) — böylece kontrol bilinen bir noktadan başlar. PLC reçetesi
+  (SCL) ise BAŞLAMAZ: makine her çalıştırmadan önce home yapıyor,
+  dolayısıyla bu iki hareket rulonu home'dan sonra (veya operatör
+  içeri jog ettikten sonra) yalnızca sıfıra geri çeker. Bu yüzden
+  reçete doğrudan programa girer. Program Sonu etkilenmez; program
+  bittiğinde rulo yine buraya park eder.
 
 Program Sonu konumu
   Son pastan sonra rulonun park ettiği yer. Varsayılanı "Program

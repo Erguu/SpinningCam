@@ -1269,7 +1269,7 @@ class SpinningCamWindow(tk.Tk):
 
         try:
             from recipe_to_scl import GCodeToSCLConverter
-            gcode_str = self.app.path_gen.generate_gcode(params=_xp)
+            gcode_str = self.app.path_gen.generate_gcode(params=_xp, for_recipe=True)
         except Exception as e:
             messagebox.showerror(t("msg_export_error_title"), t("msg_gcode_gen_error").format(e))
             return
@@ -1383,7 +1383,7 @@ class SpinningCamWindow(tk.Tk):
             p["plc_mode"] = True
             p["plc_tolerance"] = fit_tol
             p["plc_exit_tolerance"] = fit_tol
-            gcode_str = self.app.path_gen.generate_gcode(params=p)
+            gcode_str = self.app.path_gen.generate_gcode(params=p, for_recipe=True)
             # Size the DB to the entered target (e.g. 350 -> 4 chunks of 100),
             # not a fixed 1000. chunk_geometry still grows the capacity if the
             # fitted line count exceeds the target, and rounds it up to whole

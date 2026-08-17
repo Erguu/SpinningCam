@@ -119,7 +119,7 @@ def analyze_plc_output(path_gen, params):
         p["plc_tolerance"] = tol
         p["plc_exit_tolerance"] = exit_tol
         conv = GCodeToSCLConverter()
-        conv.parse_gcode(path_gen.generate_gcode(params=p))
+        conv.parse_gcode(path_gen.generate_gcode(params=p, for_recipe=True))
         lines = len(conv.lines)
     except Exception:
         lines = None

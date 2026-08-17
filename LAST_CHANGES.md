@@ -5,6 +5,48 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-17 — REÇETE ARTIK SIFIRA GİTMEKLE BAŞLAMIYOR (sürüm artırılmadı: v1.018)
+
+**Neden:** Kullanıcı sordu — dışa aktarılan reçete AYNI iki satırla başlıyor, ikisi de
+sıfır konumuna rapid. Makine her çalıştırmadan ÖNCE home yaptığı için bu iki satır en
+iyi durumda no-op; operatör içeri jog etmişse veya başlangıç silindiri rulonu
+oynatmışsa iş başlamadan rulonu GERİ sıfıra çekiyor.
+
+**Kök neden:** `generate_gcode` program başında kademeli `G0 Z<home>` + `G0 X<home>`
+yazıyor (G-code home geleneği — pasa giriş hareketi çapraz olduğu için kontrolün
+bilinen bir başlangıç noktasına ihtiyacı var). Profillerde `origin_use_home` açık
+olduğu için ikili tam olarak `X0 Z0`'a dönüşüyor, PLC reçetesinde her satır mutlak
+X+Z taşıdığından tek eksenli iki hareket İKİ AYNI `CMD=0` satırına çöküyor.
+
+**Değişiklik:** `generate_gcode(..., for_recipe=False)` yeni parametresi. `True` ise
+o iki satır YAZILMAZ. `.nc` çıktısı BİREBİR AYNI kalır (`main.py` zaten oradan geçer).
+`for_recipe=True` geçen 4 çağrı: `ui/main_window.py:1272` + `:1386` (SCL export),
+`export_manager.py` `auto_fit_plc_tolerance._eval` (satır bütçesi gerçek export ile
+aynı sayıyı görmek ZORUNDA), `ui/dialogs/scl_inspector.py`.
+
+**DİKKAT — `plc_mode`'a bağlanmadı, bilerek:** `plc_mode` sadece "seyreltme yap"
+demek, "çıktı PLC'ye gidiyor" demek DEĞİL. `machines/ID112-1.default.json` `plc_mode:
+0.0` ile geliyor (tolerans 0.01) ama SCL export ediyor → `plc_mode`'a bağlamak tam
+olarak o makineyi düzeltmeden bırakırdı. Test bunu pinliyor.
+
+**Etki:** Reçete 2 satır kısaldı → tüm global indeksler 2 kaydı, `CMD=99` END
+işaretçisi geriye kaydı, başlık sağlaması DEĞİŞTİ (10×100 parça sabitleri aynı;
+ikisi de hesaplanıyor, sabit değil). Makinede doğrulanan 1383 örneği ve PLC'de
+duran eski reçeteler kendi eski sağlamalarını taşımaya devam eder.
+**Program Sonu park hareketi (path_generator ~2958) DOKUNULMADI** — o ikili gerçek
+hareket (son pasın bittiği yerden kademeli Z-sonra-X), çift değil.
+M40/program_start özel komutları bu bloktan SONRA yazılıyor, yani reçetede artık
+silindir dizisi ilk çalışan şey.
+
+**Test:** `_test_program_start_recipe.py` (14/14). Regresyon 14/16 yeşil; kırık ikisi
+(`test_path_generator.py::test_empty_operations_list`, `_test_real_end_z.py`) HEAD'de
+zaten kırık, bu değişiklikle ilgisiz. **MAKİNEDE FİZİKSEL DOĞRULAMA BEKLİYOR.**
+
+**Geri alma:** `path_generator.py` içinde `if not for_recipe:` → `if True:` yeterli
+(çağrı yerleri zararsız kalır).
+
+---
+
 ## 2026-08-14 — SCL BAŞLIK SAĞLAMASI (checksum)
 
 **Neden:** PLC ekibinin ikinci mektubu (`letter_spinningcam_recipe_checksum.md`).

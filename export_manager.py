@@ -364,7 +364,10 @@ class ExportManager:
             p = dict(base)
             p["plc_tolerance"] = tol
             p["plc_exit_tolerance"] = tol
-            gcode = path_gen.generate_gcode(params=p)
+            # for_recipe: the budget must count the SAME lines the real export
+            # writes, or the fitted tolerance is measured against a program two
+            # lines longer than the one that ships.
+            gcode = path_gen.generate_gcode(params=p, for_recipe=True)
             conv = GCodeToSCLConverter()
             conv.parse_gcode(gcode)
             cl = path_gen.measure_min_clearance(

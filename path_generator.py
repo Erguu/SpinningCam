@@ -2489,9 +2489,18 @@ class PathGenerator:
             clears[i] = dist - (m_rad + blank_thick + shell_offset + r_tool)
         return clears <= contact_zone_mm
 
-    def generate_gcode(self, feed: int = 1000, speed: int = 200, max_rpm: int = 2000, params: dict = None) -> str:
+    def generate_gcode(self, feed: int = 1000, speed: int = 200, max_rpm: int = 2000, params: dict = None,
+                       for_recipe: bool = False) -> str:
         """
         Generates CNC G-Code for the calculated toolpaths.
+
+        ``for_recipe`` marks output that is about to be converted into a PLC
+        recipe (SCL). It describes the OUTPUT PATH, not a machine setting, and
+        is deliberately NOT derived from params["plc_mode"]: plc_mode only asks
+        for decimation, and a PLC machine may legitimately run with it off
+        (ID112-1 does, at plc_tolerance 0.01), so keying off it would leave that
+        machine with the very lines this flag exists to drop. Every SCL caller
+        must pass it; .nc output leaves it False and stays byte-identical.
 
         When params["plc_mode"] is True, each toolpath is decimated using
         the Ramer-Douglas-Peucker algorithm before G-code emission.  The
@@ -2658,13 +2667,24 @@ class PathGenerator:
                 f"(Op{i+1}: {op_type}, {op_count} paso, {op_tool}, "
                 f"R={op_r}mm, {op_s_mode}={op_speed}, {op_f_mode}={op_feed})"
             )
-        gcode.extend([
-            "",
-            f"G50 S{max_rpm} (Devir Siniri)",
-            f"G0 Z{home_z_machine:.3f} (Program Start Z)",
-            f"G0 X{home_x_machine:.3f} (Program Start X)",
-            ""
-        ])
+        gcode.extend(["", f"G50 S{max_rpm} (Devir Siniri)"])
+        # The staged Z-then-X move to Program Start is a G-code homing
+        # convention: it gives the first pass a known start point, because the
+        # move into a pass (see "Op{n} P{n}" below) is a coordinated diagonal
+        # that would otherwise sweep from wherever the roller happens to sit.
+        #
+        # A PLC recipe does not need it. Every recipe line carries absolute X
+        # AND Z, the PLC homes before every run (so the known start point is
+        # already guaranteed), and with origin_use_home the pair transforms to
+        # X0 Z0 — two identical CMD=0 rows. At best they are a no-op; when the
+        # operator has jogged in or the start cylinder has moved the roller,
+        # they drag it BACK to zero before work starts. Note the program_start
+        # custom commands (M40 etc.) are emitted AFTER this block, so on the
+        # recipe path the cylinder sequence is now the first thing that runs.
+        if not for_recipe:
+            gcode.append(f"G0 Z{home_z_machine:.3f} (Program Start Z)")
+            gcode.append(f"G0 X{home_x_machine:.3f} (Program Start X)")
+        gcode.append("")
 
         # NOTE: the dedicated "Cylinder GOTO" block that used to sit here was
         # removed 2026-07-30. M40 is now an ordinary program_start custom

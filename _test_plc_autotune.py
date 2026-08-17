@@ -71,7 +71,7 @@ def _fake_pg():
             self.last_plc_paths = [np.zeros((1, 3))]
             self._last_cl = 0.0
 
-        def generate_gcode(self, params=None):
+        def generate_gcode(self, params=None, for_recipe=False):
             tol = float(params["plc_tolerance"])
             n = max(2, int(round(200.0 / (1.0 + tol * 20.0))))   # monotonic ↓ in tol
             self._last_cl = 1.0 - tol * 0.5                       # monotonic ↓ in tol
