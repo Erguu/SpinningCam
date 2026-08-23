@@ -41,10 +41,20 @@ machines/*.json
 migration_backup_*/
 *.mine.json
 
+# Tool geometry. The folder does two jobs: it holds the SEED shapes that ship
+# with the app (they pair with tools.default.json, which names T0101-T0103), and
+# it holds whatever tools the user has built for themselves. Only the seed is
+# source — a user's own library is local data, same rule as tools.json and
+# machines/*.json, and it travels by the zip Export/Import in tool_library_io.py,
+# not by git. So: ignore the folder, then re-admit the three seed files.
+tool_geometry/*
+!tool_geometry/T0101.STEP
+!tool_geometry/T0102.STEP
+!tool_geometry/T0103.STEP
+
 # Personal CAD inputs & saved programs (user work products, not source). These
 # used to show up as untracked noise on every push. NOTE the leading slash: only
-# ROOT-level part/mandrel models are ignored — tool_geometry/*.STEP stays TRACKED
-# (portable tool-library geometry that ships with the app).
+# ROOT-level part/mandrel models are ignored (tool_geometry is handled above).
 /*.STEP
 /*.step
 /*.stp
