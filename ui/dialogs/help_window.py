@@ -1766,6 +1766,15 @@ Safe options when you have no calibrated number yet:
   - set Rr = the calculated Radius (a correct starting point), or
   - clear Rr so it falls back to Radius automatically.
 
+The tool list has an Rr column so you can see this at a glance. A
+tool with no calibrated Rr reads "! <number> (uncalibrated)", where
+<number> is the Radius the path will use instead. It is a LABEL,
+not a block - the tool still behaves exactly as it always has, and
+clearing Rr remains a valid choice. It only tells you that nobody
+has confirmed that number on the machine yet. Worth knowing,
+because an uncalibrated tool also skips the Rr-vs-Radius gouge
+check above, which can only run once Rr is set.
+
 
 3. CALIBRATE (touch-point)
 ----------------------------------------------------------------
@@ -1849,6 +1858,15 @@ klasik dalma tuzağıdır.
 Henüz kalibre değeriniz yoksa güvenli seçenekler:
   - Rr = hesaplanan Radius yapın (doğru bir başlangıç), veya
   - Rr'yi boşaltın; otomatik olarak Radius'a düşer.
+
+Takım listesinde bir Rr sütunu vardır; durumu tek bakışta
+görürsünüz. Kalibre Rr'si olmayan takım "! <sayı> (kalibresiz)"
+şeklinde görünür; <sayı>, yolun onun yerine kullanacağı Radius
+değeridir. Bu bir ETİKETTİR, engel değil - takım her zamanki gibi
+çalışır ve Rr'yi boş bırakmak hâlâ geçerli bir seçimdir. Yalnızca
+o sayıyı makinede henüz kimsenin doğrulamadığını söyler. Bilmekte
+fayda var: kalibresiz bir takım, yukarıdaki Rr-Radius dalma
+kontrolünü de atlar; o kontrol ancak Rr girilince çalışır.
 
 
 3. KALİBRASYON (touch-point)

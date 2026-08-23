@@ -1410,6 +1410,9 @@ STRINGS = {
     "tm_title":             {"EN": "Tool Manager",                  "TR": "Takım Yöneticisi",           "ES": "Administrador de Herramientas"},
     "tm_frm_editor":        {"EN": "Tool Editor",                   "TR": "Takım Düzenleyici",          "ES": "Editor de Herramientas"},
     "tm_rr_label":          {"EN": "Rr / r_tool (mm):",             "TR": "Rr / r_takım (mm):",         "ES": "Rr / r_herr. (mm):"},
+    # Rr column, tool with no calibrated r_tool. {r} is the disc radius that path
+    # generation silently falls back to — shown so the operator sees the number in use.
+    "tm_rr_uncal":          {"EN": "⚠ {r}  (uncalibrated)",         "TR": "⚠ {r}  (kalibresiz)",        "ES": "⚠ {r}  (sin calibrar)"},
     "tm_rr_hint":           {"EN": "Effective radial reach for calibration & path gen (≠ disc outer radius)",
                              "TR": "Kalibrasyon & yol üretimi için etkin radyal erişim (≠ disk dış yarıçapı)",
                              "ES": "Alcance radial efectivo para calibración y gen. de trayectoria (≠ radio exterior del disco)"},

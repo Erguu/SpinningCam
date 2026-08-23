@@ -5,7 +5,47 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
-## 2026-08-17 — REÇETE ARTIK SIFIRA GİTMEKLE BAŞLAMIYOR (sürüm artırılmadı: v1.018)
+## 2026-08-23 — TAKIM LİSTESİNDE Rr SÜTUNU + KALİBRESİZ İŞARETİ (v1.019)
+
+**Neden:** Kalibresiz bir takım (`r_tool: null`) sessizce ham disk `radius`'una
+düşüyor (`main.py:385`) VE hemen altındaki dalma (gouge) kontrolü sadece `r_cal is
+not None` iken çalıştığı için tamamen atlanıyor (`main.py:398`). İkisi de görünmez.
+Tespit: bu makinedeki AKTİF programın 5 operasyonunun tamamı (T004/T005/T006/T007)
+kalibresiz takım kullanıyor — sayılar `radius`'tan geliyor. Bu YANLIŞ olmayabilir
+(2026-07-02 saha kanıtı: T0103 için doğru r_tool ≈ STEP radius'a EŞİTTİ), ama
+uygulama "kalibre edildi ve radius'a eşit" ile "hiç kalibre edilmedi" arasını
+ayırt edemiyor, operatör de ayırt edemiyor.
+
+**Değişiklik (SADECE GÖRÜNÜRLÜK — davranış değişmedi):**
+- `ui/dialogs/tool_manager.py`: ağaca salt-okunur `Rr` sütunu + `_rr_text()`.
+  Kalibre ise `74.31`, değilse `⚠ 44.56 (kalibresiz)` — gösterilen sayı yolun
+  gerçekten kullanacağı `radius`.
+- `i18n.py`: `tm_rr_uncal` (EN/TR/ES).
+- `ui/dialogs/help_window.py`: "RADIUS vs Rr" bölümü (EN + TR).
+
+**DİKKAT — `cols` tuple'ına EKLENMEDİ, bilerek:** `cols` hem ağacı hem alttaki
+editör girdilerini kuruyor ve `on_select` ona göre zip'liyor. Yeni sütun ayrı bir
+`tree_cols = cols + ("Rr",)` ile eklendi; sona eklendiği için `vals[0]`=ID ve
+5-elemanlı zip bozulmuyor (2026-07-07'deki "Sel sütunu values kayması" tuzağı).
+
+**`r_tool = 0.0` KALİBRESİZ SAYILMAZ:** açık `is not None` testi — `or` deyimi
+kullanılmadı; 0.0 geçerli bir kalibre değeri (kod tabanının mevcut kuralı).
+
+**Engellemez:** ne export ne hesap durur. Kullanıcı "sadece görünür olsun,
+export'a dokunma" seçeneğini seçti; uyarı/blok seçenekleri REDDEDİLDİ çünkü aktif
+programın 5 operasyonu da bloklanırdı.
+
+**Test:** `_rr_text` gerçek `tools.json` ile EN/TR + 5 sınır durumu doğrulandı;
+`_test_missing_tools.py` 16/16. `_test_tool_io.py` KIRIK ama ÖNCEDEN kırık —
+T006/T007 kesme takımlarının `step_file`'ı yok, test her takımın STEP çözmesini
+şart koşuyor; bu değişiklikle ilgisiz. GUI smoke testi kullanıcı tarafından GEÇTİ.
+
+**Geri alma:** `tree_cols` → `cols` ve `refresh()` içindeki `self._rr_text(tool)`
+argümanını sil.
+
+---
+
+## 2026-08-17 — REÇETE ARTIK SIFIRA GİTMEKLE BAŞLAMIYOR (v1.019 ile sürümlendi)
 
 **Neden:** Kullanıcı sordu — dışa aktarılan reçete AYNI iki satırla başlıyor, ikisi de
 sıfır konumuna rapid. Makine her çalıştırmadan ÖNCE home yaptığı için bu iki satır en

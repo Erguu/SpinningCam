@@ -24,10 +24,15 @@ class ToolManager(tk.Toplevel):
     def _create_ui(self):
         # Treeview
         cols = ("ID", "Name", "Radius", "Type", "Color")
-        self.tree = ttk.Treeview(self, columns=cols, show="headings")
-        for c in cols:
+        # The tree carries one extra READ-ONLY column beyond `cols`: the calibrated
+        # reach Rr. It is deliberately not in `cols`, because that tuple also builds
+        # the editor entries below (and on_select zips against it) — Rr already has
+        # its own entry widget with its own parsing.
+        tree_cols = cols + ("Rr",)
+        self.tree = ttk.Treeview(self, columns=tree_cols, show="headings")
+        for c in tree_cols:
             self.tree.heading(c, text=c)
-            self.tree.column(c, width=80)
+            self.tree.column(c, width=170 if c == "Rr" else 80)
         self.tree.pack(fill="both", expand=True, padx=5, pady=5)
 
         self.tree.bind("<Double-1>", self.on_double_click)
@@ -235,13 +240,39 @@ class ToolManager(tk.Toplevel):
         if rt is not None:
             self.entry_r_tool.insert(0, str(rt))
 
+    @staticmethod
+    def _rr_text(tool):
+        """Text for the Rr column — and a flag when the tool has never been calibrated.
+
+        An empty r_tool is not a harmless blank. `sync_operation_r_tools` (main.py)
+        silently falls back to the raw disc `radius`, and the gouge sanity check
+        immediately below it only runs when r_tool IS set, so an uncalibrated tool
+        skips it entirely. Both happen out of sight. The library list is the one place
+        the operator looks at tooling, so the state gets said out loud here.
+
+        Read-only: this reports what is already stored, it never edits or fills r_tool.
+        """
+        rt = tool.get("r_tool")
+        if rt is not None:
+            try:
+                return f"{float(rt):.2f}"
+            except (TypeError, ValueError):
+                return str(rt)
+        rad = tool.get("radius")
+        if rad is None:
+            return "—"
+        try:
+            return t("tm_rr_uncal").format(r=f"{float(rad):.2f}")
+        except (TypeError, ValueError):
+            return t("tm_rr_uncal").format(r=str(rad))
+
     def refresh(self):
         for i in self.tree.get_children():
             self.tree.delete(i)
         for tool in self.ui.tool_library:
             self.tree.insert("", "end", values=(
                 tool.get("id"), tool.get("name"), tool.get("radius"),
-                tool.get("type"), tool.get("color")))
+                tool.get("type"), tool.get("color"), self._rr_text(tool)))
 
     def on_select(self, event):
         sel = self.tree.selection()

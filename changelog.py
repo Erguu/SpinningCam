@@ -17,6 +17,27 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.019": [
+        ("The recipe no longer begins by pulling the roller back to zero — re-export",
+         "An exported recipe used to open with two identical rapids to the zero "
+         "position. The machine homes before every run, so at best they did nothing; "
+         "but if you had jogged in, or the start cylinder had moved the roller, those "
+         "two lines dragged it back to zero before the job began. They are no longer "
+         "written into a PLC recipe. Ordinary .nc output is unchanged. Recipes are now "
+         "two lines shorter and the header checksum has changed, so export yours "
+         "again — a recipe already sitting in the PLC keeps its old checksum and "
+         "still runs.",
+         "File ▸ Export SCL for TIA Portal (.scl)"),
+        ("The tool list now shows Rr, and marks tools that were never calibrated",
+         "Rr — the calibrated reach the toolpath actually uses — only appeared in the "
+         "editor at the bottom, so you had to click each tool to see it. It is now a "
+         "column. A tool with no calibrated Rr reads \"⚠ <number> (uncalibrated)\", "
+         "where the number is the disc Radius the path falls back to instead, so you "
+         "can see the value in use. Nothing is blocked and no tool behaves "
+         "differently. Worth knowing: an uncalibrated tool also skips the "
+         "Rr-must-not-be-below-Radius gouge check, which can only run once Rr is set.",
+         "Tools ▸ Tool Library..."),
+    ],
     "1.018": [
         ("Recipes are now written in blocks of 100 lines — re-export for the current PLC",
          "The PLC could not reliably read a whole recipe in one piece: it reported "
