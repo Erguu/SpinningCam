@@ -113,9 +113,11 @@ STRINGS = {
     "help_btn_close":       {"EN": "Close",                         "TR": "Kapat",                      "ES": "Cerrar"},
 
     # ── About ─────────────────────────────────────────────────────────────
-    "about_text":           {"EN": "EMS SoftSpinner V1.002\n\nOptimized for 2-Axis CNC Spinning.",
-                             "TR": "EMS SoftSpinner V1.002\n\n2 Eksenli CNC Sıvama için Optimize Edilmiştir.",
-                             "ES": "EMS SoftSpinner V1.002\n\nOptimizado para Embutición CNC de 2 Ejes."},
+    # {v} is filled from version.APP_VERSION at the call site — never hardcode the
+    # number here. It sat at "V1.002" for seventeen releases because it was a literal.
+    "about_text":           {"EN": "EMS SoftSpinner V{v}\n\nOptimized for 2-Axis CNC Spinning.",
+                             "TR": "EMS SoftSpinner V{v}\n\n2 Eksenli CNC Sıvama için Optimize Edilmiştir.",
+                             "ES": "EMS SoftSpinner V{v}\n\nOptimizado para Embutición CNC de 2 Ejes."},
 
     # ── Tab titles ────────────────────────────────────────────────────────
     "tab_process":          {"EN": "Process & Visual",              "TR": "İşlem & Görsel",             "ES": "Proceso & Visual"},

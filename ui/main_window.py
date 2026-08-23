@@ -278,7 +278,7 @@ class SpinningCamWindow(tk.Tk):
         help_menu.add_command(label=t("menu_user_guide"), command=_open_user_guide)
         help_menu.add_separator()
         help_menu.add_command(label=t("menu_about"), command=lambda: messagebox.showinfo(
-            t("menu_about"), t("about_text")))
+            t("menu_about"), t("about_text").format(v=APP_VERSION)))
 
     def _change_language(self, lang: str):
         set_language(lang)

@@ -5,6 +5,23 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-24 — HAKKINDA KUTUSU CANLI SÜRÜMÜ GÖSTERİYOR (v1.019 içinde)
+
+**Neden:** `about_text` sürümü metnin İÇİNE gömülüydü ("V1.002") — 17 sürüm boyunca
+bayat kaldı. Başlık çubuğu, kenar çubuğu ve başlık etiketi zaten `APP_VERSION`
+kullanıyordu (`ui/main_window.py:81, 631, 805`); sadece Hakkında kutusu literaldi.
+
+**Değişiklik:** `i18n.py` `about_text` → `V{v}` (EN/TR/ES) + çağrı yerinde
+`.format(v=APP_VERSION)` (`ui/main_window.py:281`). `APP_VERSION` zaten satır
+18'de import ediliyordu.
+
+**Doğrulama:** üç dilde de V1.019 basıyor; `i18n.STRINGS` taraması sonrası başka
+gömülü sürüm literali YOK. Sürüm artırılmadı — 1.019 henüz exe olarak dağıtılmadı.
+
+**Geri alma:** `{v}`'yi sabit metne çevir ve `.format(...)` çağrısını sil.
+
+---
+
 ## 2026-08-23 — TAKIM LİSTESİNDE Rr SÜTUNU + KALİBRESİZ İŞARETİ (v1.019)
 
 **Neden:** Kalibresiz bir takım (`r_tool: null`) sessizce ham disk `radius`'una

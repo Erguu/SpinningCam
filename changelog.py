@@ -37,6 +37,11 @@ CHANGELOG = {
          "differently. Worth knowing: an uncalibrated tool also skips the "
          "Rr-must-not-be-below-Radius gouge check, which can only run once Rr is set.",
          "Tools ▸ Tool Library..."),
+        ("The About box was showing the wrong version number",
+         "It read V1.002 no matter which version you were running — the number was "
+         "written into the text instead of being read from the build. It now matches "
+         "the title bar. Nothing else changes.",
+         "Help ▸ About"),
     ],
     "1.018": [
         ("Recipes are now written in blocks of 100 lines — re-export for the current PLC",
