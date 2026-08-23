@@ -5,6 +5,46 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-24 — EXE ADI SpinningCam → SoftSpinner (v1.019 içinde)
+
+**Neden:** Ürün adı SoftSpinner oldu; derlenen exe hâlâ SpinningCam.exe idi.
+EMS'i ETKİLEMEZ: `run.bat` KAYNAKTAN çalıştırıyor (`python main_tk.py`), exe adına
+hiç dokunmuyor. Bugün exe'yi çalıştıran kimse yok → en ucuz an.
+
+**TUZAK — `.spec` DOSYASI KULLANILMIYOR:** `build_exe.py` PyInstaller'ı KENDİ
+argüman listesiyle çağırıyor (`--name=...`), `SpinningCam.spec`'i hiç okumuyor.
+Sadece spec'i düzenlemek HİÇBİR ŞEY yapmazdı. Spec yine de senkronlandı +
+başına "KULLANILMIYOR" notu eklendi (silinebilir, ayrı karar).
+
+**Değişiklik:** ad artık TEK yerde — `packaging_manifest.APP_NAME = "SoftSpinner"`
+(zaten build'in tek doğruluk kaynağı, hem `build_exe.py` hem `check_packaging.py`
+onu `M` olarak import ediyor). Önceden literal bu iki dosyada 8 ayrı yerde geçiyordu.
+- `build_exe.py`: taskkill, dist_dir, `--name`, 3 çıktı satırı → `M.APP_NAME`
+- `check_packaging.py`: exe yolu, varsayılan dist_dir, başlık → `M.APP_NAME`
+- `SpinningCam.spec`: iki `name=` alanı
+Ayrıca marka süpürmesinde atlanan iki kullanıcı-görünür metin:
+- `export_manager.py:73` PDF başlığı "SpinningCam - Operation Sheet" → SoftSpinner
+  (bu PDF operatöre basılıp veriliyor)
+- `explain.py:30` hata mesajı
+
+**PROJE KLASÖRÜ DEĞİŞMEDİ** — hâlâ `SpinningCam/`. Repo/klasör adını değiştirmek
+git remote, klonlar ve `build_exe.bat` yolunu kırar; ayrı ve gereksiz bir iş.
+
+**BİLEREK DOKUNULMADI — `export_manager.py:211`
+`program_title: str = "SpinningCam Program"`:** bu metin PLC REÇETE BAŞLIĞINA
+gidiyor (`recipe_to_scl.py:754`, 20 karaktere kırpılıyor) ve makine HMI'ında
+görünüyor. Normal akışta operatör başlığı zaten soruluyor
+(`ui/main_window.py:1326`), yani bu sadece yedek varsayılan. Reçeteye giden bir
+şeyi marka temizliği için sessizce değiştirmek DOĞRU DEĞİL — KULLANICI KARARI.
+
+**Doğrulama:** `check_packaging.py` statik GEÇTİ ("=== SoftSpinner packaging
+check ==="); derleme temiz. **GERÇEK BİR `build_exe.bat` ÇALIŞTIRMASI BEKLİYOR** —
+exe adı ancak derlenince kanıtlanır.
+
+**Geri alma:** `packaging_manifest.APP_NAME` → `"SpinningCam"` (tek satır).
+
+---
+
 ## 2026-08-24 — ÜRÜN ADI "EMS SoftSpinner" → "SoftSpinner" (v1.019 içinde)
 
 **Neden:** Ürün küresel olarak satılacaksa EMS'in adıyla satılamaz. Ad KULLANICININ

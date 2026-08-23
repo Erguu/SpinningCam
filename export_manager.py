@@ -70,7 +70,7 @@ class ExportManager:
             
             # Title
             pdf.set_font("Helvetica", "B", 16)
-            pdf.cell(0, 10, "SpinningCam - Operation Sheet", ln=True, align="C")
+            pdf.cell(0, 10, "SoftSpinner - Operation Sheet", ln=True, align="C")
             pdf.ln(5)
             
             # Date/Time

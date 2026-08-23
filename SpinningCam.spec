@@ -1,4 +1,9 @@
 # -*- mode: python ; coding: utf-8 -*-
+#
+# NOT USED BY THE BUILD. build_exe.py is the single recipe — it calls
+# PyInstaller.__main__ with its own argument list, including --name, and never reads
+# this file. Kept only as a leftover from an older run; names below are synced with
+# packaging_manifest.APP_NAME so it cannot mislead anyone who opens it.
 from PyInstaller.utils.hooks import collect_all
 
 datas = []
@@ -42,7 +47,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='SpinningCam',
+    name='SoftSpinner',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -61,5 +66,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='SpinningCam',
+    name='SoftSpinner',
 )

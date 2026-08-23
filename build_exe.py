@@ -8,14 +8,14 @@ import time
 import packaging_manifest as M
 
 # Kill any running instances to prevent PermissionError
-print("Killing existing SpinningCam instances...")
-os.system("taskkill /f /im SpinningCam.exe >nul 2>&1")
+print(f"Killing existing {M.APP_NAME} instances...")
+os.system(f"taskkill /f /im {M.APP_NAME}.exe >nul 2>&1")
 time.sleep(1)
 
-print("Starting Build Process for SpinningCam...")
+print(f"Starting Build Process for {M.APP_NAME}...")
 
 base_path = os.path.dirname(os.path.abspath(__file__))
-dist_dir = os.path.join(base_path, "dist", "SpinningCam")
+dist_dir = os.path.join(base_path, "dist", M.APP_NAME)
 
 # NOTE: app data (settings.json, tools.json, machines/, materials.json, logo.*)
 # is NOT passed to --add-data. The app reads it from get_base_path() == the exe
@@ -24,8 +24,8 @@ dist_dir = os.path.join(base_path, "dist", "SpinningCam")
 # Single source of truth for that list: packaging_manifest.SHIP_NEXT_TO_EXE.
 
 args = [
-    "main_tk.py",              # Entry point (what SpinningCam.bat runs)
-    "--name=SpinningCam",      # Executable name
+    "main_tk.py",              # Entry point (what run.bat runs from source)
+    f"--name={M.APP_NAME}",    # Executable name — packaging_manifest.APP_NAME
     "--onedir",                # Folder mode — reliable with heavy libs like OCC and PyVista
     "--noconsole",             # No terminal window
     "--clean",                 # Clean PyInstaller cache before build
@@ -68,7 +68,7 @@ for mod in M.CRITICAL_MODULES:
         args.append(f"--hidden-import={mod}")
 
 print("Running PyInstaller... This will take several minutes.")
-print("Output will be in: dist/SpinningCam/\n")
+print(f"Output will be in: dist/{M.APP_NAME}/\n")
 
 try:
     PyInstaller.__main__.run(args)
@@ -100,8 +100,8 @@ check = subprocess.run(
 print("\n" + "=" * 55)
 if check.returncode == 0:
     print("BUILD SUCCESSFUL and VERIFIED!")
-    print("Folder: dist/SpinningCam/")
-    print("Run:    dist/SpinningCam/SpinningCam.exe")
+    print(f"Folder: dist/{M.APP_NAME}/")
+    print(f"Run:    dist/{M.APP_NAME}/{M.APP_NAME}.exe")
 else:
     print("BUILD COMPLETED but PACKAGING CHECK FAILED (see above).")
     print("The exe may be incomplete — fix before shipping.")

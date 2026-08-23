@@ -1,4 +1,4 @@
-"""Single source of truth for what a shipped SpinningCam.exe must contain.
+"""Single source of truth for what a shipped SoftSpinner.exe must contain.
 
 Read by three places so "a correct build" has ONE definition:
   - build_exe.py            → bundles data and places it NEXT TO the exe
@@ -16,6 +16,14 @@ lazily (inside a function) and is critical, add it to CRITICAL_MODULES.
 check_packaging.py will WARN when it finds a runtime file read in the source
 that is not covered here, so a forgotten file cannot stay silent.
 """
+
+# ── The built application's name ────────────────────────────────────────────────
+# Drives the exe filename AND the dist/ folder name. It lives here because
+# build_exe.py and check_packaging.py must agree on it — before this the literal was
+# spelled out in eight separate places across those two files, so renaming the product
+# meant hunting for them. The PROJECT FOLDER is still SpinningCam/; only the build
+# output is named from this.
+APP_NAME = "SoftSpinner"
 
 # ── Files/dirs that MUST sit next to the exe ────────────────────────────────────
 # Relative to the project root (dev) / exe folder (frozen). Dirs are copied whole.

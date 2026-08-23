@@ -173,7 +173,7 @@ def check_static():
 
 def check_post_build(dist_dir):
     problems = []
-    exe = os.path.join(dist_dir, "SpinningCam.exe")
+    exe = os.path.join(dist_dir, f"{M.APP_NAME}.exe")
     if not os.path.exists(exe):
         return [f"exe not found at {exe} — did the build run?"]
 
@@ -212,9 +212,9 @@ def main():
     dist_dir = None
     if post:
         args = [a for a in sys.argv[1:] if a != "--post-build"]
-        dist_dir = args[0] if args else os.path.join(ROOT, "dist", "SpinningCam")
+        dist_dir = args[0] if args else os.path.join(ROOT, "dist", M.APP_NAME)
 
-    print("=== SpinningCam packaging check ===\n")
+    print(f"=== {M.APP_NAME} packaging check ===\n")
     problems, warnings = check_static()
 
     if warnings:
