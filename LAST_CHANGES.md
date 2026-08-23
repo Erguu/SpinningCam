@@ -5,6 +5,37 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-24 — ÜRÜN ADI "EMS SoftSpinner" → "SoftSpinner" (v1.019 içinde)
+
+**Neden:** Ürün küresel olarak satılacaksa EMS'in adıyla satılamaz. Ad KULLANICININ
+kendi buluşu (EMS sadece kullandı), TMview'da (sınıf 9) kayıt YOK → "SoftSpinner"
+tek başına serbest. Karar: TEK program herkese; sürüm/edition bayrağı YOK.
+
+**Değişiklik (sadece metin — davranış değişmedi):**
+- `ui/main_window.py:81` pencere başlığı
+- `i18n.py`: `help_win_title`, `about_text` (EN/TR/ES)
+- `i18n.py`: 3 lisans mesajı "EMS ile iletişime geçin" → "tedarikçinizle iletişime
+  geçin" (`msg_lic_unsigned_body`, `msg_lic_tampered_body`, `msg_mac_mismatch_body`)
+- `ui/dialogs/help_window.py`: EN + TR giriş paragrafı
+- `machine_info.py`: başlık, etiket ve "değerleri EMS'e gönderin" → "tedarikçinize
+  gönderin" (bu araç MÜŞTERİDE çalışıyor, o yüzden kapsamda)
+
+**BİLEREK DEĞİŞTİRİLMEDİ:** `license_manager.py` / `packaging_manifest.py` /
+`license_generator.py` içindeki EMS geçen satırlar KOD YORUMU (özel anahtarı kimin
+tuttuğunu anlatıyor); `make_admin_license.py` shiplenmeyen geliştirici aracı;
+`machine_loader.py:161` "EMS Spinning Lathe #1" GERÇEKTEN EMS'in makinesinin adı.
+
+**Exe adı (`SpinningCam.spec`) DEĞİŞTİRİLMEDİ** — ayrı karar. EMS `run.bat` ile
+KAYNAKTAN çalıştırıyor (`python main_tk.py`), exe adı onları etkilemiyor.
+
+**Doğrulama:** üç dilde render edildi; `i18n.STRINGS` taramasında kullanıcıya görünen
+"EMS" KALMADI; derleme temiz.
+
+**Geri alma:** yukarıdaki dosyalarda "SoftSpinner" → "EMS SoftSpinner",
+"tedarikçiniz/your supplier" → "EMS".
+
+---
+
 ## 2026-08-24 — HAKKINDA KUTUSU CANLI SÜRÜMÜ GÖSTERİYOR (v1.019 içinde)
 
 **Neden:** `about_text` sürümü metnin İÇİNE gömülüydü ("V1.002") — 17 sürüm boyunca

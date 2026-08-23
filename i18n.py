@@ -103,7 +103,7 @@ STRINGS = {
     "vp_back_pass":         {"EN": "Back Pass",                     "TR": "Geri Pas",                   "ES": "Pasada Inversa"},
 
     # ── Help window ───────────────────────────────────────────────────────────
-    "help_win_title":       {"EN": "EMS SoftSpinner — User Guide",  "TR": "EMS SoftSpinner — Kullanıcı Kılavuzu", "ES": "EMS SoftSpinner — Guía de Usuario"},
+    "help_win_title":       {"EN": "SoftSpinner — User Guide",      "TR": "SoftSpinner — Kullanıcı Kılavuzu", "ES": "SoftSpinner — Guía de Usuario"},
     "help_tab_start":       {"EN": "Getting Started",               "TR": "Başlarken",                  "ES": "Primeros Pasos"},
     "help_tab_view":        {"EN": "3D View",                       "TR": "3D Görünüm",                 "ES": "Vista 3D"},
     "help_tab_ops":         {"EN": "Operations",                    "TR": "Operasyonlar",               "ES": "Operaciones"},
@@ -115,9 +115,9 @@ STRINGS = {
     # ── About ─────────────────────────────────────────────────────────────
     # {v} is filled from version.APP_VERSION at the call site — never hardcode the
     # number here. It sat at "V1.002" for seventeen releases because it was a literal.
-    "about_text":           {"EN": "EMS SoftSpinner V{v}\n\nOptimized for 2-Axis CNC Spinning.",
-                             "TR": "EMS SoftSpinner V{v}\n\n2 Eksenli CNC Sıvama için Optimize Edilmiştir.",
-                             "ES": "EMS SoftSpinner V{v}\n\nOptimizado para Embutición CNC de 2 Ejes."},
+    "about_text":           {"EN": "SoftSpinner V{v}\n\nOptimized for 2-Axis CNC Spinning.",
+                             "TR": "SoftSpinner V{v}\n\n2 Eksenli CNC Sıvama için Optimize Edilmiştir.",
+                             "ES": "SoftSpinner V{v}\n\nOptimizado para Embutición CNC de 2 Ejes."},
 
     # ── Tab titles ────────────────────────────────────────────────────────
     "tab_process":          {"EN": "Process & Visual",              "TR": "İşlem & Görsel",             "ES": "Proceso & Visual"},
@@ -564,7 +564,7 @@ STRINGS = {
     "lbl_license_tampered": {"EN": "INVALID SIGNATURE",              "TR": "GEÇERSİZ İMZA",              "ES": "FIRMA INVÁLIDA"},
     "lbl_license_old_format":{"EN": "Old format (no signature)",     "TR": "Eski format (imzasız)",      "ES": "Formato antiguo (sin firma)"},
     "lbl_license_unsigned": {"EN": "UNSIGNED LICENSE",               "TR": "İMZASIZ LİSANS",             "ES": "LICENCIA SIN FIRMA"},
-    "msg_lic_unsigned_body": {"EN": "This license file is not signed and cannot be accepted.\nContact EMS for a valid signed license.", "TR": "Bu lisans dosyası imzalı değil ve kabul edilemez.\nGeçerli, imzalı bir lisans için EMS ile iletişime geçin.", "ES": "Este archivo de licencia no está firmado y no puede aceptarse.\nContacte a EMS para obtener una licencia firmada válida."},
+    "msg_lic_unsigned_body": {"EN": "This license file is not signed and cannot be accepted.\nContact your supplier for a valid signed license.", "TR": "Bu lisans dosyası imzalı değil ve kabul edilemez.\nGeçerli, imzalı bir lisans için tedarikçinizle iletişime geçin.", "ES": "Este archivo de licencia no está firmado y no puede aceptarse.\nContacte a su proveedor para obtener una licencia firmada válida."},
     "lbl_license_expired":  {"EN": "License EXPIRED",                "TR": "Lisans SÜRESİ DOLDU",        "ES": "Licencia VENCIDA"},
     "lbl_license_no_machines":{"EN": "No licensed machines found",   "TR": "Lisanslı makine bulunamadı", "ES": "No se encontraron máquinas con licencia"},
     "lbl_gen_customer":     {"EN": "Customer Name",                  "TR": "Müşteri Adı",                "ES": "Nombre del Cliente"},
@@ -572,13 +572,13 @@ STRINGS = {
     "lbl_gen_expiry":       {"EN": "Expiry Date (YYYY-MM-DD, blank = none)", "TR": "Son Kullanma Tarihi (YYYY-AA-GG, boş = süresiz)", "ES": "Fecha de Expiración (YYYY-MM-DD, vacío = sin límite)"},
     "lbl_gen_admin":        {"EN": "Admin License",                  "TR": "Yönetici Lisansı",           "ES": "Licencia de Administrador"},
     "msg_lic_tampered_title":{"EN": "License Invalid",               "TR": "Lisans Geçersiz",            "ES": "Licencia Inválida"},
-    "msg_lic_tampered_body": {"EN": "The license file signature is invalid.\nContact EMS for a valid license.", "TR": "Lisans dosyası imzası geçersiz.\nGeçerli bir lisans için EMS ile iletişime geçin.", "ES": "La firma del archivo de licencia es inválida.\nContacte a EMS para obtener una licencia válida."},
+    "msg_lic_tampered_body": {"EN": "The license file signature is invalid.\nContact your supplier for a valid license.", "TR": "Lisans dosyası imzası geçersiz.\nGeçerli bir lisans için tedarikçinizle iletişime geçin.", "ES": "La firma del archivo de licencia es inválida.\nContacte a su proveedor para obtener una licencia válida."},
     "msg_lic_saved_title":  {"EN": "License Saved",                  "TR": "Lisans Kaydedildi",          "ES": "Licencia Guardada"},
     "msg_lic_saved_body":   {"EN": "License file saved successfully.", "TR": "Lisans dosyası başarıyla kaydedildi.", "ES": "Archivo de licencia guardado correctamente."},
     "msg_mac_mismatch_title":{"EN": "Wrong Machine",                  "TR": "Yanlış Makine",              "ES": "Máquina Incorrecta"},
-    "msg_mac_mismatch_body": {"EN": "This license is locked to a different machine.\n\nLicensed MAC:  {expected}\nThis machine:  {current}\n\nContact EMS to transfer your license.",
-                              "TR": "Bu lisans farklı bir makineye kilitlidir.\n\nLisanslı MAC:  {expected}\nBu makine:     {current}\n\nLisansınızı aktarmak için EMS ile iletişime geçin.",
-                              "ES": "Esta licencia está bloqueada a otra máquina.\n\nMAC licenciada:  {expected}\nEsta máquina:    {current}\n\nContacte a EMS para transferir su licencia."},
+    "msg_mac_mismatch_body": {"EN": "This license is locked to a different machine.\n\nLicensed MAC:  {expected}\nThis machine:  {current}\n\nContact your supplier to transfer your license.",
+                              "TR": "Bu lisans farklı bir makineye kilitlidir.\n\nLisanslı MAC:  {expected}\nBu makine:     {current}\n\nLisansınızı aktarmak için tedarikçinizle iletişime geçin.",
+                              "ES": "Esta licencia está bloqueada a otra máquina.\n\nMAC licenciada:  {expected}\nEsta máquina:    {current}\n\nContacte a su proveedor para transferir su licencia."},
     "lbl_gen_mac":          {"EN": "MAC Address (leave blank = any machine)", "TR": "MAC Adresi (boş = herhangi bir makine)", "ES": "Dirección MAC (vacío = cualquier máquina)"},
     "btn_read_mac":         {"EN": "Read this machine's MAC",         "TR": "Bu makinenin MAC'ini oku",   "ES": "Leer MAC de esta máquina"},
     "frm_gcode_output":     {"EN": "G-Code Output Settings",        "TR": "G-Code Çıkış Ayarları",      "ES": "Configuración de Salida G-Code"},

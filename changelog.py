@@ -37,6 +37,12 @@ CHANGELOG = {
          "differently. Worth knowing: an uncalibrated tool also skips the "
          "Rr-must-not-be-below-Radius gouge check, which can only run once Rr is set.",
          "Tools ▸ Tool Library..."),
+        ("The program is now called SoftSpinner",
+         "The name shown in the title bar, the About box and the user guide drops the "
+         "EMS prefix — the product name on its own. Licence messages that used to say "
+         "\"contact EMS\" now say \"contact your supplier\", which stays correct "
+         "whoever you got it from. Nothing about how the program works has changed.",
+         "Title bar · Help ▸ About"),
         ("The About box was showing the wrong version number",
          "It read V1.002 no matter which version you were running — the number was "
          "written into the text instead of being read from the build. It now matches "

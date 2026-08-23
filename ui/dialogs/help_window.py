@@ -11,7 +11,7 @@ _C = {
         "EN": """\
 WHAT THIS SOFTWARE DOES
 ════════════════════════════════════════════════════════════════
-EMS SoftSpinner is a CAM tool for 2-axis CNC metal spinning. It
+SoftSpinner is a CAM tool for 2-axis CNC metal spinning. It
 generates roller toolpaths that a spinning lathe will follow to
 form a blank sheet over a mandrel into the desired shape.
 
@@ -60,7 +60,7 @@ it does and what values are typical.
         "TR": """\
 BU YAZILIM NE YAPAR
 ════════════════════════════════════════════════════════════════
-EMS SoftSpinner, 2 eksenli CNC metal sıvama için bir CAM
+SoftSpinner, 2 eksenli CNC metal sıvama için bir CAM
 aracıdır. CNC sıvama tezgahının bir mandrel üzerinde blank sacı
 istenilen şekle getirmek için izleyeceği rulo yollarını üretir.
 

@@ -1,5 +1,5 @@
 """
-EMS SoftSpinner — Machine Info Tool
+SoftSpinner — Machine Info Tool
 Run this on the customer's machine to get the identifiers needed for license generation.
 """
 import tkinter as tk
@@ -37,7 +37,7 @@ def get_fingerprint(guid: str) -> str:
 class MachineInfoWindow(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("EMS SoftSpinner — Machine Info")
+        self.title("SoftSpinner — Machine Info")
         self.resizable(False, False)
 
         mac  = get_mac()
@@ -56,9 +56,9 @@ class MachineInfoWindow(tk.Tk):
         f = ttk.Frame(self, padding=(PX, 14, PX, 14))
         f.pack(fill="both", expand=True)
 
-        tk.Label(f, text="EMS SoftSpinner — Machine Identifier",
+        tk.Label(f, text="SoftSpinner — Machine Identifier",
                  font=("Arial", 12, "bold")).pack(anchor="w")
-        tk.Label(f, text="Send all three values to EMS to receive your license file.",
+        tk.Label(f, text="Send all three values to your supplier to receive your license file.",
                  font=("Arial", 9), fg="#555").pack(anchor="w", pady=(2, 12))
 
         ttk.Separator(f, orient="horizontal").pack(fill="x", pady=(0, 12))

@@ -78,7 +78,7 @@ class SpinningCamWindow(tk.Tk):
         except: pass
 
         self.app = SpinningApp(headless=True)
-        self.title(f"EMS SoftSpinner V{APP_VERSION}")
+        self.title(f"SoftSpinner V{APP_VERSION}")
 
         # First-run seeding (Phase 2 pull-collision fix): create the runtime-owned data
         # files (tools.json + machines/*.json) from their tracked .default seeds if they
