@@ -3,6 +3,67 @@
 
 ---
 
+## Rebrand + global edition — 2026-08-24 (session: SoftSpinner rename)
+
+### 98. Loose ends from the rebrand session
+
+Five items, most-important first. The first two are verification of things that
+are ALREADY SHIPPED — they are not new features, they are proof that is missing.
+
+**98.1 — Physically verify `8c77244` (program start no longer opens with two
+rapids to zero). ⚠ RELEASED BUT NEVER RUN ON THE MACHINE.**
+Every recipe's opening lines changed, and the header checksum changed with them
+(the sample 1383 in #97 was computed before this). Shipped in v1.019. The only
+record that it is unproven was a line in `LAST_CHANGES.md` — which is exactly how
+it went a week without anyone noticing, so it is written down here now.
+Test: export one real part program, load it in TIA, run it, confirm the first
+move is a real approach and not a rapid through the blank. See
+`_test_program_start_recipe.py` for what the headless side already covers, and
+[[project_for_recipe_flag]] for the trap that `for_recipe=` — not `plc_mode` —
+is what marks the recipe path.
+
+**98.2 — Verify the exe rename with a real build.**
+`build_exe.bat`, then confirm you get `dist/SoftSpinner/SoftSpinner.exe` and that
+`python check_packaging.py --post-build` passes. The rename is only statically
+verified: `packaging_manifest.APP_NAME` is now the single source of the name and
+`build_exe.py` / `check_packaging.py` read it, but no build has actually run.
+EMS launches via `run.bat`, which calls `main_tk.py` directly and is unaffected.
+
+**98.3 — Global edition (blocked on a non-code answer).**
+The task table lives in `../MakeMoney/letters/R001-global-edition.md`. Decisions
+already made, so nobody re-opens them:
+- ONE program for everyone. No `edition.py`, no second build, no build-time gate.
+- What is unlocked is decided by the LICENCE (`features: [...]`), not by
+  `_admin`. `_admin` must never become the key — `main.py:268` merges
+  `settings.json` wholesale into `params`, and `settings.json` carries
+  `"_admin": true` in plaintext, so gating on it is forgeable with a text editor.
+- Fresh installs should start with an EMPTY tool library rather than a seed
+  (user, 2026-08-24). Not implemented; see #98.5 for the seed defaults it would
+  retire.
+BLOCKED ON: who owns the software (the ownership question in L001/R001), and
+whether buyers exist at all — several competitors (MJC, DENN, Prosper, Altron)
+bundle CAM **free** with the machine.
+Also proposed in R001 and not started: an admin-licence regression test (2–4 h),
+so that gating work cannot silently lock EMS out of their own program.
+
+**98.4 — Delete `SpinningCam.spec`.**
+Confirmed unused: `build_exe.py` calls `PyInstaller.__main__` with its own
+argument list including `--name`, and never reads the spec. Its header now says
+so and its two `name=` fields were synced to `SoftSpinner` so it cannot mislead,
+but the real fix is to delete it. Left in place only because deleting a build
+file deserves one build to confirm nothing depended on it — i.e. do it after
+#98.2.
+
+**98.5 — Two leftover `T0101` defaults.**
+`config_schema.py:25` (a validation default) and `export_manager.py:97` (a label
+on the PDF operation sheet). Both harmless — neither reaches a toolpath — but
+`T0101` no longer exists in a user's live `tools.json`, only in the shipped seed
+`tools.default.json`. Written down so nobody diagnoses them a third time.
+`ops_library.json:11` had the same stale reference and was fixed on 2026-08-24
+(→ `T001`); it is gitignored, so that fix is local to this machine only.
+
+---
+
 ## PLC / SCL — 2026-08-14 (VERIFIED ON HARDWARE)
 
 ### 96. Chunked recipe arrays `Lines1..LinesN` — ✅ Done, confirmed on the machine
