@@ -21,12 +21,23 @@ Headless coverage: `_test_program_start_recipe.py`. Trap worth remembering:
 `for_recipe=` marks the recipe path, NOT `plc_mode` (`ID112-1` ships
 `plc_mode: 0.0` and still exports SCL).
 
-**98.2 — Verify the exe rename with a real build.**
-`build_exe.bat`, then confirm you get `dist/SoftSpinner/SoftSpinner.exe` and that
-`python check_packaging.py --post-build` passes. The rename is only statically
-verified: `packaging_manifest.APP_NAME` is now the single source of the name and
-`build_exe.py` / `check_packaging.py` read it, but no build has actually run.
-EMS launches via `run.bat`, which calls `main_tk.py` directly and is unaffected.
+**98.2 — Exe rename — ✅ BUILT AND VERIFIED (2026-08-24).**
+`dist/SoftSpinner/SoftSpinner.exe` builds, `check_packaging.py --post-build` PASSES,
+and the exe's own `--selfcheck` exits 0. Also verified from a DIFFERENT DRIVE
+(`D:\SoftSpinner_test`): the log landed at `D:\SoftSpinner_test\spinning_cam.log`,
+proving `get_base_path()` resolves to the exe's folder at runtime rather than a path
+baked in at build time. EMS is unaffected either way — `run.bat` runs from source.
+
+**GOTCHA that cost the user a debugging session (2026-08-24):** PyInstaller leaves
+TWO folders named `SoftSpinner`, and the `SoftSpinner.exe` inside them is
+BYTE-IDENTICAL (same md5):
+  * `build/SoftSpinner/` — scratch. `.toc` files, the `.pkg`, a compile cache.
+    **Never contains `_internal/`** — that is created during the final COLLECT step,
+    which writes to `dist/`.
+  * `dist/SoftSpinner/` — the product. exe + `_internal/` + shipped data.
+Copying the exe alone (or copying `build/`) gives
+`Failed to load Python DLL '<dir>\_internal\python310.dll'` at launch. THE FOLDER IS
+THE PROGRAM, NOT THE EXE. If a customer ever reports that message, this is why.
 
 **98.3 — Global edition (blocked on a non-code answer).**
 The task table lives in `../MakeMoney/letters/R001-global-edition.md`. Decisions
