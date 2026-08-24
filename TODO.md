@@ -21,12 +21,21 @@ Headless coverage: `_test_program_start_recipe.py`. Trap worth remembering:
 `for_recipe=` marks the recipe path, NOT `plc_mode` (`ID112-1` ships
 `plc_mode: 0.0` and still exports SCL).
 
-**98.2 — Exe rename — ✅ BUILT AND VERIFIED (2026-08-24).**
+**98.2 — Exe rename — ✅ BUILT, MOVED AND RUN (2026-08-24). Nothing left here.**
 `dist/SoftSpinner/SoftSpinner.exe` builds, `check_packaging.py --post-build` PASSES,
-and the exe's own `--selfcheck` exits 0. Also verified from a DIFFERENT DRIVE
-(`D:\SoftSpinner_test`): the log landed at `D:\SoftSpinner_test\spinning_cam.log`,
-proving `get_base_path()` resolves to the exe's folder at runtime rather than a path
-baked in at build time. EMS is unaffected either way — `run.bat` runs from source.
+the exe's own `--selfcheck` exits 0, and the USER REBUILT, MOVED THE WHOLE dist
+FOLDER TO `D:\SoftSpinner` AND RAN IT — real window, passing.
+
+That run also proved two things beyond the rename:
+  * `get_base_path()` resolves at RUNTIME, not build time — the log and the created
+    `settings.json` / `tools.json` all landed on D: beside the exe.
+  * **The clean-install path works.** `first_run_seed` copied `tools.default.json`
+    → `tools.json` (T0101–T0103) and all three referenced STEPs resolve from
+    `tool_geometry/` next to the exe. This is the first real end-to-end proof of the
+    seed fix made earlier the same day — there had been a window where
+    `tools.default.json` named three STEPs that were not on disk, and a build from
+    that state would have shipped a seed with no geometry.
+EMS is unaffected either way — `run.bat` runs from source.
 
 **GOTCHA that cost the user a debugging session (2026-08-24):** PyInstaller leaves
 TWO folders named `SoftSpinner`, and the `SoftSpinner.exe` inside them is
