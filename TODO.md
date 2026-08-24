@@ -123,9 +123,18 @@ Open:
 
 ---
 
-## UI Wording — 2026-07-30 (not started)
+## UI Wording — 2026-07-30 (✅ DONE 2026-08-24, commit `9053f69`)
 
-### 93. Rename the "Custom Commands" table title to "Adding M code"
+### 93. Rename the "Custom Commands" table title to "Adding M code" — ✅ DONE
+
+Done as written below, in v1.019. `frm_custom_cmds` + the three strings that point
+at the table by name + the EN/TR help sections. The `custom_commands` params key was
+NOT touched, so output is byte-identical. Historical `changelog.py` entries kept the
+old name deliberately — they describe versions where the title really was that.
+All 864 i18n keys still resolve in EN/TR/ES. GUI smoke in the real window still to do.
+Details + rollback: `LAST_CHANGES.md` 2026-08-24.
+
+<details><summary>original plan</summary>
 
 **Why (user, 2026-07-30):** operators do not read "Custom Commands" as "this is
 where I add my M-codes". The table on the Machine tab is in practice the M-code
@@ -144,6 +153,8 @@ entry point, so the title should say that plainly.
   (:22, :34, :40, :45, :56–60 — historical entries, decide whether to leave them
   as-is since they describe past versions).
 - `help_window.py` `_C` dict (EN+TR) per the help-window update policy.
+
+</details>
 
 ---
 
