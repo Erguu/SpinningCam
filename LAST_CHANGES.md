@@ -5,6 +5,45 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-24 — "Özel Komutlar" → "M kodu ekleme" (TODO #93) + kaçan 3 EMS metni (v1.019 içinde)
+
+**Neden (#93, kullanıcı 2026-07-30):** operatörler "Custom Commands" başlığını
+"M kodlarımı buraya ekliyorum" diye okumuyor. Tablo pratikte M-code giriş noktası,
+başlık da onu söylemeli.
+
+**Değişen — SADECE GÖRÜNÜM KATMANI:**
+- `i18n.py` `frm_custom_cmds` → EN "Adding M code" / TR "M kodu ekleme" /
+  ES "Añadir código M". Tabloyu ADIYLA işaret eden 3 metin de güncellendi:
+  `orc_footer` (export uyarısı), `lbl_cyl_visual_info` (arka destek silindiri notu),
+  `lbl_mcode_info` (M-code tanımları açıklaması).
+- `ui/dialogs/help_window.py` EN+TR: "M-CODES (custom commands)" → "M-CODES",
+  bölüm etiketi "Custom Commands" → "Adding M code" / "Özel Komutlar" →
+  "M kodu ekleme" (yardım penceresi güncelleme kuralı).
+
+**DOKUNULMADI (bilerek):** `custom_commands` params/settings ANAHTARI aynı kaldı →
+şema, `.ssp`, makine profili, G-code/SCL çıktısı BİREBİR aynı. `changelog.py`'daki
+eski sürüm girdileri de aynı bırakıldı — geçmiş sürümleri anlatıyorlar, o sürümlerde
+başlık gerçekten "Özel Komutlar"dı.
+
+**Aynı oturumda: rebrand'de KAÇAN 3 kullanıcı-görünür "EMS SoftSpinner" metni.**
+Kullanıcı üstteki siyah şeriti fark etti; arayınca 3 yer çıktı:
+- `ui/main_window.py:629` — üstteki siyah başlık şeridi (sürüm etiketi sağda).
+- `ui/dialogs/machine_selector.py:34` + `:66` — açılıştaki makine/lisans penceresi;
+  bu MÜŞTERİNİN GÖRDÜĞÜ İLK EKRAN, en kötü kaçak buydu.
+- `make_admin_license.py:2` — docstring (iç araç).
+`machine_loader.py:161` "EMS Spinning Lathe #1" (EMS'in gerçek makine adı),
+`build_machine_info.py` `EMS_MachineInfo.exe` ve `main_window.py:1111`
+`EMS_Spinning.nc` varsayılan dosya adı BİLEREK bırakıldı — bunlar ürün adı değil.
+
+**Doğrulama:** 864 i18n anahtarının üçü de EN/TR/ES'te çözülüyor (eksik yok);
+dokunulan 5 dosya `py_compile` temiz. **GERÇEK PENCEREDE GUI SMOKE BEKLİYOR.**
+
+**Geri alma:** `i18n.py` `frm_custom_cmds` değerini "Custom Commands"/"Özel Komutlar"/
+"Comandos Personalizados" yap; diğer 3 metni ve help_window etiketlerini geri çevir.
+Kod mantığı değişmediği için başka bir şey gerekmez.
+
+---
+
 ## 2026-08-24 — EXE ADI SpinningCam → SoftSpinner (v1.019 içinde)
 
 **Neden:** Ürün adı SoftSpinner oldu; derlenen exe hâlâ SpinningCam.exe idi.

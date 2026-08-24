@@ -2075,7 +2075,7 @@ Important: "Use ▸" only fills the Rr box for this calibration. It
 does NOT change the tool library and saves no tool value.
 
 
-M-CODES (custom commands)
+M-CODES
 ════════════════════════════════════════════════════════════════
 M-codes drive things that are not the roller — an air cylinder, a
 clamp, a valve. They are set up here in the Machine tab, and they
@@ -2090,7 +2090,7 @@ the operation list. Two sections work together:
                        Select a row to load it into the fields;
                        Add then updates that code in place.
 
-  Custom Commands      WHEN each code fires, one row per firing.
+  Adding M code        WHEN each code fires, one row per firing.
                        Each row reads as a sentence:
                          When [pass] = [3] do [M41 P2] note […]
 
@@ -2407,7 +2407,7 @@ takımlar birbiriyle tutarlı kalır. Test etmek için:
 Takım kütüphanesini DEĞİŞTİRMEZ ve hiçbir takım değerini KAYDETMEZ.
 
 
-M-CODE'LAR (özel komutlar)
+M-CODE'LAR
 ════════════════════════════════════════════════════════════════
 M-code'lar rulo dışındaki şeyleri sürer — bir hava silindiri, bir
 kıskaç, bir valf. Burada, Makine sekmesinde kurulurlar ve bu
@@ -2422,7 +2422,7 @@ listesinde GÖRÜNMEZLER. Birlikte çalışan iki bölüm var:
                       Bir satırı seçince alanlara dolar; Ekle o
                       kodu yerinde günceller.
 
-  Özel Komutlar       Her kodun NE ZAMAN çalışacağı; her çalışma
+  M kodu ekleme       Her kodun NE ZAMAN çalışacağı; her çalışma
                       için bir satır. Her satır cümle gibi okunur:
                         Şu anda: [pas] = [3] şunu yap: [M41 P2]
 

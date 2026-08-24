@@ -626,7 +626,7 @@ class SpinningCamWindow(tk.Tk):
         frame_header = tk.Frame(self, bg="#222222", height=26)
         frame_header.pack(side="top", fill="x")
         frame_header.pack_propagate(False)
-        tk.Label(frame_header, text="EMS SoftSpinner", bg="#222222", fg="#aaaaaa",
+        tk.Label(frame_header, text="SoftSpinner", bg="#222222", fg="#aaaaaa",
                  font=("Arial", 9)).pack(side="left", padx=10)
         tk.Label(frame_header, text=f"v{APP_VERSION}", bg="#222222", fg="#ffffff",
                  font=("Arial", 10, "bold")).pack(side="right", padx=12)

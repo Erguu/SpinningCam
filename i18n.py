@@ -63,11 +63,11 @@ STRINGS = {
     "orc_btn_skip":         {"EN": "Leave them out",                "TR": "Bu dosyada atla",            "ES": "Omitirlos"},
     "orc_btn_cancel":       {"EN": "Cancel export",                 "TR": "Dışa aktarmayı iptal et",    "ES": "Cancelar exportación"},
     "orc_footer":           {"EN": "Either choice affects this file only — your command table is not "
-                                   "changed. Cancel to go and edit it in Machine ▸ Custom Commands.",
+                                   "changed. Cancel to go and edit it in Machine ▸ Adding M code.",
                              "TR": "Her iki seçim de SADECE bu dosyayı etkiler — komut tablonuz "
-                                   "değişmez. Düzenlemek için iptal edip Makine ▸ Özel Komutlar'a gidin.",
+                                   "değişmez. Düzenlemek için iptal edip Makine ▸ M kodu ekleme'ye gidin.",
                              "ES": "Cualquier opción afecta solo a este archivo — su tabla de comandos no "
-                                   "cambia. Cancele para editarla en Máquina ▸ Comandos Personalizados."},
+                                   "cambia. Cancele para editarla en Máquina ▸ Añadir código M."},
     "menu_tools":           {"EN": "Tools",                         "TR": "Araçlar",                    "ES": "Herramientas"},
     "menu_tool_library":    {"EN": "Tool Library...",               "TR": "Takım Kütüphanesi...",        "ES": "Biblioteca de Herramientas..."},
     "menu_view":            {"EN": "View",                          "TR": "Görünüm",                    "ES": "Vista"},
@@ -600,12 +600,12 @@ STRINGS = {
                              "TR": "Arka Destek Silindiri (3D görünüm)",
                              "ES": "Cilindro de Contrapunto (vista 3D)"},
     "lbl_cyl_visual_info":  {"EN": "Drawing only. The cylinder's actual command is M40 in "
-                                   "Machine ▸ Custom Commands; the extension drawn here is read "
+                                   "Machine ▸ Adding M code; the extension drawn here is read "
                                    "from that command.",
-                             "TR": "Sadece çizim. Silindirin gerçek komutu Makine ▸ Özel Komutlar'daki "
+                             "TR": "Sadece çizim. Silindirin gerçek komutu Makine ▸ M kodu ekleme'deki "
                                    "M40'tır; burada çizilen uzama o komuttan okunur.",
                              "ES": "Solo dibujo. El comando real del cilindro es M40 en "
-                                   "Máquina ▸ Comandos Personalizados; la extensión dibujada se lee de él."},
+                                   "Máquina ▸ Añadir código M; la extensión dibujada se lee de él."},
     "frm_cylinder":         {"EN": "Cylinder (CMD=40)",             "TR": "Silindir (CMD=40)",          "ES": "Cilindro (CMD=40)"},
     "lbl_cyl_info":         {"EN": "Cylinder axis servo beside spindle axis, parallel to mandrel.\nMoves to position at program start, before spindle runs. (M40 P<mm>)",
                              "TR": "Silindir eksen servoların yanında, mandrel ile paralel.\nProgram başında, mil çalışmadan önce konuma gider. (M40 P<mm>)",
@@ -658,7 +658,11 @@ STRINGS = {
                              "TR": "Açıları otomatik eşit aralıkla (PLC hesaplar)",
                              "ES": "Espaciar ángulos automáticamente (PLC calcula)"},
     "btn_turret_populate":  {"EN": "Populate from tool library",     "TR": "Takım kütüphanesinden doldur", "ES": "Rellenar desde biblioteca"},
-    "frm_custom_cmds":      {"EN": "Custom Commands",               "TR": "Özel Komutlar",              "ES": "Comandos Personalizados"},
+    # Titled for what operators actually use it for. "Custom Commands" did not read
+    # as "this is where I add my M-codes" (user, 2026-07-30), and in practice this
+    # table IS the M-code entry point. `custom_commands` stays the params/settings
+    # key — this is view-layer only, no schema or .ssp change.
+    "frm_custom_cmds":      {"EN": "Adding M code",                 "TR": "M kodu ekleme",              "ES": "Añadir código M"},
     "cc_trigger_col":       {"EN": "Trigger",                       "TR": "Tetikleyici",                "ES": "Disparador"},
     "cc_value_col":         {"EN": "Value",                         "TR": "Değer",                      "ES": "Valor"},
     "cc_command_col":       {"EN": "Command",                       "TR": "Komut",                      "ES": "Comando"},
@@ -692,9 +696,9 @@ STRINGS = {
     "frm_mcode_desc":       {"EN": "M-Code Definitions",            "TR": "M-Code Tanımları",           "ES": "Definiciones de M-Code"},
     "lbl_mcode_info":       {"EN": "What each M-code means. One line per code — describe the parameter here too "
                                    "(e.g. \"1 for relax, 2 for retract\"). Shown as comments in G-code/SCL, in the "
-                                   "Custom Commands list, and in Preview & Analyze.",
+                                   "Adding M code list, and in Preview & Analyze.",
                              "TR": "Her M-code'un anlamı. Kod başına tek satır — parametreyi de burada anlatın "
-                                   "(ör. \"1 gevşetme, 2 geri çekme\"). G-code/SCL yorumlarında, Özel Komutlar "
+                                   "(ör. \"1 gevşetme, 2 geri çekme\"). G-code/SCL yorumlarında, M kodu ekleme "
                                    "listesinde ve Önizle ve Analiz Et'te görünür.",
                              "ES": "Qué significa cada M-code. Una línea por código — describa aquí también el "
                                    "parámetro (p. ej. \"1 para relajar, 2 para retraer\"). Se muestra como "

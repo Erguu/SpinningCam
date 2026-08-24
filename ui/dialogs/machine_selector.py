@@ -31,7 +31,7 @@ class MachineSelector(tk.Toplevel):
         saved_license_path / saved_settings_path: remembered from last session
         """
         super().__init__(parent)
-        self.title("EMS SoftSpinner — Machine & License")
+        self.title("SoftSpinner — Machine & License")
         self.resizable(True, True)
         self.minsize(540, 480)
         self.result = None
@@ -63,7 +63,7 @@ class MachineSelector(tk.Toplevel):
     def _build(self):
         PX = 16
 
-        tk.Label(self, text="EMS SoftSpinner",
+        tk.Label(self, text="SoftSpinner",
                  font=("Arial", 14, "bold"), fg="#222").pack(pady=(14, 0))
         tk.Label(self, text="Load your license file to see available machines.",
                  font=("Arial", 9), fg="#555").pack(pady=(0, 10))

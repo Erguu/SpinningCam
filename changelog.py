@@ -37,11 +37,19 @@ CHANGELOG = {
          "differently. Worth knowing: an uncalibrated tool also skips the "
          "Rr-must-not-be-below-Radius gouge check, which can only run once Rr is set.",
          "Tools ▸ Tool Library..."),
+        ("The Machine tab's \"Custom Commands\" table is now called \"Adding M code\"",
+         "Same table, same rows, nothing about your machine or your programs changes. "
+         "The old title did not read as \"this is where I add my M-codes\", which is "
+         "what the table is actually for. The places that point you at it — the "
+         "export warning, the back-support cylinder note and the M-code help — now "
+         "call it by the new name too.",
+         "Machine ▸ Adding M code"),
         ("The program is now called SoftSpinner",
-         "The name shown in the title bar, the About box and the user guide drops the "
-         "EMS prefix — the product name on its own. Licence messages that used to say "
-         "\"contact EMS\" now say \"contact your supplier\", which stays correct "
-         "whoever you got it from. Nothing about how the program works has changed.",
+         "The name shown in the title bar, the header strip, the startup machine/licence "
+         "window, the About box and the user guide drops the EMS prefix — the product "
+         "name on its own. Licence messages that used to say \"contact EMS\" now say "
+         "\"contact your supplier\", which stays correct whoever you got it from. "
+         "Nothing about how the program works has changed.",
          "Title bar · Help ▸ About"),
         ("The About box was showing the wrong version number",
          "It read V1.002 no matter which version you were running — the number was "

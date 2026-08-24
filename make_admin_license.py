@@ -1,5 +1,5 @@
 """
-EMS SoftSpinner — bootstrap the admin license.
+SoftSpinner — bootstrap the admin license.
 
 The in-app license generator is only reachable once an admin license is loaded,
 so the very first admin license must be created here. Requires the EMS private
