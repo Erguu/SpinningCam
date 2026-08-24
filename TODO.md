@@ -10,17 +10,16 @@
 Five items, most-important first. The first two are verification of things that
 are ALREADY SHIPPED — they are not new features, they are proof that is missing.
 
-**98.1 — Physically verify `8c77244` (program start no longer opens with two
-rapids to zero). ⚠ RELEASED BUT NEVER RUN ON THE MACHINE.**
-Every recipe's opening lines changed, and the header checksum changed with them
-(the sample 1383 in #97 was computed before this). Shipped in v1.019. The only
-record that it is unproven was a line in `LAST_CHANGES.md` — which is exactly how
-it went a week without anyone noticing, so it is written down here now.
-Test: export one real part program, load it in TIA, run it, confirm the first
-move is a real approach and not a rapid through the blank. See
-`_test_program_start_recipe.py` for what the headless side already covers, and
-[[project_for_recipe_flag]] for the trap that `for_recipe=` — not `plc_mode` —
-is what marks the recipe path.
+**98.1 — `8c77244` (program start no longer opens with two rapids to zero) —
+✅ CONFIRMED ON THE MACHINE (user, 2026-08-24).** Exported and run AFTER the
+change, so the recipe path is proven end-to-end again. Nothing to do.
+One consequence to carry forward: the recipe lost 2 lines, so the header checksum
+changed — **the hardware-verified sample `1383` recorded in #97 belongs to the old
+length and is now stale.** The mechanism is fine; only that written-down number is
+out of date. Re-record it from a current export if anyone needs a reference value.
+Headless coverage: `_test_program_start_recipe.py`. Trap worth remembering:
+`for_recipe=` marks the recipe path, NOT `plc_mode` (`ID112-1` ships
+`plc_mode: 0.0` and still exports SCL).
 
 **98.2 — Verify the exe rename with a real build.**
 `build_exe.bat`, then confirm you get `dist/SoftSpinner/SoftSpinner.exe` and that
@@ -81,6 +80,9 @@ If the PLC team ever retunes it (they floated 50 x 20), only two numbers move:
 
 Implemented (LAST_CHANGES 2026-08-14): `Header.ProvidesChecksum` +
 `Header.Checksum`, algorithm agreed against the letter's worked example (1383).
+⚠ That 1383 is STALE as a reference value — `8c77244` (2026-08-17) removed 2 lines
+from the start of every recipe, so a current export of the same program checksums
+differently. The ALGORITHM is unchanged and still verified; see #98.1.
 
 **UDT gap CLOSED (user, 2026-08-14): the PLC side now carries both fields**, so
 every export writes a checksum and `--no-checksum` is no longer needed for the
