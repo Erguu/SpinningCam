@@ -42,6 +42,18 @@ dokunulan 5 dosya `py_compile` temiz. **GERÇEK PENCEREDE GUI SMOKE BEKLİYOR.**
 "Comandos Personalizados" yap; diğer 3 metni ve help_window etiketlerini geri çevir.
 Kod mantığı değişmediği için başka bir şey gerekmez.
 
+**Devamı — üstteki SİYAH ŞERİT KALDIRILDI (kullanıcı kararı):** ad + sürüm zaten
+pencere başlığında, sürüm ayrıca kenar çubuğunda (`main_window.py:803`) var idi →
+aynı iki bilgi ÜÇ yerde, her ekranda 26px dikey yer götürüyordu. `_setup_layout`
+başındaki `frame_header` bloğu (5 satır) silindi, yerine neden-açıklaması yorum
+kondu. `frame_header` başka HİÇBİR yerde geçmiyordu (grep ile doğrulandı) →
+temiz silme; `APP_VERSION` importu hâlâ 81/281/803'te kullanılıyor.
+Doğrulama: `py_compile` temiz + AST kontrolü (`frame_header` kaynakta yok,
+`_setup_layout` durum çubuğunu ve panelleri hâlâ pack ediyor).
+**Geri alma:** `ui/main_window.py:625` civarındaki yorumu şu 5 satırla değiştir:
+`frame_header = tk.Frame(self, bg="#222222", height=26)` / `.pack(side="top", fill="x")` /
+`.pack_propagate(False)` / iki `tk.Label` (sol: "SoftSpinner", sağ: `f"v{APP_VERSION}"`).
+
 ---
 
 ## 2026-08-24 — EXE ADI SpinningCam → SoftSpinner (v1.019 içinde)

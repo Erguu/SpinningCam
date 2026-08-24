@@ -623,13 +623,11 @@ class SpinningCamWindow(tk.Tk):
         self._machine_ready = True
 
     def _setup_layout(self):
-        frame_header = tk.Frame(self, bg="#222222", height=26)
-        frame_header.pack(side="top", fill="x")
-        frame_header.pack_propagate(False)
-        tk.Label(frame_header, text="SoftSpinner", bg="#222222", fg="#aaaaaa",
-                 font=("Arial", 9)).pack(side="left", padx=10)
-        tk.Label(frame_header, text=f"v{APP_VERSION}", bg="#222222", fg="#ffffff",
-                 font=("Arial", 10, "bold")).pack(side="right", padx=12)
+        # No brand strip here (removed 2026-08-24). A 26px black bar repeated the
+        # name and version that the OS title bar already shows, and the sidebar
+        # shows the version a third time — three readings of the same number,
+        # costing vertical space on every screen. Name+version now come from
+        # self.title() at the top of __init__ and the sidebar label below.
 
         # Status bar packed BEFORE the paned area so the pane gets the rest.
         # pack_propagate(False) LOCKS the height at 30px: multi-line tooltip

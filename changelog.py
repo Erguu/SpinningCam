@@ -44,6 +44,13 @@ CHANGELOG = {
          "export warning, the back-support cylinder note and the M-code help — now "
          "call it by the new name too.",
          "Machine ▸ Adding M code"),
+        ("The black strip across the top is gone",
+         "It showed the program name and the version — both of which the window's "
+         "own title bar already shows, and the version appears in the sidebar as "
+         "well. Three places for the same two facts, costing a strip of height on "
+         "every screen. Removed; you get that height back for the 3D view. Nothing "
+         "else moves.",
+         "Main window"),
         ("The program is now called SoftSpinner",
          "The name shown in the title bar, the header strip, the startup machine/licence "
          "window, the About box and the user guide drops the EMS prefix — the product "
