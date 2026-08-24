@@ -131,7 +131,8 @@ Done as written below, in v1.019. `frm_custom_cmds` + the three strings that poi
 at the table by name + the EN/TR help sections. The `custom_commands` params key was
 NOT touched, so output is byte-identical. Historical `changelog.py` entries kept the
 old name deliberately — they describe versions where the title really was that.
-All 864 i18n keys still resolve in EN/TR/ES. GUI smoke in the real window still to do.
+All 864 i18n keys still resolve in EN/TR/ES. ✅ GUI smoke passed in the real window
+(user, 2026-08-24).
 Details + rollback: `LAST_CHANGES.md` 2026-08-24.
 
 <details><summary>original plan</summary>

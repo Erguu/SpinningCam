@@ -36,7 +36,9 @@ Kullanıcı üstteki siyah şeriti fark etti; arayınca 3 yer çıktı:
 `EMS_Spinning.nc` varsayılan dosya adı BİLEREK bırakıldı — bunlar ürün adı değil.
 
 **Doğrulama:** 864 i18n anahtarının üçü de EN/TR/ES'te çözülüyor (eksik yok);
-dokunulan 5 dosya `py_compile` temiz. **GERÇEK PENCEREDE GUI SMOKE BEKLİYOR.**
+dokunulan 5 dosya `py_compile` temiz. **✅ GERÇEK PENCEREDE GUI SMOKE GEÇTİ
+(kullanıcı, 2026-08-24)** — yeni "M kodu ekleme" başlığı, siyah şeridin gitmiş
+olması ve açılış penceresindeki "SoftSpinner" adı birlikte doğrulandı.
 
 **Geri alma:** `i18n.py` `frm_custom_cmds` değerini "Custom Commands"/"Özel Komutlar"/
 "Comandos Personalizados" yap; diğer 3 metni ve help_window etiketlerini geri çevir.
