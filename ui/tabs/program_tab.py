@@ -30,6 +30,7 @@ OP_PARAM_DEFAULTS = {
     "reach_blank_factor": 1.0,
     "p2_z_extend": 0,
     "p2_radius": 0,
+    "p2_radius_max_points": "off",  # empty = no cap on the fillet's PLC point count (#99)
     "exit_bow_bias": 0.5,
     "exit_mid_t": 0.5,
     "exit_mid_rotation": 0,
@@ -96,7 +97,8 @@ OP_PARAM_UNIVERSE = {
         "start_z", "end_z", "p2_z_extend",
         "proj_extend_bottom", "proj_extend_top",
         "retract_x", "retract_z",
-        "pass_shape", "p2_radius", "exit_arc_angle", "exit_bow", "exit_bow_bias",
+        "pass_shape", "p2_radius", "p2_radius_max_points",
+        "exit_arc_angle", "exit_bow", "exit_bow_bias",
         "exit_bow_trim", "exit_mid_rotation",
         "exit_mid_t", "exit_mid_radius", "exit_mid_radius_end", "exit_mid_trim",
         "conformal_clearance_operation_specific",
@@ -143,7 +145,8 @@ OP_PARAM_LABELS = {
     "plunge_end_x": "lbl_bend_end_x",     "plunge_end_z": "lbl_bend_end_z",
     "clearance": "lbl_clearance", "pass_shape": "lbl_shape_mode",
     "straight_line_mode": "lbl_straight_line",
-    "p2_radius": "lbl_p2_radius", "exit_arc_angle": "lbl_exit_arc",
+    "p2_radius": "lbl_p2_radius", "p2_radius_max_points": "lbl_p2_max_pts",
+    "exit_arc_angle": "lbl_exit_arc",
     "exit_bow": "lbl_exit_bow", "exit_bow_bias": "lbl_exit_bow_bias",
     "exit_bow_trim": "lbl_exit_bow_trim",
     "exit_mid_rotation": "lbl_exit_mid_rot", "exit_mid_t": "lbl_exit_mid_t",
@@ -183,7 +186,8 @@ GROUP_DEPS = {
 SECTION_KEYS = {
     "speed_feed": ["speed_mode", "speed", "feed_mode", "feed"],
     "cut_bend_move": _CUT_BEND_POINTS,
-    "path_shape": ["pass_shape", "p2_radius", "exit_arc_angle", "exit_bow",
+    "path_shape": ["pass_shape", "p2_radius", "p2_radius_max_points",
+                   "exit_arc_angle", "exit_bow",
                    "exit_bow_bias", "exit_bow_trim", "exit_mid_rotation", "exit_mid_t",
                    "exit_mid_radius", "exit_mid_radius_end", "exit_mid_trim",
                    "conformal_clearance_operation_specific",
@@ -224,7 +228,7 @@ _DEFAULT_COLUMNS = {
 # Customize dialog only offers the Batch checkbox for keys in this set.
 _BATCH_ELIGIBLE = {
     "speed", "feed", "count", "start_z", "end_z", "p2_z_extend",
-    "proj_extend_bottom", "proj_extend_top", "p2_radius",
+    "proj_extend_bottom", "proj_extend_top", "p2_radius", "p2_radius_max_points",
     "exit_bow", "exit_bow_bias", "exit_mid_rotation", "exit_mid_t",
     "exit_mid_radius", "exit_mid_radius_end",
     "p1_x", "p1_z", "p3_x", "p3_z", "reach", "reach_blank_factor",
@@ -2318,6 +2322,22 @@ class ProgramTab:
                                              "geometrik olarak hesaplanır — yaklaşıklama değil, gerçek yarıçap.\n"
                                              "Çok büyük değerler mevcut kol uzunluklarına göre otomatik sınırlanır.\n"
                                              "Tipik: 5–15 mm.")
+                # #99: fillet point cap — PLC/SCL reçetesindeki nokta sayısını sınırlar.
+                self._add_prop_entry(idx, "p2_radius_max_points", t("lbl_p2_max_pts"), op,
+                                     is_int=True, default_hint="= ∞",
+                                     tooltip="P2 fileto yayının PLC reçetesinde kaç noktaya kadar "
+                                             "inebileceği (en fazla). BOŞ/0 = sınır yok (varsayılan, "
+                                             "bugünkü davranış).\n"
+                                             "NEDEN: tezgah her noktada durup hızlanıyor; sık noktalı "
+                                             "fileto yavaş ve kesik kesik çalışıyor. Az nokta = daha "
+                                             "akıcı hareket, daha kaba köşe.\n"
+                                             "⚠️ SADECE PLC/SCL çıktısını etkiler — 3B görünüm ve normal "
+                                             ".nc dosyası tam çözünürlükte kalır, yani ekranda bir "
+                                             "değişiklik GÖRMEZSİNİZ. Etkisi SCL İnceleme penceresinde "
+                                             "görülür.\n"
+                                             "GÜVENLİK: sınır clearance'ı düşürecekse UYGULANMAZ; o pas "
+                                             "sınırsız haliyle kalır ve size bildirilir.\n"
+                                             "Tipik: 4–8 nokta.")
                 # #81: exit_arc_angle is now PER-OP (this field); the Process-tab
                 # spinbox is only the default for ops that leave this empty.
                 self._add_prop_entry(idx, "exit_arc_angle", t("lbl_exit_arc"), op, is_float=True,

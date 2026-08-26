@@ -5,6 +5,61 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-26 — P2 fileto nokta sınırı (TODO #99) — `p2_radius_max_points`
+
+**Neden (kullanıcı + operatör, 2026-08-26):** tezgah her noktada duruyor ve yeniden
+hızlanıyor (PLC ekibi doğruladı: *"axis decelerates to a stop at every point"* — hız
+harmanlama YOK, yay komutu da GELMEYECEK). Sık noktalı P2 filetosu bu yüzden yavaş ve
+kesik kesik çalışıyor. Bugüne kadar nokta azaltmanın TEK yolu daha çok pas ekleyip
+auto-tune bütçesini paslara bölmekti — dolaylı ve çarpıtıcı.
+
+**Eklenen — opsiyonel, per-op, VARSAYILAN KAPALI:**
+- `path_generator.py`
+  - `_thin_evenly(pts, n_max)` — YENİ. Nokta dizisini YAY UZUNLUĞUNA göre eşit aralıklı
+    seyreltir, iki uç noktayı DAİMA korur. (İndekse göre seyreltmek RDP'nin bıraktığı
+    kümelenmeyi taşırdı.)
+  - `_decimate_path_for_plc(..., max_fillet_points=None)` — yeni parametre; SADECE
+    üç-bölümlü ayrımda (approach / fileto / çıkış) anlamlı, `dec_fillet`'e RDP'DEN SONRA
+    uygulanır. RDP hangi noktaların önemli olduğuna, sınır kaç tane olacağına karar verir.
+  - `_path_min_clearance(path, op, params)` — YENİ; `measure_min_clearance` içinden
+    ÇIKARILDI ve o da artık buna delege ediyor. Metrik TEK yerde — auto-tune guard'ı ile
+    #99 kontrolü asla ayrışamaz. Davranış değişmedi (regresyon testi var).
+  - `decimate_all_paths(..., params=None)` — `params` verilmezse sınır HİÇ uygulanmaz,
+    yani eski çağıranlar birebir aynı. Sınır varsa: sınırlı yolu üret, clearance'ı
+    TAM ÇÖZÜNÜRLÜKLÜ yolunkiyle karşılaştır; kötüleşiyorsa sınırı AT ve sınırsız
+    seyreltmeyi koru, `last_point_cap_warnings`'a kaydet + log'a yaz.
+- `ui/tabs/program_tab.py` — `p2_radius_max_points` defaults/universe(roughing)/labels/
+  path_shape bölümü/_BATCH_ELIGIBLE + `p2_radius` altına editör alanı (is_int).
+- `i18n.py` — `lbl_p2_max_pts` (EN/TR/ES). 865 anahtarın tamamı üç dilde çözülüyor.
+- `ui/dialogs/scl_inspector.py` + `generate_gcode` PLC dalı — `params=` geçiriyor ki
+  sınır önizlemede de görünsün.
+- `ui/dialogs/help_window.py` — EN + TR bölümleri.
+
+**GÜVENLİK (bu maddenin tek gerçek riski):** az nokta = uzun kiriş; konveks bir filetoda
+iki ucu temiz olan bir kiriş köşeyi kesip parçaya dalabilir. Bu yüzden sınır, clearance'ı
+düşürüyorsa UYGULANMAZ — clearance değişmezi her zaman kazanır. Kullanıcı kararı: nokta
+"reddedilir", sessizce güvenli konuma itilmez.
+
+**KAPSAM:** SADECE PLC/SCL çıktısı. RDP zaten yalnızca `plc_mode` altında çalışıyor
+(`path_generator.py:2523`), 3B görünüm ve `.nc` tam çözünürlükte kalıyor → alan
+doldurulunca EKRANDA DEĞİŞİKLİK GÖRÜNMEZ. Tooltip ve yardım bunu açıkça söylüyor.
+
+**Doğrulama:** `_test_p2_point_cap.py` 5/5 GEÇTİ — `_thin_evenly` (sayı/uçlar/yay-eşit
+aralık), **sınır boşken çıktı BİREBİR AYNI**, güvenliyken uygulanıyor (23→6 nokta,
+clearance 2.00→2.00), gouge edecekken reddediliyor (1.98→0.32 yakalandı), ve
+`measure_min_clearance` regresyonu. Ayrıca `_test_plc_autotune.py`,
+`_test_gcode_not_plc.py`, `_test_exit_mid_curve.py` GEÇTİ.
+
+**GERİ ALMA:** alanı boş bırakmak özelliği tamamen devre dışı bırakır (kod yolu
+`_cap <= 0` ile erken çıkar). Tümüyle geri almak için: `decimate_all_paths`'teki sınır
+bloğunu kaldır ve `_decimate_path_for_plc`'deki `max_fillet_points` dalını sil;
+`_path_min_clearance` ayrıştırması davranış-nötr olduğu için kalabilir.
+
+**BEKLİYOR:** gerçek pencerede GUI smoke + gerçek bir programda SCL İnceleme ile
+etkinin doğrulanması + fiziksel tezgah denemesi (asıl amaç akıcı hareket).
+
+---
+
 ## 2026-08-24 — "Özel Komutlar" → "M kodu ekleme" (TODO #93) + kaçan 3 EMS metni (v1.019 içinde)
 
 **Neden (#93, kullanıcı 2026-07-30):** operatörler "Custom Commands" başlığını

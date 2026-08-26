@@ -258,6 +258,7 @@ class PathGenerator:
         self._path_op_map = []             # toolpath index → op dict (parallel to last_calculated_paths)
         self.last_op_end_z = {}            # op-index → CAM Z the op's last forming pass reaches (incl. p2_z_extend)
         self.last_tool_change_warnings = []  # custom tool-change points near the turret swing envelope
+        self.last_point_cap_warnings = []  # #99: fillet caps refused because they would cost clearance
 
     def _tc_radial_gap(self, pt, center_x, mandrel_mgr, params, r_tool):
         """Radial clearance (mm) between the roller contact at ``pt`` and the
@@ -2522,7 +2523,8 @@ class PathGenerator:
 
         if plc_mode:
             _exit_tol = float(params.get("plc_exit_tolerance", plc_tolerance))
-            paths_to_use = self.decimate_all_paths(plc_tolerance, _exit_tol, center_x)
+            paths_to_use = self.decimate_all_paths(plc_tolerance, _exit_tol, center_x,
+                                                   params=params)
             logger.info(
                 f"[PLC Mode] Decimated {len(self.last_calculated_paths)} paths. "
                 f"Points: {sum(len(p) for p in self.last_calculated_paths)} → "
@@ -3069,10 +3071,40 @@ class PathGenerator:
                 stack.append((max_idx, end))
         return sorted(kept)
 
+    def _thin_evenly(self, pts, n_max):
+        """Reduce a point run to at most n_max points, spaced evenly by ARC LENGTH
+        (not by index), always keeping the first and last.
+
+        Even-by-index would bunch the survivors wherever RDP happened to keep a
+        cluster; even-by-arc-length keeps the chord errors uniform around the
+        fillet, which is the whole point of capping it.
+
+        n_max < 2 is treated as 2 (a section cannot be shorter than its endpoints).
+        Returns the input unchanged when it is already short enough.
+        """
+        pts = np.asarray(pts, dtype=float)
+        n_max = max(2, int(n_max))
+        if len(pts) <= n_max:
+            return pts
+
+        seg = np.linalg.norm(np.diff(pts[:, [0, 2]], axis=0), axis=1)
+        cum = np.concatenate([[0.0], np.cumsum(seg)])
+        total = cum[-1]
+        if total <= 1e-9:                      # degenerate run — fall back to index
+            idx = np.unique(np.linspace(0, len(pts) - 1, n_max).astype(int))
+            return pts[idx]
+
+        targets = np.linspace(0.0, total, n_max)
+        idx = np.unique(np.abs(cum[None, :] - targets[:, None]).argmin(axis=1))
+        idx[0] = 0
+        idx[-1] = len(pts) - 1
+        return pts[np.unique(idx)]
+
     def _decimate_path_for_plc(self, path, tolerance, center_x,
                                approach_end_idx=None,
                                arc_end_idx=None,
-                               exit_tolerance=None):
+                               exit_tolerance=None,
+                               max_fillet_points=None):
         """
         Decimates a toolpath for PLC point-to-point output.
 
@@ -3103,6 +3135,16 @@ class PathGenerator:
             `tolerance` produces fewer exit points while keeping the fillet
             at full accuracy; setting it lower forces more exit detail.
 
+          max_fillet_points : hard cap on how many points the P2 fillet section
+            [T1..T2] may keep (TODO #99). Applied AFTER its RDP pass, thinned
+            evenly by arc length with T1/T2 always retained. None/0 = no cap.
+            Only meaningful when the three-section split is active (there is no
+            isolated fillet otherwise). The machine decelerates to a stop at
+            every point, so a dense fillet runs slow and rough; this trades
+            corner accuracy for motion smoothness. The clearance check that
+            decides whether a given cap is allowed lives in `decimate_all_paths`
+            — this function only applies what it is told.
+
         Returns a numpy array of the retained points.
         """
         pts = np.array(path)
@@ -3123,6 +3165,10 @@ class PathGenerator:
             fillet_part   = pts[approach_end_idx : arc_end_idx + 1] # [T1..T2]
             exit_part     = pts[arc_end_idx:]                        # [T2..P3]
             dec_fillet = self._decimate_path_for_plc(fillet_part, tolerance, center_x)
+            if max_fillet_points:
+                # #99: cap the fillet AFTER RDP — RDP decides which points matter,
+                # the cap decides how many the machine is willing to stop at.
+                dec_fillet = self._thin_evenly(dec_fillet, max_fillet_points)
             dec_exit   = self._decimate_path_for_plc(exit_part, _exit_tol, center_x)
             # Stitch: approach_part ends with T1, dec_fillet starts with T1 → drop one.
             # dec_fillet ends with T2, dec_exit starts with T2 → drop one.
@@ -3158,21 +3204,75 @@ class PathGenerator:
 
         return np.array(result_pts)
 
-    def decimate_all_paths(self, tolerance, exit_tolerance, center_x):
+    def decimate_all_paths(self, tolerance, exit_tolerance, center_x, params=None):
         """Return decimated copies of last_calculated_paths using the same
         per-path structural split (approach / fillet / exit) generate_gcode uses.
-        Read-only — does not mutate the stored paths."""
+        Read-only — does not mutate the stored paths.
+
+        When `params` is supplied, the per-op #99 fillet point cap
+        (`p2_radius_max_points`) is applied on top — but only where it costs no
+        clearance. Omitting `params` disables the cap entirely, so every existing
+        caller keeps its exact previous behaviour.
+
+        SAFETY (the reason the cap lives here and not in `_decimate_path_for_plc`):
+        fewer points means longer chords, and a chord across a convex fillet cuts
+        the corner even when both of its endpoints are clear. So each capped path
+        is measured against the SAME full-resolution path it came from, using the
+        same metric the auto-tune guard uses. If the cap makes clearance worse,
+        the cap is DROPPED for that pass and the uncapped decimation is kept — the
+        clearance invariant always wins, and the operator is told which passes
+        could not honour their cap via `last_point_cap_warnings`.
+        """
+        self.last_point_cap_warnings = []
         out = []
         for _pi, _p in enumerate(self.last_calculated_paths):
             _split   = self.last_render_split_idx.get(_pi)
             _app_end = _split[0] if _split is not None else None
             _arc_end = _split[1] if _split is not None else None
-            out.append(
-                self._decimate_path_for_plc(_p, tolerance, center_x,
-                                            approach_end_idx=_app_end,
-                                            arc_end_idx=_arc_end,
-                                            exit_tolerance=exit_tolerance)
-            )
+            _plain = self._decimate_path_for_plc(_p, tolerance, center_x,
+                                                 approach_end_idx=_app_end,
+                                                 arc_end_idx=_arc_end,
+                                                 exit_tolerance=exit_tolerance)
+
+            _op = self._path_op_map[_pi] if _pi < len(self._path_op_map) else None
+            _cap = 0
+            if params is not None and _op is not None and _split is not None:
+                try:
+                    _raw = _op.get("p2_radius_max_points", None)
+                    _cap = 0 if _raw in (None, "") else int(float(_raw))
+                except (TypeError, ValueError):
+                    _cap = 0
+            if _cap <= 0:
+                out.append(_plain)
+                continue
+
+            _capped = self._decimate_path_for_plc(_p, tolerance, center_x,
+                                                  approach_end_idx=_app_end,
+                                                  arc_end_idx=_arc_end,
+                                                  exit_tolerance=exit_tolerance,
+                                                  max_fillet_points=_cap)
+            if len(_capped) >= len(_plain):
+                out.append(_plain)          # cap changed nothing
+                continue
+
+            _floor = self._path_min_clearance(_p, _op, params)
+            _got   = self._path_min_clearance(_capped, _op, params)
+            if _got >= _floor - 1e-6:
+                out.append(_capped)
+            else:
+                out.append(_plain)
+                self.last_point_cap_warnings.append({
+                    "path_index": _pi,
+                    "op_name": (_op.get("name") or _op.get("type", "?")) if _op else "?",
+                    "requested": _cap,
+                    "kept": int(len(_plain)),
+                    "clearance": float(_got),
+                    "floor": float(_floor),
+                })
+                logger.info(
+                    f"[#99] Fillet cap {_cap} REFUSED on path {_pi} "
+                    f"({self.last_point_cap_warnings[-1]['op_name']}): clearance would "
+                    f"drop {_floor:.3f} → {_got:.3f} mm. Uncapped decimation kept.")
         return out
 
     def _straight_line_flatness_dev(self, mandrel_mgr, start_z, end_z, shell_offset=0.0):
@@ -3223,40 +3323,54 @@ class PathGenerator:
         mgr = getattr(self, "last_mandrel_mgr", None)
         if mgr is None or not paths:
             return float('inf')
+        min_cl = float('inf')
+        for pi, path in enumerate(paths):
+            op = self._path_op_map[pi] if pi < len(self._path_op_map) else None
+            c = self._path_min_clearance(path, op, params, sample_step)
+            if c < min_cl:
+                min_cl = c
+        return min_cl
+
+    def _path_min_clearance(self, path, op, params, sample_step=0.5):
+        """Minimum roller-to-part clearance along ONE path, sampled along its
+        straight segments. The single implementation of the metric — both
+        `measure_min_clearance` (whole-program, auto-tune guard) and the #99
+        per-pass fillet-cap check go through here, so the two can never drift.
+
+        Returns +inf when it cannot be measured (no mandrel / empty path).
+        """
+        mgr = getattr(self, "last_mandrel_mgr", None)
+        pts = np.asarray(path, dtype=float)
+        if mgr is None or len(pts) == 0:
+            return float('inf')
+
         center_x = float(params.get("mandrel_pos_x_offset", 0.0))
         blank = float(params.get("final_part_thickness_on_mandrel", 2.0))
         shell = float(params.get("shell_thickness", 0.0))
         step = max(0.1, float(sample_step))
+        r_tool = float(op.get("r_tool", 25.0)) if op else 25.0
+        base = blank + shell + r_tool
+
+        def _cl_at(x, z):
+            m_r = mgr.get_radius_fast(z)
+            if m_r is None:
+                return None
+            return abs(x - center_x) - (m_r + base)
+
         min_cl = float('inf')
-        for pi, path in enumerate(paths):
-            pts = np.asarray(path, dtype=float)
-            if len(pts) == 0:
-                continue
-            op = self._path_op_map[pi] if pi < len(self._path_op_map) else None
-            r_tool = float(op.get("r_tool", 25.0)) if op else 25.0
-            base = blank + shell + r_tool
+        if len(pts) == 1:
+            c = _cl_at(pts[0][0], pts[0][2])
+            return c if c is not None else float('inf')
 
-            def _cl_at(x, z):
-                m_r = mgr.get_radius_fast(z)
-                if m_r is None:
-                    return None
-                return abs(x - center_x) - (m_r + base)
-
-            if len(pts) == 1:
-                c = _cl_at(pts[0][0], pts[0][2])
+        for k in range(len(pts) - 1):
+            a = pts[k]; b = pts[k + 1]
+            seg = math.hypot(b[0] - a[0], b[2] - a[2])
+            n = max(1, int(seg / step))
+            for s in range(n + 1):
+                t = s / n
+                c = _cl_at(a[0] + t * (b[0] - a[0]), a[2] + t * (b[2] - a[2]))
                 if c is not None and c < min_cl:
                     min_cl = c
-                continue
-
-            for k in range(len(pts) - 1):
-                a = pts[k]; b = pts[k + 1]
-                seg = math.hypot(b[0] - a[0], b[2] - a[2])
-                n = max(1, int(seg / step))
-                for s in range(n + 1):
-                    t = s / n
-                    c = _cl_at(a[0] + t * (b[0] - a[0]), a[2] + t * (b[2] - a[2]))
-                    if c is not None and c < min_cl:
-                        min_cl = c
         return min_cl
 
     def calculate_estimated_time(self, params):

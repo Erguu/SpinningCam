@@ -1062,6 +1062,7 @@ STRINGS = {
                              "ES": "Forma de Trayectoria  (P1 entrada → P2 contacto → P3 salida)"},
     "lbl_shape_mode":       {"EN": "Shape Mode",                    "TR": "Şekil Modu",                 "ES": "Modo de Forma"},
     "lbl_p2_radius":        {"EN": "P2 Radius (mm)",                "TR": "P2 Yarıçapı (mm)",           "ES": "Radio P2 (mm)"},
+    "lbl_p2_max_pts":       {"EN": "P2 Max Points",                 "TR": "P2 Maks. Nokta",             "ES": "Puntos máx. P2"},
     "lbl_exit_tension":     {"EN": "Exit Tension",                  "TR": "Çıkış Gerilimi",             "ES": "Tensión de Salida"},
     "lbl_exit_mid_rot":     {"EN": "Exit Mid Rot (deg)",            "TR": "Çıkış Orta Rot (°)",         "ES": "Rot. Media Salida (°)"},
     "lbl_exit_mid_t":       {"EN": "Exit Mid t",                    "TR": "Çıkış Orta t",               "ES": "t Medio de Salida"},

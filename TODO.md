@@ -13,7 +13,17 @@
 > **⛔ WORKING PROGRAM.** Opt-in per-op keys only, empty/absent ⇒ byte-identical
 > output, .ssp back-compat mandatory. Same rules as #68/#87–#90.
 
-### 99. P2 radius — operator control over the fillet's point count / resolution
+### 99. ⏳ IMPLEMENTED 2026-08-26 (headless-verified; GUI smoke + PHYSICAL pending) — P2 radius point cap
+
+**Shipped as `p2_radius_max_points`** (per-op, roughing, empty = off = today's behaviour
+bit-for-bit). `_thin_evenly` + `max_fillet_points` in `_decimate_path_for_plc` +
+safety-gated application in `decimate_all_paths`, with `_path_min_clearance` factored out
+of `measure_min_clearance` so the guard metric exists once. `_test_p2_point_cap.py` 5/5;
+`_test_plc_autotune.py` / `_test_gcode_not_plc.py` / `_test_exit_mid_curve.py` pass.
+Detail + rollback → `LAST_CHANGES.md` 2026-08-26. Original scoping below.
+
+<details><summary>original scoping</summary>
+
 
 **Why (user, 2026-08-26; raised once before):** the operator wants to set how many
 points make up the P2 fillet arc — "an additional modifier for resolution".
@@ -41,6 +51,14 @@ the fillet at the machine", the knob has to act on (2).
 **DECIDED (user, 2026-08-26): the direction is REDUCE, not increase.** "He mostly wants
 to reduce the point number." That inverts the design — a *cap* is far safer and cheaper
 than a floor: fewer points never fights the line budget, it helps it.
+
+**SCOPE — DECIDED (user, 2026-08-26): PLC / SCL export ONLY.** Verified first that the
+RDP stage runs only under `plc_mode` (`path_generator.py:2523`; otherwise
+`paths_to_use = self.last_calculated_paths`, full resolution). So the cap changes the
+recipe the machine runs, and deliberately does NOT touch the `.nc` export or the 3D view.
+⚠️ UX consequence to handle: setting a cap produces **no visible change on screen** —
+the effect is only observable in the SCL inspector / exported recipe. Say so in the
+field's tooltip and help, or it reads as a broken control.
 
 **So the shape is a per-op MAXIMUM, applied at the RDP stage:**
 - `p2_radius_max_points` (per-op, default empty = today's behavior). After the fillet
@@ -138,6 +156,18 @@ can only choose how many chords to spend on it. Two consequences:
    **permanently the only control we have over corner smoothness.** That raises this
    item's value and means the cap should be designed as a first-class control, not a
    stopgap.
+
+</details>
+
+**Left open after the 2026-08-26 implementation:**
+- GUI smoke in the real window; confirm the effect via the SCL inspector on a real
+  program (it is invisible in the 3D view by design).
+- PHYSICAL: the whole point is smoother motion — needs a machine run to confirm it.
+- Possible refinement, deliberately NOT built (kept simple per house style): when a cap
+  is refused, bisect for the LARGEST safe reduction instead of dropping the cap outright.
+  Today it is all-or-nothing per pass.
+- Surface `last_point_cap_warnings` in the UI. The engine records them and logs them;
+  nothing shows them to the operator yet.
 
 ### 100. Exit tail — step-by-step control of every point between P2 and P3
 
@@ -251,6 +281,25 @@ exact accretion pattern #68 exists to fight — a 9th parallel knob would make i
   disable/refuse each other in the UI with a stated reason (D6: nothing changes behind
   the operator's back). ⚠️ Also needs a LOAD-TIME check: an existing `.ssp` could already
   carry `back_pass_enabled` on an op that the operator then adds waypoints to.
+- **D11. 🔴 A POINT THAT WOULD GOUGE IS REFUSED** (user, 2026-08-26). Not "warn and let
+  him through", not "quietly push it out to the safe limit" — the point simply cannot be
+  placed or kept where it would breach clearance. Rationale: this is the one place the
+  operator can author raw geometry, the machine is real, and a warning can be clicked
+  past. Note this is deliberately STRICTER than the usual house style of
+  advisory-and-proceed — the user chose it over the warn-and-confirm option.
+  Implementation: the same clearance metric everything else uses
+  (`mandrel_R + blank + shell + r_tool + clearance`); the refusal must say WHY and show
+  where, so it reads as a boundary rather than a bug. Because the roller passes through
+  every waypoint (D1), checking the points is necessary but NOT sufficient — the
+  interpolated curve between two legal points can still dip inside, so the check runs on
+  the generated curve, not just the typed values.
+- **D12. 🔴 CONTINUE⤵ IS BLOCKED AFTER A WAYPOINT OP** (user, 2026-08-26). Rather than
+  redefine `last_op_end_z` for a pass that ends at a waypoint, Continue-from-previous
+  (#61 step 2) simply refuses when the previous op carries waypoints. Cheaper and safer
+  than defining an end-state that other features would then quietly consume. The refusal
+  must name the reason. ⇒ resolves the D7 fallout for Continue⤵; the OTHER D7 consumers
+  (pass-table End columns, follow-blank flange accounting, the exit RDP split) still need
+  checking individually — blocking Continue⤵ does not cover them.
 
 **Open questions — still brainstorming (2026-08-26):**
 

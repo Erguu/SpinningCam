@@ -2213,6 +2213,21 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  lowers clearance below the normal G-code path
                  (it warns if the target can't be met safely).
 
+                 P2 MAX POINTS (roughing, Path Shape): caps how
+                 many points the P2 corner fillet may use in the
+                 PLC recipe. The machine stops and re-accelerates
+                 at every point, so a densely sampled fillet runs
+                 slow and choppy; fewer points give smoother
+                 motion at the cost of a coarser corner. Empty =
+                 no cap (today's behaviour). Two things to know:
+                 it affects the SCL recipe ONLY — the 3D view and
+                 the .nc file stay full resolution, so nothing on
+                 screen changes; and the cap is ignored on any
+                 pass where it would reduce clearance, because a
+                 long chord across a fillet can cut the corner
+                 into the part. You are told which passes kept
+                 their points. Typical: 4-8.
+
                  The generated block is a LOAD-MEMORY recipe DB
                  (standard access, UNLINKED) matching the PLC's
                  DB_RecipeProgram1..10 layout. It cannot be
@@ -2541,6 +2556,20 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   tolerans dışa aktarımda bütçenize otomatik oturtulur —
                   clearance normal G-code yolunun altına asla düşürülmez
                   (hedef güvenle karşılanamazsa uyarır).
+
+                  P2 MAKS. NOKTA (kaba pas, Yol Şekli): P2 köşe
+                  filetosunun PLC reçetesinde kaç nokta kullanacağını
+                  sınırlar. Tezgah her noktada durup yeniden hızlanır;
+                  bu yüzden sık noktalı fileto yavaş ve kesik kesik
+                  çalışır. Az nokta = daha akıcı hareket, daha kaba
+                  köşe. Boş = sınır yok (bugünkü davranış). İki önemli
+                  nokta: SADECE SCL reçetesini etkiler — 3B görünüm ve
+                  .nc dosyası tam çözünürlükte kalır, yani ekranda bir
+                  değişiklik görmezsiniz; ve clearance'ı düşürecek olan
+                  paslarda sınır UYGULANMAZ, çünkü fileto boyunca uzun
+                  bir kiriş köşeyi kesip parçaya dalabilir. Hangi
+                  pasların noktalarını koruduğu size bildirilir.
+                  Tipik: 4-8.
 
                   Üretilen blok YÜK-BELLEĞİ (load memory) reçete
                   DB'sidir (standart erişim, UNLINKED) — PLC'deki

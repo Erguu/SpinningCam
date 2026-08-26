@@ -108,7 +108,7 @@ def analyze_plc_output(path_gen, params):
         except Exception:             # fall back to the manual value, still useful
             source = "manual"
 
-    dec_paths = path_gen.decimate_all_paths(tol, exit_tol, center_x)
+    dec_paths = path_gen.decimate_all_paths(tol, exit_tol, center_x, params=params)
 
     # True SCL recipe line count — parse the same way the exporter does.
     lines = None
