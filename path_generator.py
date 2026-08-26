@@ -8,6 +8,7 @@ from OCC.Core.TColgp import TColgp_Array1OfPnt
 from OCC.Core.GeomAPI import GeomAPI_PointsToBSpline
 from logger_config import logger
 from kinematics import get_kinematics
+import exit_waypoints
 
 
 def representative_feed_mm_min(op, path, params, center_x=0.0):
@@ -259,6 +260,7 @@ class PathGenerator:
         self.last_op_end_z = {}            # op-index → CAM Z the op's last forming pass reaches (incl. p2_z_extend)
         self.last_tool_change_warnings = []  # custom tool-change points near the turret swing envelope
         self.last_point_cap_warnings = []  # #99: fillet caps refused because they would cost clearance
+        self.last_waypoint_warnings = []   # #100: hand-drawn exit tails closer than the op clearance
 
     def _tc_radial_gap(self, pt, center_x, mandrel_mgr, params, r_tool):
         """Radial clearance (mm) between the roller contact at ``pt`` and the
@@ -352,6 +354,7 @@ class PathGenerator:
         debug_lines = [] # Analysis Lines for Visualization
         self.last_back_pass_meta = {}  # {path_list_index: {"feed": ...}}
         self.last_render_split_idx = {}  # {path_list_index: (line_end_idx, arc_end_idx)}
+        self.last_waypoint_warnings = []  # #100: hand-drawn exit tails closer than the op clearance
         self._path_op_map = []  # toolpath index → op dict, synced as paths are appended
         self.last_op_end_z = {}  # op-index → CAM Z the op's last forming pass actually reaches
         self.last_op_reach = {}       # op-index → exit reach magnitude of last forming pass (#61)
@@ -952,7 +955,11 @@ class PathGenerator:
                     # effective_p1_z extends the approach arm so its START stays at target_z - p1_z
                     # while its END reaches contact_z = target_z + p2_z_extend.
                     effective_p1_z = p1_z + p2_z_extend
-                    self._create_and_store_pass(p1_x, effective_p1_z, p3_z, p3_x, gp_Pnt(p2_x, 0, p2_z), base_rot, auto_align, toolpaths, projections, control_points, deviations, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_label, params, debug_lines, op=op, op_clearance=eff_clearance)
+                    # #100: this pass's hand-drawn exit tail, if any. get_points
+                    # applies the D10 exclusions itself, so a reverse or back-pass
+                    # op yields [] even if a hand-edited .ssp carries points.
+                    _wp = exit_waypoints.get_points(op, i)
+                    self._create_and_store_pass(p1_x, effective_p1_z, p3_z, p3_x, gp_Pnt(p2_x, 0, p2_z), base_rot, auto_align, toolpaths, projections, control_points, deviations, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_label, params, debug_lines, op=op, op_clearance=eff_clearance, exit_points=_wp)
                 
                 # Check newly added path for Rapids
                 if len(toolpaths) > prev_paths_len:
@@ -1955,7 +1962,7 @@ class PathGenerator:
             + f" | end=({arc[-1][0]:.2f}, Z={arc[-1][2]:.2f})")
         return np.vstack([straight[:-1], arc])
 
-    def _create_and_store_pass(self, p1_x_offset, p1_z_offset, p3_z_offset, p3_x_offset, initial_p2, base_rot, auto_align, t_list, p_list, c_list, d_list, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_name, params, debug_lines=None, op=None, op_clearance=0.0):
+    def _create_and_store_pass(self, p1_x_offset, p1_z_offset, p3_z_offset, p3_x_offset, initial_p2, base_rot, auto_align, t_list, p_list, c_list, d_list, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_name, params, debug_lines=None, op=None, op_clearance=0.0, exit_points=None):
             # --- Smart Spline Optimization V6 (Morphing) ---
             # Instead of rigid shifting, independently adjust control points based on where collision occurs.
 
@@ -2029,13 +2036,28 @@ class PathGenerator:
 
                     ap_start  = p2_arr + p1_z_off * _appr
                     p3_arr    = np.array([p3.X(), 0.0, p3.Z()])
-                    p2p3_len  = max(np.linalg.norm(p3_arr - p2_arr), 0.1)
+
+                    # #100: operator-authored exit tail. When this pass carries
+                    # waypoints there is NO P3 — the last waypoint ends the pass —
+                    # so the fillet's second leg aims at the FIRST waypoint instead,
+                    # and p3_arr is redirected to the last one so everything
+                    # downstream (control points, extents) sees the real end.
+                    # Empty list = every line below behaves exactly as before.
+                    _wp_abs = []
+                    if exit_points:
+                        _wp_abs = exit_waypoints.resolve(p2_arr[0], p2_arr[2], exit_points)
+                        p3_arr = np.array([_wp_abs[-1][0], 0.0, _wp_abs[-1][1]])
+                        _aim = np.array([_wp_abs[0][0], 0.0, _wp_abs[0][1]])
+                    else:
+                        _aim = p3_arr
+                    p2p3_len  = max(np.linalg.norm(_aim - p2_arr), 0.1)
 
                     # True tangent-circle fillet at P2 (radius in mm). d1 points back
                     # along the approach (so the fillet stays tangent to the arm even when
-                    # it is tilted to the surface), d2 points toward P3.
+                    # it is tilted to the surface), d2 points toward P3 (or, with #100
+                    # waypoints, toward the first waypoint).
                     d1 = _appr
-                    d2 = (p3_arr - p2_arr) / p2p3_len
+                    d2 = (_aim - p2_arr) / p2p3_len
                     p2_radius = float((op or {}).get("p2_radius", 0.0))
                     T1, T2, arc_pts = self._arc_fillet_at_p2(p2_arr, d1, d2, p2_radius, p1_z_off, p2p3_len, check_res)
                     _fillet_len = len(arc_pts)
@@ -2089,7 +2111,25 @@ class PathGenerator:
                                   and (op or {}).get("direction", "forward") == "reverse"
                                   and not (op or {}).get("reverse_legacy_flip", False))
 
-                    if pass_shape == "linear_full":
+                    if exit_points:
+                        # #100 highest priority: the operator drew this tail by
+                        # hand, so no parametric shape gets a say. Starts at T2
+                        # (where the fillet ends) and runs through every waypoint
+                        # to the last, which IS the end of the pass.
+                        exit_portion = exit_waypoints.build_curve(
+                            p2_arr[0], p2_arr[2], exit_points,
+                            start_xz=(T2[0], T2[2]))
+                        if len(exit_portion) < 2:
+                            exit_portion = np.vstack([T2, p3_arr])
+                        _ignored = [k for k in ("exit_bow", "exit_arc_angle",
+                                                "exit_mid_radius", "exit_mid_rotation")
+                                    if (op or {}).get(k) not in (None, "", 0)]
+                        if _ignored:
+                            logger.info(
+                                f"[#100] '{pass_name}' exit waypoints active "
+                                f"({len(exit_points)} pts) → {', '.join(_ignored)} "
+                                f"IGNORED on the exit leg")
+                    elif pass_shape == "linear_full":
                         if abs(_exit_bow) > 1e-4:
                             exit_portion = self._make_bow_leg(
                                 T2, p3_arr, _exit_bow, check_res, mandrel_mgr,
@@ -2356,6 +2396,48 @@ class PathGenerator:
             # the straight/arc/curve boundaries via heuristics.
             _line_end = _ap_split
             _arc_end  = (_ap_split + _fillet_len - 1) if (_ap_split is not None and _fillet_len > 0) else _ap_split
+
+            # #100 D11: report a hand-drawn tail that sits closer to the part than
+            # the op's clearance. Checked against the FINAL P2 — the safety floor
+            # above may have pushed the whole pass outward, and the tail travels
+            # with it (the operator's offsets are P2-relative), so checking earlier
+            # would flag a tail that has since been moved clear.
+            #
+            # This REPORTS, it does not correct: the safety floor stays the last
+            # line of defence exactly as before, untouched. The point of the
+            # warning is that a shifted pass is a silently different pass, and on
+            # a tail the operator drew by hand that is worth saying out loud.
+            if exit_points:
+                try:
+                    _m_min = mandrel_mgr.props.get("min_z", float('-inf'))
+                    _m_top = mandrel_mgr.props.get("top_z", float('inf'))
+
+                    def _rad_at(_z, _mm=_m_min, _mt=_m_top):
+                        if _z < _mm or _z > _mt:
+                            return None
+                        return mandrel_mgr.get_radius_fast(_z)
+
+                    _bad = exit_waypoints.check_clearance(
+                        exit_waypoints.build_curve(p2.X(), p2.Z(), exit_points),
+                        _rad_at, center_x, blank_thick + shell_offset + r_tool,
+                        float(op_clearance))
+                    if _bad:
+                        self.last_waypoint_warnings.append({
+                            "pass_name": pass_name,
+                            "op_name": (op or {}).get("name")
+                                       or (op or {}).get("type", "?"),
+                            "n_points": len(exit_points),
+                            "n_violating": len(_bad),
+                            "worst": _bad[0],
+                            "clearance": float(op_clearance),
+                        })
+                        logger.info(
+                            f"[#100] '{pass_name}' exit tail is closer than the op "
+                            f"clearance ({op_clearance:.2f}mm) at {len(_bad)} sampled "
+                            f"point(s); worst {_bad[0]['clearance']:.3f}mm at "
+                            f"X{_bad[0]['x']:.2f} Z{_bad[0]['z']:.2f}")
+                except Exception:
+                    pass        # a reporting failure must never break a calculation
 
             # Reduce before gcode_resolution so the downsampler doesn't add redundant collinear pts.
             if _ap_split is not None and _ap_split > 1 and len(final_points) > _ap_split + 1:

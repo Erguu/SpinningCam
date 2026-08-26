@@ -1,0 +1,161 @@
+# -*- coding: utf-8 -*-
+"""Headless ENGINE tests for TODO #100 — hand-drawn exit tails in real toolpaths.
+
+The pure geometry lives in _test_exit_waypoints.py; this checks the wiring:
+
+  1. No waypoints  -> output BYTE-IDENTICAL, including for programs that use the
+     existing exit shapes (exit_bow / exit_arc_angle / exit_mid_rotation).
+  2. Waypoints     -> the pass ENDS at the last waypoint (there is no P3) and
+     passes through every one of them.
+  3. Waypoints supersede exit_bow / exit_arc_angle on that leg.
+  4. Per-pass: only the pass that carries points is reshaped; its neighbours are
+     untouched (the list lives in pass_edits, keyed by pass index).
+  5. D10: a reverse op and a back-pass op ignore waypoints entirely.
+
+    runtest.bat _test_exit_waypoints_engine.py
+"""
+import numpy as np
+
+from mandrel_analyzer import MandrelManager
+from path_generator import PathGenerator
+import exit_waypoints as ew
+
+mgr = MandrelManager(); mgr.create_default_cone(); mgr.update_geometry(0, 0, 0, 0.0, 0.0)
+pg = PathGenerator()
+
+fails = 0
+
+
+def check(cond, msg):
+    global fails
+    print(("PASS" if cond else "FAIL"), "-", msg)
+    if not cond:
+        fails += 1
+
+
+def make_params(**op_over):
+    op = {"type": "roughing", "count": 1, "start_z": 30.0, "r_tool": 25.0,
+          "clearance": 0.0, "p1_x": 40.0, "p1_z": 50.0, "p3_x": 30.0, "p3_z": -25.0,
+          "pass_shape": "linear_approach", "direction": "forward", "p2_radius": 0.0}
+    op.update(op_over)
+    return {"operations": [op], "auto_calc_angle": False, "min_safety_gap": -999.0,
+            "final_part_thickness_on_mandrel": 0.0, "shell_thickness": 0.0,
+            "collision_resolution": 0.1, "gcode_resolution": 0.05}
+
+
+def build_all(**op_over):
+    return pg.calculate_paths(make_params(**op_over), {}, mgr)[0]
+
+
+def build(**op_over):
+    return build_all(**op_over)[0]
+
+
+def wp(dx, dz, anchor="p2", feed=None):
+    return {"anchor": anchor, "dx": dx, "dz": dz, "feed": feed}
+
+
+# ── 1. absent == unchanged ──────────────────────────────────────────────────
+base_variants = {
+    "plain":            {},
+    "exit_bow":         {"exit_bow": 4.0},
+    "exit_arc_angle":   {"exit_arc_angle": 25.0},
+    "exit_mid_rotation": {"exit_mid_rotation": 15.0, "exit_mid_t": 0.5},
+    "p2_radius":        {"p2_radius": 8.0},
+}
+baseline = {k: np.array(build(**v)) for k, v in base_variants.items()}
+
+for name, over in base_variants.items():
+    again = np.array(build(**over))
+    same = (again.shape == baseline[name].shape and np.array_equal(again, baseline[name]))
+    check(same, f"no waypoints: '{name}' output is byte-identical")
+
+# an EMPTY list must also be a no-op, not a degenerate tail
+empty = np.array(build(pass_edits={"0": {"exit_points": []}}))
+check(np.array_equal(empty, baseline["plain"]),
+      "no waypoints: empty exit_points list changes nothing")
+
+# junk that normalize() throws away must also be a no-op
+junk = np.array(build(pass_edits={"0": {"exit_points": [{"dx": "x", "dz": 1}]}}))
+check(np.array_equal(junk, baseline["plain"]),
+      "no waypoints: unparseable points fall back to the normal exit")
+
+
+# ── 2. the pass ends at the last waypoint ───────────────────────────────────
+PTS = [wp(12.0, -6.0), wp(10.0, -8.0, anchor="prev"), wp(8.0, -14.0, anchor="prev")]
+path = np.array(build(pass_edits={"0": {"exit_points": PTS}}))
+
+p2 = np.array(baseline["plain"])[1]          # p2_radius=0 -> path[1] is P2
+abs_pts = ew.resolve(p2[0], p2[2], ew.normalize(PTS))
+
+end = path[-1]
+check(abs(end[0] - abs_pts[-1][0]) < 1e-6 and abs(end[2] - abs_pts[-1][1]) < 1e-6,
+      f"pass ENDS at the last waypoint {abs_pts[-1]} (got {end[0]:.3f},{end[2]:.3f})")
+
+miss = max(float(np.min(np.hypot(path[:, 0] - x, path[:, 2] - z))) for x, z in abs_pts)
+check(miss < 1e-5, f"path passes THROUGH every waypoint (worst miss {miss:.2e} mm)")
+
+check(not np.array_equal(path, baseline["plain"]), "waypoints actually change the path")
+
+
+# ── 3. waypoints beat the parametric exit shapes ────────────────────────────
+with_bow = np.array(build(exit_bow=6.0, pass_edits={"0": {"exit_points": PTS}}))
+check(np.array_equal(with_bow, path), "waypoints supersede exit_bow on the exit leg")
+
+with_arc = np.array(build(exit_arc_angle=30.0, pass_edits={"0": {"exit_points": PTS}}))
+check(np.array_equal(with_arc, path), "waypoints supersede exit_arc_angle")
+
+
+# ── 4. per-pass, keyed by pass index ────────────────────────────────────────
+multi_plain = [np.array(p) for p in build_all(count=3, end_z=60.0)]
+multi_wp = [np.array(p) for p in build_all(
+    count=3, end_z=60.0, pass_edits={"1": {"exit_points": PTS}})]
+
+check(len(multi_plain) == len(multi_wp) == 3, "3 passes built in both cases")
+check(np.array_equal(multi_wp[0], multi_plain[0]), "pass 0 (no points) untouched")
+check(not np.array_equal(multi_wp[1], multi_plain[1]), "pass 1 (has points) reshaped")
+check(np.array_equal(multi_wp[2], multi_plain[2]), "pass 2 (no points) untouched")
+
+
+# ── 5. D10 exclusions ───────────────────────────────────────────────────────
+rev_plain = np.array(build(direction="reverse"))
+rev_wp = np.array(build(direction="reverse", pass_edits={"0": {"exit_points": PTS}}))
+check(np.array_equal(rev_wp, rev_plain), "D10: reverse op ignores waypoints")
+
+bp_plain = [np.array(p) for p in build_all(back_pass_enabled=True)]
+bp_wp = [np.array(p) for p in build_all(
+    back_pass_enabled=True, pass_edits={"0": {"exit_points": PTS}})]
+check(len(bp_plain) == len(bp_wp)
+      and all(np.array_equal(a, b) for a, b in zip(bp_plain, bp_wp)),
+      "D10: back-pass op ignores waypoints")
+
+
+# ── 6. a tail closer than the op clearance is REPORTED (#100 D11) ───────────
+# A clear tail says nothing...
+build(clearance=5.0, pass_edits={"0": {"exit_points": PTS}})
+check(pg.last_waypoint_warnings == [],
+      f"clear tail raises no warning (got {pg.last_waypoint_warnings})")
+
+# ...but one aimed back INTO the mandrel does. Moving toward the spindle axis
+# (negative dx) always reduces clearance, whatever the profile does in Z.
+# min_safety_gap is -999 here, so nothing shifts the pass clear first — the tail
+# stays exactly where it was drawn, which is the case the warning exists for.
+INTO = [wp(-10.0, 2.0), wp(-12.0, 4.0, anchor="prev")]
+build(clearance=5.0, pass_edits={"0": {"exit_points": INTO}})
+w = pg.last_waypoint_warnings
+check(len(w) == 1, f"tail inside the clearance raises exactly one warning (got {len(w)})")
+if w:
+    check(w[0]["n_violating"] > 0 and w[0]["worst"]["clearance"] < 5.0,
+          f"warning records the worst point ({w[0]['worst']['clearance']:.2f}mm "
+          f"vs clearance {w[0]['clearance']:.2f}mm)")
+    check(w[0]["n_points"] == 2, "warning records how many points the tail had")
+
+# the list is per-calculation, not cumulative
+build(clearance=5.0, pass_edits={"0": {"exit_points": PTS}})
+check(pg.last_waypoint_warnings == [], "warning list resets on each calculation")
+
+
+print()
+if fails:
+    raise SystemExit(f"{fails} FAILED")
+print("ALL PASS")
