@@ -187,8 +187,42 @@ commit: `exit_waypoints.py` (pure), `ui/dialogs/exit_tail_dialog.py`, the Pass T
 Tests: 7/7 pure + 26/26 engine (**absent = byte-identical**) + 16/16 real-widget.
 Detail + rollback → `LAST_CHANGES.md` 2026-08-27.
 
+**🔴 BUG — FIRST THING NEXT SESSION (found by the user in the real window, 2026-08-27).**
+Screenshot: `images/ExitTailCalculationError.JPG`. Two symptoms, ONE root cause:
+1. ΔX opens at huge negatives (−270.15, −292.99, −315.58, −338.17) while ΔZ is small.
+2. **Every hand-typed value is refused**, and no sensible number is ever accepted.
+
+**ΔZ is CORRECT** — 0.45 / 0.86 / 1.26 / 1.66, and 1.66 is exactly `P3_Z − P2_Z`
+(13.66 − 12.0) from the pass table. So only the X frame is wrong.
+
+**ROOT CAUSE (code-confirmed, not yet fixed): P2's X comes from the wrong frame.**
+`compute_pass_rows` builds `p2_x_abs = center_x + r_contact + total_off`
+(`ui/dialogs/pass_table.py:282`) — **always the POSITIVE side, no `side` factor**. The
+engine mirrors real paths by `side = 1.0 if roller_positive_x_side else -1.0`
+(`path_generator.py:387`). On this machine the paths are on the NEGATIVE side, so
+`row["p2x"]` ≈ +123 while the pass actually runs at ≈ −123. `ExitTailDialog` is handed
+`(row["p2x"], row["z"])`, so its P2 is mirrored away from the path.
+Arithmetic check against the screenshot: seed point 1 true x ≈ −147 ⇒
+`dx = −147 − (+123) = −270` ✓; last point true x ≈ −218 ⇒ `dx = −341` ≈ −338 ✓.
+
+**Why every typed value is refused** (the non-obvious half): the SEED still round-trips —
+`resolve()` adds the same wrong P2 back, so the seeded absolute positions are right and
+the seed itself validates. But a sensible number the operator types (say −20) resolves
+to `+123 − 20 = +103`, i.e. the WRONG SIDE of the axis, which is inside the part ⇒
+refused. Only absurd values near −270 are accepted. One root cause, both symptoms.
+
+**Fix direction (decide next session):** do NOT patch `compute_pass_rows` — its `p2x`
+is only used for its own self-consistent schematic preview, and changing it risks that.
+Either (a) mirror it for this caller by `roller_positive_x_side`, or (b) better, take P2
+straight from the calculated path (the tail already starts at `split[1]` = T2), so the
+dialog and the path can never be in different frames again. (b) also kills the whole
+class of bug rather than this instance. Add a regression test on a negative-side machine
+— every #100 test so far runs at the default positive side, which is why this got past
+26 engine + 16 widget assertions.
+
 **Left open:**
-- GUI smoke in the real window (Pass Table ▸ Exit tail…).
+- GUI smoke in the real window (Pass Table ▸ Exit tail…) — ⚠️ partially done, found the
+  bug above; redo after the fix.
 - ⚠️ PHYSICAL validation — this is the first feature that lets the operator author raw
   geometry; the clearance refusal is the only thing between a typed number and the part.
 - Drag-on-canvas editing (phase 2; the table is the only input today).
