@@ -225,6 +225,25 @@ _DEFAULT_COLUMNS = {
 # ── Batch edit (#67) ─────────────────────────────────────────────────────
 # Parameters that CAN be batch-edited at all: numeric scalars only (the batch
 # modes are += / = / ×=). Strings, booleans and mode combos are excluded — the
+def _has_exit_waypoints(op):
+    """#100: does ANY pass of this op carry a hand-drawn exit tail?
+
+    One op-level answer, because the controls the tail supersedes (reach, pass
+    angle, P3) are op-level: if even one pass ends at a waypoint, those fields no
+    longer describe the whole operation and must stop pretending to.
+    """
+    try:
+        import exit_waypoints as ew
+        if ew.excluded_reason(op):
+            return False
+        for v in ((op or {}).get("pass_edits") or {}).values():
+            if isinstance(v, dict) and ew.normalize(v.get("exit_points")):
+                return True
+    except Exception:
+        pass
+    return False
+
+
 # Customize dialog only offers the Batch checkbox for keys in this set.
 _BATCH_ELIGIBLE = {
     "speed", "feed", "count", "start_z", "end_z", "p2_z_extend",
@@ -2548,12 +2567,21 @@ class ProgramTab:
             except (TypeError, ValueError):
                 _reach_set = False
             _p3_locked = _polar and (_reach_set or _follow_pre)
+            # #100 D3: a hand-drawn exit tail OWNS the end of the pass — the last
+            # waypoint is where it stops. Reach / Pass Angle / P3 no longer produce
+            # anything, so they go read-only rather than sitting there looking live.
+            # Nothing is deleted: remove the tail and they come straight back.
+            _tail_owned = _has_exit_waypoints(op)
+            if _tail_owned:
+                _p3_locked = True
             f_xmode = ttk.Frame(self.f_prop_editor)
             f_xmode._section = "path_shape"   # #78: follows section visibility
             f_xmode.pack(fill="x", padx=2, pady=(4, 1))
             tk.Label(f_xmode,
-                     text=t("lbl_exit_mode_polar") if _polar else t("lbl_exit_mode_raw"),
-                     font=("Arial", 8, "italic"), fg="#446688",
+                     text=(t("lbl_exit_mode_tail") if _tail_owned else
+                           (t("lbl_exit_mode_polar") if _polar else t("lbl_exit_mode_raw"))),
+                     font=("Arial", 8, "italic"),
+                     fg=("#a05000" if _tail_owned else "#446688"),
                      anchor="w").pack(side="left", padx=10)
 
             self._add_prop_entry(idx, "p3_x", t("lbl_p3x"), op, is_float=True,
@@ -2620,7 +2648,8 @@ class ProgramTab:
                 "TAHMİN; Sac Yarıçapı gerekir. Geçiş Ctrl+Z ile geri alınır.")
 
             _reach_var = self._add_prop_entry(
-                idx, "reach", t("lbl_reach"), op, is_float=True, readonly=_follow,
+                idx, "reach", t("lbl_reach"), op, is_float=True,
+                readonly=_follow or _tail_owned,   # #100 D3: the tail owns the end
                 tooltip="Çıkış kolu uzunluğu |P2→P3| (mm) — tek 'erişim' parametresi (#61). "
                         "Boş/0 = eski davranış: uzunluk p3_x/p3_z'den gelir. "
                         "Değer girilince yön KORUNUR (Pass Angle varsa ondan, yoksa p3_x/p3_z "
@@ -2693,6 +2722,7 @@ class ProgramTab:
             self._add_section_header("pass_angle", t("lbl_pass_angle_hdr"))
 
             self._add_prop_entry(idx, "pass_angle", t("lbl_pass_angle"), op, is_float=True, rebuild=True,
+                                 readonly=_tail_owned,   # #100 D3
                                  tooltip="P2 temas noktasındaki iç açı (derece). "
                                          "P2→P1 ve P2→P3 vektörleri arasındaki açı.\n"
                                          "180° = düz geçiş (P1-P2-P3 doğrusal). Küçük açı = P2'de sivri dönüş.\n"
@@ -4532,6 +4562,13 @@ class ProgramTab:
             messagebox.showinfo(t("msg_continue_title"), t("msg_continue_nofirst"))
             return
         prev, cur = ops[idx - 1], ops[idx]
+        # #100 D12: a pass that ends at a waypoint has no P3, so "where the
+        # previous op ended" is not the reach/angle end-state this fills from.
+        # Refuse rather than invent an end-state other features would then
+        # quietly consume.
+        if _has_exit_waypoints(prev):
+            messagebox.showinfo(t("msg_continue_title"), t("msg_continue_waypoints"))
+            return
         pg = self.app.path_gen
         self._push_undo(t("btn_continue_prev"))
         cur.update(self._continue_fill_values(

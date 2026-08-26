@@ -179,7 +179,25 @@ as smoothly as asked. `_test_p2_point_cap.py` 6/6.
   is refused, bisect for the LARGEST safe reduction instead of dropping the cap outright.
   Today it is all-or-nothing per pass.
 
-### 100. Exit tail — step-by-step control of every point between P2 and P3
+### 100. ⏳ IMPLEMENTED 2026-08-27 (headless + real-widget verified; GUI smoke + PHYSICAL pending) — Exit tail
+
+**Shipped.** Engine `81dc6ac` (geometry + safety) + `a416b6d` (per-point feed) + the UI
+commit: `exit_waypoints.py` (pure), `ui/dialogs/exit_tail_dialog.py`, the Pass Table
+"Exit tail…" button, D3 greying, D12 Continue⤵ block, D10 refusals, i18n ×37, help EN/TR.
+Tests: 7/7 pure + 26/26 engine (**absent = byte-identical**) + 16/16 real-widget.
+Detail + rollback → `LAST_CHANGES.md` 2026-08-27.
+
+**Left open:**
+- GUI smoke in the real window (Pass Table ▸ Exit tail…).
+- ⚠️ PHYSICAL validation — this is the first feature that lets the operator author raw
+  geometry; the clearance refusal is the only thing between a typed number and the part.
+- Drag-on-canvas editing (phase 2; the table is the only input today).
+- Split/Unite carry `pass_edits` lossily (#89) — a tail does not survive them intact.
+- `last_waypoint_warnings` is recorded and logged but not yet surfaced in the UI (the
+  #99 cap dialog is the pattern to copy when it is).
+
+<details><summary>original scoping</summary>
+
 
 **Why (user, 2026-08-26):** "an advanced version of exit_mid_t" — the operator wants to
 control **all the points after P2 until P3, step by step**; to configure all the points
@@ -380,6 +398,8 @@ exact accretion pattern #68 exists to fight — a 9th parallel knob would make i
 **Risk:** medium–high — this is the first feature that lets the operator author raw
 geometry rather than pick a parametric shape. Gouge risk is real (Q6), and it touches
 the one code path every forming pass runs through.
+
+</details>
 
 ---
 

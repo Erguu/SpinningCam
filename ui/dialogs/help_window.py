@@ -2213,6 +2213,37 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  lowers clearance below the normal G-code path
                  (it warns if the target can't be met safely).
 
+                 EXIT TAIL (per pass, from the Pass Table): lets
+                 you place the points the roller passes THROUGH
+                 after P2, instead of describing the exit with
+                 Reach and Pass Angle. The LAST point is where the
+                 pass ends - there is no P3 - so Reach, Pass Angle
+                 and P3 X/Z go read-only on an operation that uses
+                 it. Remove the tail and they come back.
+
+                 Each point is measured either From P2 (moving it
+                 moves only that point) or From previous (moving it
+                 drags the ones after it). Both describe the same
+                 shape; pick whichever is easier to think in. A
+                 Feed on a point applies to the stretch ARRIVING at
+                 it, so put the slow number on the point near the
+                 sheet edge; leave it empty to keep the previous
+                 speed.
+
+                 The window opens filled with the pass's current
+                 shape, so you always start from something that
+                 already runs. A point that would put the roller
+                 inside the operation's clearance is REFUSED and
+                 the old value kept - the red dashed line in the
+                 preview is that limit. Because the roller passes
+                 through every point, the whole tail is re-checked
+                 on each edit: two safe points can still bow into
+                 the part between them.
+
+                 Not available on reverse passes or on operations
+                 with a back pass, and an operation that ends in a
+                 waypoint cannot be used by Continue.
+
                  P2 MAX POINTS (roughing, Path Shape): caps how
                  many points the P2 corner fillet may use in the
                  PLC recipe. The machine stops and re-accelerates
@@ -2556,6 +2587,36 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   tolerans dışa aktarımda bütçenize otomatik oturtulur —
                   clearance normal G-code yolunun altına asla düşürülmez
                   (hedef güvenle karşılanamazsa uyarır).
+
+                  ÇIKIŞ YOLU (pas başına, Pas Tablosundan): P2'den
+                  sonra rulonun ÜZERİNDEN GEÇECEĞİ noktaları elle
+                  koymanızı sağlar — çıkışı Reach ve Pas Açısıyla
+                  tarif etmek yerine. SON nokta pasın bittiği yerdir;
+                  P3 YOKTUR. Bu yüzden bu özelliği kullanan bir
+                  operasyonda Reach, Pas Açısı ve P3 X/Z salt-okunur
+                  olur. Yolu kaldırınca hepsi geri gelir.
+
+                  Her nokta ya P2'den ya da ÖNCEKİ noktadan ölçülür.
+                  "P2'den" sadece o noktayı taşır; "Öncekinden" ise
+                  sonraki noktaları da sürükler. İkisi de aynı şekli
+                  anlatır; hangisiyle düşünmek kolaysa onu seçin.
+                  Bir noktadaki İlerleme, o noktaya GELEN bölüme
+                  uygulanır — yavaş değeri sac kenarına yakın noktaya
+                  yazın; boş bırakırsanız önceki hız sürer.
+
+                  Pencere, pasın MEVCUT şekliyle dolu açılır; yani
+                  hep çalışan bir şeyden başlarsınız. Rulonun
+                  operasyonun clearance'ı içine girmesine yol açacak
+                  bir nokta REDDEDİLİR ve eski değer korunur —
+                  önizlemedeki kırmızı kesikli çizgi o sınırdır.
+                  Rulo her noktanın üzerinden geçtiği için her
+                  düzenlemede TÜM yol yeniden kontrol edilir: iki
+                  güvenli nokta arasındaki eğri yine de parçaya
+                  dalabilir.
+
+                  Ters paslarda ve geri pası olan operasyonlarda
+                  kullanılamaz; son noktada biten bir operasyondan
+                  "Devam" ile devam edilemez.
 
                   P2 MAKS. NOKTA (kaba pas, Yol Şekli): P2 köşe
                   filetosunun PLC reçetesinde kaç nokta kullanacağını

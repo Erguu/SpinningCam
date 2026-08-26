@@ -412,6 +412,17 @@ class PassTableDialog(tk.Toplevel):
         ttk.Button(bar, text=t("pt_btn_cancel"), command=self._cancel).pack(side="right", padx=2)
         ttk.Button(bar, text=t("pt_btn_unpin"), command=self._unpin_selected).pack(side="left", padx=2)
         ttk.Button(bar, text=t("pt_btn_refresh"), command=self.refresh).pack(side="left", padx=2)
+        # #100: per-pass hand-drawn exit tail. Disabled (with the reason) on the
+        # ops D10 puts out of scope, so the refusal is visible rather than a
+        # button that silently does nothing.
+        self.btn_tail = ttk.Button(bar, text=t("pt_btn_tail"), command=self._edit_exit_tail)
+        self.btn_tail.pack(side="left", padx=8)
+        try:
+            import exit_waypoints as _ew
+            if _ew.excluded_reason(op):
+                self.btn_tail.state(["disabled"])
+        except Exception:
+            pass
 
         self.refresh()
         self.protocol("WM_DELETE_WINDOW", self._cancel)
@@ -786,6 +797,64 @@ class PassTableDialog(tk.Toplevel):
             return
         self.staged = {}
         self.destroy()
+
+    def _edit_exit_tail(self):
+        """#100: open the waypoint editor for the SELECTED pass.
+
+        Writes straight into op["pass_edits"][i]["exit_points"] on OK rather than
+        into self.staged: the tail is its own modal with its own accept/refuse
+        rules, and staging it behind a second Apply would mean an operator could
+        stage a tail and then Cancel out of a window that already told him the
+        points were accepted.
+        """
+        op = self._op()
+        if op is None:
+            return
+        try:
+            import exit_waypoints as ew
+        except Exception as e:
+            logger.debug(f"#100 unavailable: {e}")
+            return
+        reason = ew.excluded_reason(op)
+        if reason:
+            self.lbl_explain.config(text=t("pt_tail_excluded"))
+            return
+
+        sel = self.tree.selection()
+        if not sel:
+            self.lbl_explain.config(text=t("pt_tail_pick"))
+            return
+        idx = self.tree.index(sel[0])
+        rows = self._last_rows or []
+        if idx >= len(rows):
+            return
+        row = rows[idx]
+
+        def _apply(points):
+            edits = op.setdefault("pass_edits", {})
+            key = str(row["i"])
+            slot = edits.setdefault(key, {})
+            if points:
+                slot["exit_points"] = points
+            else:
+                slot.pop("exit_points", None)
+                if not slot:
+                    edits.pop(key, None)
+            try:
+                self.ptab._push_undo("exit_tail")
+            except Exception:
+                pass
+            self.refresh()
+            try:
+                self.ptab._schedule_auto_calc()
+            except Exception:
+                pass
+
+        from ui.dialogs.exit_tail_dialog import ExitTailDialog
+        dlg = ExitTailDialog(self, self.app, self.op_index, row["i"],
+                             (row["p2x"], row["z"]), _apply)
+        dlg.grab_set()
+        self.wait_window(dlg)
 
     def _unpin_selected(self):
         """Remove pins (pass_edits) AND legacy hidden overrides for the selected

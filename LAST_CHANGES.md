@@ -5,6 +5,68 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-27 — Elle çizilen çıkış yolu (TODO #100) — pas başına waypoint'ler
+
+**Neden (kullanıcı, 2026-08-26):** "exit_mid_t'nin gelişmiş hâli" — operatör P2'den
+sonraki noktaları ADIM ADIM kendisi koymak istiyor. Çıkış kuyruğunda zaten 8 parametre
+birikmişti (arc/bow/curl/rotation, gizli öncelik zinciri); 9. bir knob eklemek yerine bu
+onların yerine geçen tek bir katman.
+
+**Motor (commit `81dc6ac` + `a416b6d`):**
+- YENİ `exit_waypoints.py` — SAF (Tk/OCC/generator state YOK). Veri modeli:
+  `pass_edits[i]["exit_points"] = [{anchor, dx, dz, feed}]`. Konumlar GÖRELİ; çapa
+  NOKTA BAŞINA seçilir (`p2` = P2'den, sadece o noktayı taşır / `prev` = öncekinden,
+  sonrakileri de sürükler). **P3 YOK — son waypoint pası bitirir**, bu yüzden P2 fileto-
+  sunun ikinci bacağı İLK waypoint'e nişan alıyor. Eğri: **centripetal Catmull-Rom** —
+  her noktanın ÜZERİNDEN geçer, uniform varyantın aksine cusp/ilmek yapamaz.
+- `_waypoint_feed_map` — nokta başına ilerleme, **BASAMAK**: bir waypoint'in feed'i o
+  noktaya GELEN bölümü yönetir; boş = önceki bölüm sürer. GEOMETRİ üzerinden çalışır
+  (her waypoint en yakın emit edilen noktayla eşlenir), çünkü kuyruk yolda iki kez
+  yeniden örnekleniyor (PLC decimation + G-code downsampler). Açık waypoint feed'i
+  otomatik contact-zone yavaşlatmasını YENER.
+- Güvenlik: `check_clearance` ÜRETİLEN EĞRİYİ tarar, yazılan sayıları değil — tek tek
+  yasal iki nokta arasında eğri parçaya dalabiliyor (testte iki 2 mm'lik nokta arası
+  −5.67 mm). Op clearance'ından yakın kuyruklar `last_waypoint_warnings`'a yazılıyor.
+  **Mevcut güvenlik tabanına DOKUNULMADI** — hâlâ son savunma hattı.
+- D10: ters pas ve geri pas KAPSAM DIŞI; `get_points` bunu kendi uyguluyor, yani elle
+  düzenlenmiş .ssp bile bu op'larda waypoint üretemiyor.
+
+**Arayüz (bu commit):**
+- YENİ `ui/dialogs/exit_tail_dialog.py` — Pas Tablosundaki **"Çıkış yolu…"** düğmesinden
+  SEÇİLİ pas için açılır. Tablo (№ / referans / ΔX / ΔZ / ilerleme) + 2B önizleme
+  (P2, noktalar, eğri, **kırmızı kesikli clearance sınırı**) + Ekle/Sil/Sıfırla/Kaldır.
+- **TOHUMLU AÇILIR:** pasın MEVCUT yolunu (gerçek hesaplanmış path'ten, T2 sonrası,
+  yay uzunluğuna göre eşit) örnekleyip doldurur → boş sayfa yok. Hesaplanmış yol yoksa
+  op'un kendi p3 yönünde kısa düz bir kuyruk.
+- **KÖTÜ DÜZENLEME ANINDA REDDEDİLİR (D14):** tablo asla yasadışı değer tutmaz; eski
+  değer korunur ve nedeni yazılır. Tek nokta değil TÜM kuyruk yeniden kontrol edilir.
+- Ekle/Sil/çapa değiştir işlemleri diğer noktaları YERİNDE BIRAKIR (mutlak konumlarına
+  yeniden çapalanıyorlar) — tıklamayla şekil zıplamıyor.
+- **D3 grileme:** op'un HERHANGİ bir pasında waypoint varsa `reach`, `pass_angle`,
+  `p3_x/p3_z` salt-okunur + çıkış modu satırı bunu söylüyor. Silinmiyor: yol kalkınca
+  geri geliyorlar.
+- **D12:** waypoint'le biten bir op'tan "Devam ⤵" ENGELLENDİ (nedeni yazılı).
+- D10 dışı op'larda "Çıkış yolu…" düğmesi devre dışı + gerekçe gösteriliyor.
+- i18n 37 yeni anahtar (EN/TR/ES) — toplam 906 anahtarın hepsi üç dilde çözülüyor.
+- help_window EN + TR.
+
+**Doğrulama:** `_test_exit_waypoints.py` 7/7 (saf geometri), `_test_exit_waypoints_engine.py`
+26/26 (**waypoint YOKKEN çıktı BİREBİR AYNI** — exit_bow/exit_arc_angle/exit_mid_rotation/
+p2_radius kullanan programlar dahil; boş liste ve bozuk veri de no-op), `_test_exit_tail_gui.py`
+16/16 (gerçek widget: tohumlama, kabul, RED + değer korunuyor, ekle/sil yerinde bırakma,
+çapa değişimi taşımıyor, OK/kaldır, i18n). 10 mevcut paket geçiyor.
+
+**GERİ ALMA:** özellik tamamen veri-güdümlü — `pass_edits[i]["exit_points"]` yoksa hiçbir
+kod yolu değişmiyor ("Yolu kaldır" düğmesi bunu yapıyor). Tümüyle geri almak için:
+`exit_waypoints.py` + `ui/dialogs/exit_tail_dialog.py` sil, `path_generator`'daki
+`if exit_points:` dallarını ve `_waypoint_feed_map` çağrısını kaldır, `pass_table`'daki
+düğmeyi ve `program_tab`'daki `_tail_owned`/`_has_exit_waypoints` kullanımlarını çıkar.
+
+**BEKLİYOR:** gerçek pencerede GUI smoke (Pas Tablosu ▸ Çıkış yolu…) + FİZİKSEL doğrulama.
+⚠️ Fiziksel denemeden önce: bu, operatörün ham geometri yazabildiği İLK özellik.
+
+---
+
 ## 2026-08-26 — P2 fileto nokta sınırı (TODO #99) — `p2_radius_max_points`
 
 **Neden (kullanıcı + operatör, 2026-08-26):** tezgah her noktada duruyor ve yeniden
