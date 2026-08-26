@@ -180,6 +180,9 @@ def analyze_plc_output(path_gen, params):
         "dec_points": int(sum(len(p) for p in dec_paths)),
         "passes": rows,
         "full_paths": full_paths, "dec_paths": dec_paths,
+        # #99: fillet caps that had to be dropped to keep clearance. Populated by
+        # decimate_all_paths above, so it reflects THIS preview's numbers.
+        "cap_warnings": list(getattr(path_gen, "last_point_cap_warnings", None) or []),
     }
 
 
@@ -264,6 +267,11 @@ class SclInspectorDialog(tk.Toplevel):
             sub += "   ⚠ " + t("scl_flat_warn").format(n=flat_n, tol=f"{d['exit_tolerance']:.3f}")
         if coarse_n:
             sub += "   " + t("scl_coarse_warn").format(n=coarse_n)
+        # #99: say so here too — this window is where the cap's effect is visible
+        # at all, so it is also where its absence needs explaining.
+        _caps = d.get("cap_warnings") or []
+        if _caps:
+            sub += "   ⚠ " + t("scl_cap_warn").format(n=len(_caps))
         self.lbl_sub.config(text=sub)
 
         _lbl = {"flat": t("scl_state_flat"), "coarse": t("scl_state_coarse"),

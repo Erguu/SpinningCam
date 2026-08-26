@@ -159,15 +159,25 @@ can only choose how many chords to spend on it. Two consequences:
 
 </details>
 
-**Left open after the 2026-08-26 implementation:**
-- GUI smoke in the real window; confirm the effect via the SCL inspector on a real
-  program (it is invisible in the 3D view by design).
+**✅ GUI smoke passed (user, 2026-08-26).**
+
+**✅ Safety dialog added the same day (user: "having a dialog for safety would be
+necessary").** `_confirm_point_cap_warnings()` in `ui/main_window.py` lists every pass
+whose cap was refused, BEFORE the save dialog so cancelling costs nothing; Yes/No =
+export anyway / go fix it. Deliberately not suppressible (unlike the clamp and
+tool-change advisories — those describe a standing condition and repeat every calc;
+this fires only at export and only on a real refusal). The SCL inspector reports it
+too, since that is the only window where the cap's effect is visible at all.
+Note the dialog does NOT ask a safety question — the cap was already dropped and
+clearance kept, so the program is safe; it asks whether to ship one that will not move
+as smoothly as asked. `_test_p2_point_cap.py` 6/6.
+
+**Left open:**
+- GUI smoke of the DIALOG itself (set a cap that gets refused, then export).
 - PHYSICAL: the whole point is smoother motion — needs a machine run to confirm it.
 - Possible refinement, deliberately NOT built (kept simple per house style): when a cap
   is refused, bisect for the LARGEST safe reduction instead of dropping the cap outright.
   Today it is all-or-nothing per pass.
-- Surface `last_point_cap_warnings` in the UI. The engine records them and logs them;
-  nothing shows them to the operator yet.
 
 ### 100. Exit tail — step-by-step control of every point between P2 and P3
 

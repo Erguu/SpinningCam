@@ -513,6 +513,40 @@ class SpinningCamWindow(tk.Tk):
         except Exception:
             pass
 
+    def _confirm_point_cap_warnings(self):
+        """#99: tell the operator when a P2 fillet point cap could NOT be honoured.
+
+        Returns True to carry on with the export, False to abort.
+
+        Deliberately NOT suppressible, unlike the clamp / tool-change advisories.
+        Those repeat on every recalculation and describe a standing condition; this
+        one fires only at export, only when a cap was actually refused, and its
+        whole purpose is to stop a silent "I set 6 points and the machine still
+        stutters". A 'don't show again' would hide exactly the fact it exists to
+        report.
+
+        Note the program being exported is already SAFE — the cap was dropped, not
+        the clearance. The choice offered is whether to ship a program that will not
+        move as smoothly as asked, or go back and change the geometry first.
+        """
+        try:
+            cw = getattr(self.app.path_gen, "last_point_cap_warnings", None) or []
+            if not cw:
+                return True
+            ops = "\n".join(
+                "  • " + t("msg_cap_warn_op").format(
+                    op=w.get("op_name", "?"), req=w.get("requested", 0),
+                    kept=w.get("kept", 0),
+                    floor=f"{w.get('floor', 0.0):.2f}",
+                    got=f"{w.get('clearance', 0.0):.2f}")
+                for w in cw)
+            return messagebox.askyesno(
+                t("msg_cap_warn_title"),
+                t("msg_cap_warn_body").format(n=len(cw), ops=ops),
+                icon='warning')
+        except Exception:
+            return True     # never block an export on a reporting bug
+
     def _show_tool_change_popup(self, body):
         """Modal tool-change swing warning; Confirm (may reappear next calc) /
         Don't-show-again (suppress for the session). Mirrors _show_clamp_popup."""
@@ -1422,6 +1456,12 @@ class SpinningCamWindow(tk.Tk):
                     self.app.on_param_change("scl_chunk_size", chunk_size, "none")
                 except Exception:
                     pass
+
+        # #99: a refused fillet cap is reported BEFORE the save dialog — aborting
+        # here costs the operator nothing, whereas after picking a filename it
+        # reads as a failed export.
+        if not self._confirm_point_cap_warnings():
+            return
 
         default_name = db_name + ".scl"
         scl_path = filedialog.asksaveasfilename(

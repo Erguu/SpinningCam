@@ -190,10 +190,43 @@ def test_measure_min_clearance_regression():
           f"chord={cl_chord:.2f} (gouge caught)")
 
 
+def test_warning_renders_for_the_dialog():
+    """The refusal dialog formats i18n strings straight from the warning dicts —
+    so every key those strings need must actually be in them, in all 3 languages.
+    """
+    import i18n
+
+    pts, split = _path_with_split(BumpMgr().get_radius_fast)
+    pg = _pg(BumpMgr(), op={"r_tool": 0.0, "type": "roughing", "name": "ROUGH-1",
+                            "p2_radius_max_points": 3})
+    pg.last_calculated_paths = [pts]
+    pg.last_render_split_idx = {0: split}
+    pg.decimate_all_paths(0.5, 0.5, 0.0, params=PARAMS)
+
+    cw = pg.last_point_cap_warnings
+    assert cw, "expected a warning to format"
+
+    for key in ("msg_cap_warn_title", "msg_cap_warn_op", "msg_cap_warn_body",
+                "scl_cap_warn"):
+        assert key in i18n.STRINGS, f"missing i18n key {key}"
+        for lang in ("EN", "TR", "ES"):
+            assert lang in i18n.STRINGS[key], f"{key} missing {lang}"
+
+    for lang in ("EN", "TR", "ES"):
+        line = i18n.STRINGS["msg_cap_warn_op"][lang].format(
+            op=cw[0]["op_name"], req=cw[0]["requested"], kept=cw[0]["kept"],
+            floor=f"{cw[0]['floor']:.2f}", got=f"{cw[0]['clearance']:.2f}")
+        body = i18n.STRINGS["msg_cap_warn_body"][lang].format(n=len(cw), ops=line)
+        assert "ROUGH-1" in body and "{" not in body, f"{lang} body malformed: {body}"
+        assert "{" not in i18n.STRINGS["scl_cap_warn"][lang].format(n=len(cw))
+    print("[OK] warning dicts format cleanly in EN/TR/ES")
+
+
 if __name__ == "__main__":
     test_thin_evenly()
     test_unset_cap_is_identical()
     test_cap_applied_when_safe()
     test_cap_refused_when_it_gouges()
     test_measure_min_clearance_regression()
+    test_warning_renders_for_the_dialog()
     print("\nALL PASS")

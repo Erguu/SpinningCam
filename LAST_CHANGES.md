@@ -55,8 +55,41 @@ clearance 2.00→2.00), gouge edecekken reddediliyor (1.98→0.32 yakalandı), v
 bloğunu kaldır ve `_decimate_path_for_plc`'deki `max_fillet_points` dalını sil;
 `_path_min_clearance` ayrıştırması davranış-nötr olduğu için kalabilir.
 
-**BEKLİYOR:** gerçek pencerede GUI smoke + gerçek bir programda SCL İnceleme ile
-etkinin doğrulanması + fiziksel tezgah denemesi (asıl amaç akıcı hareket).
+**✅ GUI SMOKE GEÇTİ (kullanıcı, 2026-08-26).**
+
+### Aynı gün eklendi — güvenlik diyaloğu (kullanıcı isteği)
+
+Motor sınırı reddettiğini `last_point_cap_warnings`'a yazıyordu ama operatöre HİÇBİR
+şey söylemiyordu; kullanıcı "güvenlik için bir diyalog gerekli" dedi.
+
+- `ui/main_window.py` `_confirm_point_cap_warnings()` — YENİ. Dışa aktarımda sınır
+  reddedilen pasları listeler (op adı, istenen sınır, korunan nokta, clearance
+  ne olacaktı). **Dosya adı sorulmadan ÖNCE** çıkar (`asksaveasfilename`'in hemen
+  öncesi) — iptal etmek operatöre hiçbir şeye mal olmasın diye. Yes/No: Yine de
+  aktar / vazgeç. Hata olursa `True` döner — raporlama hatası dışa aktarımı ASLA
+  bloklamaz.
+  ⚠️ **BİLEREK "tekrar gösterme" YOK** (clamp/tool-change advisory'lerinden farkı):
+  onlar her hesapta tekrarlayan sürekli bir durumu anlatıyor; bu SADECE dışa
+  aktarımda ve SADECE gerçekten bir sınır reddedildiğinde çıkıyor. Susturulabilir
+  olsa, tam da var olma sebebini ("6 nokta yazdım ama tezgah hâlâ takılıyor")
+  gizlerdi.
+- `ui/dialogs/scl_inspector.py` — rapora `cap_warnings` eklendi + alt satırda
+  `scl_cap_warn` uyarısı. Sınırın etkisinin görülebildiği tek pencere burası,
+  dolayısıyla etkisizliğinin açıklanacağı yer de burası.
+- `i18n.py` — `msg_cap_warn_title` / `msg_cap_warn_op` / `msg_cap_warn_body` /
+  `scl_cap_warn` (EN/TR/ES). 869 anahtarın tamamı üç dilde çözülüyor.
+
+**NOT — diyalog GÜVENLİK KARARI SORMUYOR:** sınır zaten düşürüldü, clearance korundu,
+yani aktarılacak program GÜVENLİ. Sorulan şey "istediğiniz akıcılığı vermeyen bir
+programı göndereyim mi, yoksa önce geometriyi mi düzelteceksiniz".
+
+**Doğrulama:** `_test_p2_point_cap.py` 6/6 (yeni: uyarı sözlükleri EN/TR/ES'te
+eksiksiz formatlanıyor — diyalog i18n'i doğrudan bu dict'lerden besliyor).
+Düzenlenen 6 dosya `py_compile` ile derleniyor; uyarı yokken `True` dönüyor
+(dışa aktarım engellenmiyor).
+
+**BEKLİYOR:** diyaloğun gerçek pencerede GUI smoke'u (reddedilen bir sınır kurup
+SCL export) + fiziksel tezgah denemesi (asıl amaç akıcı hareket).
 
 ---
 
