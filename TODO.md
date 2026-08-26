@@ -3,6 +3,307 @@
 
 ---
 
+## Point control — 2026-08-26 (scoping, NOT started, nothing decided yet)
+
+> Two operator requests raised by the user 2026-08-26. Both are the SAME underlying
+> gap: today the operator controls the *shape* of a pass through parameters, but has
+> no control over **where the points sit and which ones survive to the machine**.
+> #99 is that gap on the P2 fillet, #100 is that gap on the P2→P3 tail.
+>
+> **⛔ WORKING PROGRAM.** Opt-in per-op keys only, empty/absent ⇒ byte-identical
+> output, .ssp back-compat mandatory. Same rules as #68/#87–#90.
+
+### 99. P2 radius — operator control over the fillet's point count / resolution
+
+**Why (user, 2026-08-26; raised once before):** the operator wants to set how many
+points make up the P2 fillet arc — "an additional modifier for resolution".
+
+**Finding (code) — there are TWO different point counts and the request is ambiguous
+between them. This must be settled before anything is built:**
+
+1. **Generation density.** `_arc_fillet_at_p2` (`path_generator.py:1349`) samples the
+   arc with `n_arc = max(4, int(eff_radius * abs(sweep) / check_res))` (`:1393`).
+   `check_res` is `max(0.05, params["collision_resolution"])` (`:1997`) — a **GLOBAL**
+   Process-tab spinbox, range 0.1–5.0, default 0.5 (`ui/tabs/process_tab.py:378`),
+   shared by *every* leg of *every* pass and also used as the gouge-check step. So the
+   only lever today is global, and turning it down to densify one fillet densifies
+   everything and slows the 20-iteration gouge loop.
+2. **Emitted count (what the machine actually runs).** Generation density is only the
+   *ceiling*. What reaches the `.nc`/SCL is decided by RDP in `_decimate_path_for_plc`
+   (`:3072`), which already isolates the fillet as its **own section** (`:3119-3132`):
+   approach arm kept verbatim as 2 pts, fillet `[T1..T2]` RDP'd with `plc_tolerance`,
+   exit `[T2..P3]` RDP'd with `plc_exit_tolerance`.
+
+⚠️ **Consequence:** a knob that only changes (1) may produce **no visible change on the
+machine** — RDP re-thins it straight back. If the operator means "I want N points on
+the fillet at the machine", the knob has to act on (2).
+
+**DECIDED (user, 2026-08-26): the direction is REDUCE, not increase.** "He mostly wants
+to reduce the point number." That inverts the design — a *cap* is far safer and cheaper
+than a floor: fewer points never fights the line budget, it helps it.
+
+**So the shape is a per-op MAXIMUM, applied at the RDP stage:**
+- `p2_radius_max_points` (per-op, default empty = today's behavior). After the fillet
+  section is decimated (`dec_fillet`, `:3125`), if more than N points survive, thin the
+  fillet to N — evenly by arc length, endpoints T1/T2 always kept.
+- Equivalent alternative: a per-op fillet RDP tolerance. The explicit count is preferred
+  because it is the one number the operator asked for ([[feedback_operator_ux]]).
+
+**SAFETY — user pushed back, and the research says he is MOSTLY right (2026-08-26).**
+> User: *"bunun nokta sayısıyla alakası yok. parçaya dalma tamamen x değeriyle alakalı…
+> Bu da şuanki güvenlik önlemlerimizle sağlanıyor olması lazım. araştırmanı öneririm."*
+
+Researched. Result: **the guard exists and is segment-aware, but it is wired into only
+ONE of the two export paths — and #99's knob lands in the unguarded one.**
+
+- ✅ The chord-cutting concern is real geometry, not theory: on a convex fillet two
+  points can each be at exactly clearance while the straight chord between them dips
+  inside. `measure_min_clearance` (`path_generator.py:3212`) was written for precisely
+  this — it samples **along** each straight segment, not just at the retained vertices
+  (docstring `:3213-3216`). So the codebase already agrees the risk is real.
+- ✅ The user is right that it is not a per-point-count property as such: what is
+  measured is radial distance vs `mandrel_R + blank + shell + r_tool` at every sample.
+- ❌ But it is NOT always on. `measure_min_clearance` is called from exactly three
+  places, all inside the **auto-tune** branch: `export_manager.py:373`,
+  `ui/main_window.py:1349`, `ui/dialogs/scl_inspector.py:102`. When auto-tune is OFF and
+  `plc_tolerance` is set by hand, the else-branch (`ui/main_window.py:1393-1395`) does
+  **no clearance work at all** — nothing re-checks the decimated chords.
+- ❌ Even with auto-tune ON it is advisory: `clearance_limited` only raises an
+  askyesno the operator can click through (`ui/main_window.py:1364-1372`).
+
+⇒ **Revised scope for #99 — smaller than first written.** The work is not "build a
+guard", it is **wire the existing guard into the manual/per-op path**: after the cap
+thins the fillet, re-run `measure_min_clearance` on the result and refuse (or warn, per
+the decision below) if it is worse than the full-resolution path. That is the same
+`floor_clearance` comparison auto-tune already does — reused, not reinvented.
+
+**Behaviour on a violation — DECIDED (user, 2026-08-26): option C, his own.** Not
+"refuse" and not "auto-reduce": the rule is that no emitted point may sit closer to the
+mandrel than the clearance value, and that invariant is what must hold — the cap simply
+may not break it. Practically that means the cap is honoured only as far as the
+clearance floor allows, and the operator is told when it could not be honoured in full.
+
+**FILLER LINES — user's question, answered from the code (2026-08-26).**
+> "Because of plc mode, I know we need to have 1000 lines but can't we have filler lines?"
+
+**The format already does this — short programs are already fine, no padding work is
+needed:**
+- `chunk_geometry` (`recipe_to_scl.py:152`) declares `capacity = max(line_count, 1000)`,
+  rounded UP to a whole number of arrays.
+- `generate_scl` (`:884-903`) writes **only `line_count` lines**. Every remaining array
+  element is declared but never assigned — that *is* the filler.
+- The PLC knows where to stop from `Header.LineCount` + the mandatory `CMD=99` END
+  marker at global line `LineCount-1`.
+- `recipe_checksum` (`:112`) covers **emitted lines only, never the padding** (`:126`).
+
+⇒ There is no requirement to fill 1000 lines, and no penalty for a short program. The
+1000 is a *minimum declared capacity*, not a quota. (`plc_target_lines` is a separate,
+optional auto-tune budget, default 0 = off.)
+
+**🔴 1000 IS A HARD CEILING — ANSWERED BY THE PLC TEAM (2026-08-26):** *"1000 is a hard
+ceiling for PLC memory and it's not dynamic."* This settles the open question above, and
+it exposes a latent hole: **the export lets the operator ship a DB the PLC cannot load.**
+`export_scl` refuses over the limit, but `ui/main_window.py:1461-1481` offers an
+askyesno that re-exports with `force=True`, and `auto_fit_plc_tolerance` sets
+`force_flag = fit_lines > 1000` (`:1373`). That override was written when the ceiling was
+believed to be soft. `chunk_geometry` will also happily declare `capacity =
+max(line_count, 1000)` above 1000 (`recipe_to_scl.py:170`).
+⚠️ Note this does NOT contradict [[project_scl_loadmem_format]] — the array size stays a
+dynamic user decision (350 → `[0..349]` is still right); what is new is that it may
+never exceed 1000. **Follow-up worth opening separately: make >1000 a hard refusal
+instead of a click-through.**
+
+**MOTIVE — DECIDED (user, 2026-08-26): machine motion / smoothness (answer (a)).** The
+machine decelerates/pauses at every point, so a dense fillet runs choppy. Two
+confirmations arrived with it:
+- **PLC team, same day: *"axis decelerates to a stop at every point"* — there is NO
+  velocity blending / look-ahead.** So the controller will not solve this for us; the
+  point count really is the lever. #99 is confirmed necessary.
+- **User: today the ONLY way to reduce points is to add more passes** so the auto-tune
+  budget gives each pass fewer — an indirect, distorting workaround. That is the actual
+  pain this item removes.
+
+**⚠️ Consequence — a point cap is the ONLY lever we have.** Checked
+`CAM_INTERFACE_SPEC.md` §5: the recipe CMD set is RAPID(0) · LINEAR(1) ·
+TOOL_CHANGE(10) · SPINDLE_ON(20) · SPINDLE_OFF(21) · DWELL(30) · PROGRAM_END(99).
+**There is no arc/circular command** — every motion is a linear point-to-point move, and
+`F` is only honored on CMD=1. So the CAM side cannot emit a smooth fillet as one arc; it
+can only choose how many chords to spend on it. Two consequences:
+1. Short term = this item: cap the points, let the operator trade corner accuracy for
+   motion smoothness, with the corner-cutting guard (`:3215`) refusing a gouge.
+2. ~~Long term = a PLC-side format change (circular interpolation / blending).~~
+   **🔴 CLOSED BY THE PLC TEAM (2026-08-26): *"linear point-to-point is the permanent
+   contract."*** No arc command is coming, and there is no velocity blending. So the
+   chord count is not a temporary lever we design around until arcs arrive — it is
+   **permanently the only control we have over corner smoothness.** That raises this
+   item's value and means the cap should be designed as a first-class control, not a
+   stopgap.
+
+### 100. Exit tail — step-by-step control of every point between P2 and P3
+
+**Why (user, 2026-08-26):** "an advanced version of exit_mid_t" — the operator wants to
+control **all the points after P2 until P3, step by step**; to configure all the points
+of a spline, with **a handleable amount of points**.
+
+**Finding (code) — the tail already has EIGHT accreted shape params with a hidden
+precedence chain** (`path_generator.py:2105-2176`):
+`exit_arc_angle` (°, per-op since #81) · `exit_bow` (mm) + `exit_bow_bias` +
+`exit_bow_trim` · `exit_mid_radius` / `exit_mid_radius_end` + `exit_mid_t` +
+`exit_mid_trim` (#92 curl) · `exit_mid_rotation` + `exit_mid_t`.
+Precedence: **curl > bow > arc**; rotation applies unless the curl is on. This is the
+exact accretion pattern #68 exists to fight — a 9th parallel knob would make it worse.
+
+> ⚠️ **PROCESS NOTE (user, 2026-08-26): this entry was over-inferred twice.** The agent
+> built a hard "manual mode" gate out of one sentence, then over-corrected to "nothing is
+> greyed at all" — both were assumptions, neither was asked for. The decisions below are
+> the ANSWERED ones. Where something is not listed here, it is not decided — **ask, do
+> not infer.** See [[feedback_ask_before_assuming]].
+
+**DECIDED (user, 2026-08-26):**
+
+- **D1. Points the roller PASSES THROUGH** (interpolating), not control points that pull
+  the curve. Agent's implementation pick (still agent's, not asked): centripetal
+  Catmull-Rom — goes through every point, no cusps or self-intersection. Accepted risk: a
+  badly placed point makes a curvature spike (surface mark + machine jerk).
+- **D2. Relative, never absolute — and the operator picks the anchor PER POINT.**
+  *"can I have both option? each point can either have a relative position to p2 or
+  previous point."* ⇒ every waypoint carries its own anchor mode:
+  - **anchored to P2** — a ΔX/ΔZ from the contact point. Moving it moves only that point.
+  - **anchored to the PREVIOUS point** — a step from the point before it ("step by step",
+    his original phrasing). Moving it drags everything after it.
+  Both resolve to the same geometry at generation time; the anchor is an authoring
+  convenience, so the table needs an anchor column and the preview must make the
+  difference visible (moving a chained point moves its followers).
+  ⚠️ The old chord-normalized `t ∈ [0,1]` scheme is **WITHDRAWN** — it depended on a P3
+  that no longer exists (D7). The "generalization of `exit_mid_t` + `exit_bow`" framing
+  above is therefore also dead as a data model; it survives only as the SEED source.
+- **D3. Reach / pass angle / P3 params are GREYED OUT while an op has waypoints**
+  (user, 2026-08-26 — after correcting the agent twice: not a precondition to satisfy,
+  not "leave everything live" either). The waypoints own the tail, so the controls that
+  used to own it go read-only. They are not deleted and not silently changed — a program
+  that drops its waypoints gets them back.
+
+- **D4. PER-POINT FEED — YES (user, 2026-08-26).** *"plc tarafı bunu destekleyebiliyosa
+  aslında bu özelliğe de sahip olmak isterim. şuan contact zone yapımız var ve seviyoruz.
+  dolayısıyla farklı hızlardaki konumları da kullanırdık."* **The PLC does support it** —
+  `F` is a per-line field, honoured on every `CMD=1` (`CAM_INTERFACE_SPEC.md` §4/§5). So
+  a waypoint is `(t, offset, feed)`, not `(t, offset)`, and the table gets a third
+  column. Feed must be OPTIONAL per point (empty = inherit the pass feed), otherwise the
+  operator has to fill a number he does not care about on every row.
+  Design note: this makes the feature a **generalization of the contact-zone
+  feed ramp he already likes** (`contact_zone_mm` / `feed_contact` / `feed_contact_end`)
+  — worth saying so in the UI and help, because it is the concept he already understands.
+- **D5. NO HARD CAP ON POINT COUNT (user, 2026-08-26).** *"Bunun için bi üst sınır
+  belirlemek zorunda mıyız… büyük ihtimal 10 nokta kullanırlar ama daha fazla kullanmak
+  isterlerse tekrardan arttırmaya çalışmakla uğraşmak da istemem."* ⇒ **no hardcoded
+  limit to revisit later.** Expected typical usage ≈ 10 points. Implement as a *soft*
+  limit: no ceiling in the data model, but warn above a threshold (say 20) where the
+  table stops being scannable and the points stop surviving decimation. Same spirit as
+  #99 — the count is the operator's call, the program only tells him the consequences.
+- **D6. Nothing is silently changed behind the operator's back.** The surviving rule from
+  the Soru-5 exchange. Greying (D3) satisfies it: the values stay put and stay visible,
+  they just stop being editable while waypoints own the tail.
+- **D7. 🔴 THERE IS NO P3. The LAST WAYPOINT ends the pass.** (user, 2026-08-26, asked
+  explicitly after he said "between p2 and p3" — he confirmed the waypoint list replaces
+  P3 entirely.) This is the single most structural decision in the item:
+  - the tail is `P2 → w1 → w2 → … → wN`, and `wN` IS the end of the pass;
+  - `reach` / `pass_angle` / `p3_x` / `p3_z` no longer produce anything on such an op —
+    hence D3's greying;
+  - everything downstream that reads "the pass end" must be checked:
+    `last_op_end_z` (Continue⤵, #61 step 2), the pass-table End columns
+    (`ui/dialogs/pass_table.py` `compute_pass_rows`), reach-follow's flange accounting,
+    and the exit-section RDP split (`arc_end_idx` — there is still a T2, but the section
+    after it is now a waypoint run rather than a parametric curve).
+- **D8. 🔴 EACH PASS HAS ITS OWN POINT LIST** (user, 2026-08-26). *"for example for 2nd
+  roughing operation that has only 2 pass. operator will configure only that two passes'
+  points."* A 2-pass op = 2 independent lists. ⇒ this is **per-pass data**, so it belongs
+  with `pass_edits` rather than on the op dict, and it **inherits the #89 Split/Unite
+  lossiness** — the user was shown that trade-off in the question and chose it anyway, so
+  it is an informed decision, not an oversight. Consequences:
+  - the natural home is the existing per-pass editor (`ui/dialogs/pass_table.py`), not a
+    new op-level dialog — it already does staged edits + undo + row→3D highlight;
+  - `pass_edits` is keyed by pass INDEX, so the #79/#80 remap-or-clear-and-warn machinery
+    must cover waypoints too, or changing `count` silently re-attaches a shape to the
+    wrong pass;
+  - D4's "seed from the current curve" stops being a nicety and becomes **required** —
+    nobody hand-authors 30 lists from scratch.
+- **D9. Scope is the operation/program that carries it** (user, 2026-08-26): *"these new
+  two features will only [be] bound to that specific operation/program."* Nothing global,
+  nothing in the machine profile; it travels in the `.ssp` with the op.
+- **D10. 🔴 REVERSE AND BACK PASSES ARE OUT OF SCOPE** (user, 2026-08-26): *"lets put the
+  reverse and back passes out of this feature… if a forward pass has these manual
+  modifications, it can not have back passes, for now. also reverse pass can not have
+  this modifications also."* Two hard, mutually-reinforcing exclusion rules:
+  1. **Waypoints ⇒ no back pass.** An op/pass carrying waypoints may not also have
+     `back_pass_enabled` (`ui/tabs/program_tab.py:109`, group at `:175-176/:196-197`).
+  2. **Reverse ⇒ no waypoints.** An op with `direction == "reverse"` may not carry
+     waypoints at all.
+  ⇒ This **closes the old Q3** (agent had been asked to design something reasonable for
+  reverse/back passes; that is now withdrawn rather than designed). It also **retires the
+  `_swap_legs` interaction** (#82, `path_generator.py:2087`) from this item entirely —
+  the hardest geometry question in the feature disappears with it.
+  **Why this is the right call:** back passes are built by a completely different route
+  (`back_pass_arc_x/z` + `_correct_clearance_uniform`) and reverse passes deliberately
+  keep the mandrel-entry leg straight — both would have needed their own geometry,
+  their own clearance handling and their own regression tests. "For now" is the user's
+  word: the exclusions are a scope boundary, not a permanent design position.
+  **Enforcement — must be a visible refusal, not silent:** the two settings have to
+  disable/refuse each other in the UI with a stated reason (D6: nothing changes behind
+  the operator's back). ⚠️ Also needs a LOAD-TIME check: an existing `.ssp` could already
+  carry `back_pass_enabled` on an op that the operator then adds waypoints to.
+
+**Open questions — still brainstorming (2026-08-26):**
+
+- ~~**Q3. Back passes and reverse passes — delegated to agent.**~~ **CLOSED 2026-08-26
+  by D10** — the user withdrew the delegation and excluded both from scope instead. No
+  design needed; two refusal rules replace it.
+- **Q4. AUTHORING WORKFLOW — DECIDED (user, 2026-08-26): SEED FROM THE CURRENT CURVE.**
+  The user's worry was *"I don't know how he can keep adding different positions"* —
+  placing 5 waypoints × many ops by typing numbers is exactly the abstract
+  multi-parameter work [[feedback_operator_ux]] says operators will not do.
+  **Answer: there is never an empty page.** The dialog opens pre-filled with the op's
+  CURRENT tail (bow / curl / arc) sampled at N points, so the operator always starts
+  from a shape that already runs and only nudges it. This also turns the existing 8
+  params from dead weight into the seed generator — they become the "presets" and the
+  waypoints become the fine-tuning layer.
+  Still open, as follow-ons rather than alternatives:
+  1. **Click-on-canvas to add / drag to move** in the 2D preview (safe — it was the 3D
+     VTK widget that failed, #8, not dragging as such), with the table as the numeric
+     read-out. Natural phase 2 once seeding proves the concept.
+  2. **Reuse across ops** — save a tail shape to the op library (#71) so it is authored
+     once and applied to many ops.
+  3. **Fill helpers** like the pass table's *Set all* / *Progressive* buttons
+     (`ui/dialogs/pass_table.py`) — proven pattern for "too many cells to fill by hand".
+- **Q4. Per-op or per-pass?** Per-op for v1 (normalized coords make it apply to all
+  passes). Per-pass would go in `pass_edits` and inherits the Split/Unite lossiness
+  already flagged in #89.
+- **Q5. UI.** **NOT** the 3D sphere-drag widget — that is TODO #8, already discarded,
+  VTK never stabilized. The proven house pattern is a modal dialog + staged-edit table
+  + 2D canvas preview + Apply/Cancel (`ui/dialogs/pass_table.py` `_draw_preview`,
+  `SplitOpDialog`). Canvas should overlay the **decimated PLC version** so the operator
+  sees what actually reaches the machine. 2D canvas dragging is safe as a phase 2 (it
+  was the 3D VTK widget that failed, not dragging as such).
+- **Q6. Safety — the whole risk of this feature.** A hand-placed point is exactly how
+  you drive the roller into the mandrel. Waypoints must run through the same guard as
+  every existing exit shape (`_bow_clear` + trim contour + `_enforce_min_clearance` /
+  `_correct_clearance_uniform`), and any waypoint inside the clearance envelope must be
+  drawn red and flagged, not silently corrected.
+- **Q7. What happens to the existing 8 params?** Do NOT remove them. Proposal: non-empty
+  `exit_points` **supersedes** curl/bow/arc on that leg and says so in the log — exactly
+  how the curl already supersedes bow/arc (`:2133-2141`). Empty ⇒ byte-identical.
+- **Q8. Reverse passes (#82).** `_swap_legs` (`:2087`) requires the leg entering the
+  mandrel-near P2 to stay STRAIGHT, and `exit_mid` is already skipped in swap mode.
+  The waypoint shape must follow the same rule — decide it up front, don't discover it.
+- **Q9. RDP will eat hand-placed points.** They need to be RDP **anchors** (kept
+  verbatim, like the critical contact point already is) — the same mechanism #99 needs.
+  Design the two together.
+
+**Risk:** medium–high — this is the first feature that lets the operator author raw
+geometry rather than pick a parametric shape. Gouge risk is real (Q6), and it touches
+the one code path every forming pass runs through.
+
+---
+
 ## Rebrand + global edition — 2026-08-24 (session: SoftSpinner rename)
 
 ### 98. Loose ends from the rebrand session
