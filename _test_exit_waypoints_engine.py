@@ -155,6 +155,41 @@ build(clearance=5.0, pass_edits={"0": {"exit_points": PTS}})
 check(pg.last_waypoint_warnings == [], "warning list resets on each calculation")
 
 
+# ── 7. per-point feed, STEP semantics (#100, user 2026-08-27) ───────────────
+# A waypoint's feed governs the span ARRIVING at it; a blank inherits the
+# previous span. Emission is checked through real G-code, not internals.
+def gcode_feeds(**op_over):
+    p = make_params(**op_over)
+    pg.calculate_paths(p, {}, mgr)
+    g = pg.generate_gcode(params=p, feed=400, speed=200)
+    out = []
+    for ln in g.splitlines():
+        if ln.startswith("G1") and " F" in ln:
+            out.append(float(ln.split(" F")[1].split()[0]))
+    return out
+
+# Values deliberately unlike any default (300 IS the default pass feed here, so
+# using it would prove nothing).
+FED = [wp(12.0, -6.0, feed=321.0),
+       wp(10.0, -8.0, anchor="prev"),            # blank -> inherits 321
+       wp(8.0, -14.0, anchor="prev", feed=123.0)]
+feeds = gcode_feeds(pass_edits={"0": {"exit_points": FED}})
+check(321.0 in feeds, f"the first waypoint's feed reaches the G-code (got {set(feeds)})")
+check(123.0 in feeds, f"the last waypoint's feed reaches the G-code (got {set(feeds)})")
+check(feeds.index(321.0) < feeds.index(123.0),
+      "321 is commanded before 123 — the slow span is the one arriving at the last point")
+
+# the blank middle point must NOT restore the pass feed between them
+_between = feeds[feeds.index(321.0):feeds.index(123.0)]
+check(all(f == 321.0 for f in _between),
+      f"a blank feed inherits the previous span, no reversion in between (got {_between})")
+
+# no feeds anywhere -> nothing beyond the ordinary pass feed
+plain_feeds = set(gcode_feeds(pass_edits={"0": {"exit_points": PTS}}))
+check(321.0 not in plain_feeds and 123.0 not in plain_feeds,
+      f"waypoints without feeds add no feed changes (got {plain_feeds})")
+
+
 print()
 if fails:
     raise SystemExit(f"{fails} FAILED")

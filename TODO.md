@@ -223,6 +223,26 @@ exact accretion pattern #68 exists to fight — a 9th parallel knob would make i
   used to own it go read-only. They are not deleted and not silently changed — a program
   that drops its waypoints gets them back.
 
+- **D13. FEED IS A STEP, NOT A RAMP (user, 2026-08-27).** A waypoint's feed governs
+  the span **arriving at it** — set the slow number on the point near the sheet edge and
+  the roller is already slow when it gets there. Constant along each span, changing AT
+  the point. A **blank feed inherits the previous span** (ultimately the pass feed), so
+  the operator fills in only the points he cares about. Implemented via
+  `_waypoint_feed_map` working off GEOMETRY (nearest emitted point per waypoint), not
+  array indices, so it survives PLC decimation and the G-code downsampler.
+  An explicit waypoint feed **beats the automatic contact-zone slow-down** — the
+  operator typed that number on that point of a tail he drew himself; a rule inferred
+  from proximity should not quietly overrule it. (They rarely meet: the contact zone
+  hugs the surface, the tail leaves it.)
+- **D14. A BAD EDIT IS REJECTED ON THE SPOT (user, 2026-08-27).** Not "block Apply while
+  it shows red" — the table must **never hold an illegal value**. A drag snaps back to
+  the last legal position, a typed value is refused with the reason ("would gouge: 1.3mm
+  inside clearance"). ⚠️ Because the roller passes through every point, validating the
+  edited point alone is not enough: the whole tail is rebuilt and re-checked on every
+  edit, since moving one point bows the curve through its neighbours.
+  ⚠️ This covers edits only. Stored points can still go stale when something ELSE moves
+  (r_tool, clearance, the mandrel) — that is what the engine-side
+  `last_waypoint_warnings` is for. The two are complementary, not redundant.
 - **D4. PER-POINT FEED — YES (user, 2026-08-26).** *"plc tarafı bunu destekleyebiliyosa
   aslında bu özelliğe de sahip olmak isterim. şuan contact zone yapımız var ve seviyoruz.
   dolayısıyla farklı hızlardaki konumları da kullanırdık."* **The PLC does support it** —

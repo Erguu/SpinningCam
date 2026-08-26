@@ -261,6 +261,7 @@ class PathGenerator:
         self.last_tool_change_warnings = []  # custom tool-change points near the turret swing envelope
         self.last_point_cap_warnings = []  # #99: fillet caps refused because they would cost clearance
         self.last_waypoint_warnings = []   # #100: hand-drawn exit tails closer than the op clearance
+        self.last_waypoint_abs = {}        # #100: path index → resolved waypoints for feed emission
 
     def _tc_radial_gap(self, pt, center_x, mandrel_mgr, params, r_tool):
         """Radial clearance (mm) between the roller contact at ``pt`` and the
@@ -355,6 +356,7 @@ class PathGenerator:
         self.last_back_pass_meta = {}  # {path_list_index: {"feed": ...}}
         self.last_render_split_idx = {}  # {path_list_index: (line_end_idx, arc_end_idx)}
         self.last_waypoint_warnings = []  # #100: hand-drawn exit tails closer than the op clearance
+        self.last_waypoint_abs = {}  # #100: path index → resolved waypoints [{x,z,feed}] for feed emission
         self._path_op_map = []  # toolpath index → op dict, synced as paths are appended
         self.last_op_end_z = {}  # op-index → CAM Z the op's last forming pass actually reaches
         self.last_op_reach = {}       # op-index → exit reach magnitude of last forming pass (#61)
@@ -2472,6 +2474,15 @@ class PathGenerator:
             _path_idx = len(t_list)
             t_list.append(np.array(final_points))
 
+            # #100: remember where this pass's waypoints ended up, so G-code
+            # emission can apply their per-point feeds without re-deriving P2
+            # (which the safety floor may have moved after the tail was built).
+            if exit_points:
+                _res = exit_waypoints.resolve(p2.X(), p2.Z(), exit_points)
+                self.last_waypoint_abs[_path_idx] = [
+                    {"x": _x, "z": _z, "feed": _w.get("feed")}
+                    for (_x, _z), _w in zip(_res, exit_points)]
+
             if _line_end is not None and _line_end in _render_pos:
                 self.last_render_split_idx[_path_idx] = (
                     _render_pos[_line_end],
@@ -2538,6 +2549,49 @@ class PathGenerator:
         proj_arr = np.array(proj_line) if proj_line else np.array([])
         devs_arr = np.array(devs)
         return proj_arr, devs_arr
+
+    def _waypoint_feed_map(self, path_arr, wp_abs):
+        """#100: per-point feed for a pass whose exit tail was drawn by hand.
+
+        STEP semantics (user, 2026-08-27): a waypoint's feed governs the span
+        ARRIVING at it — set the slow number on the point near the sheet edge and
+        the roller is already slow when it gets there. A blank feed inherits
+        whatever the previous span was running, so the operator only fills in the
+        points he actually cares about.
+
+        Works off geometry rather than array indices, so it survives the PLC
+        decimation and the G-code downsampler resampling the tail: each waypoint
+        is located by its nearest emitted point.
+
+        Returns a list the same length as path_arr, holding a float or None,
+        or None when there is nothing to apply.
+        """
+        if not wp_abs or path_arr is None or len(path_arr) < 2:
+            return None
+        if all(w.get("feed") is None for w in wp_abs):
+            return None
+
+        pts = np.asarray(path_arr, dtype=float)
+        bounds = []
+        for w in wp_abs:
+            d = np.hypot(pts[:, 0] - float(w["x"]), pts[:, 2] - float(w["z"]))
+            bounds.append((int(np.argmin(d)), w.get("feed")))
+        bounds.sort(key=lambda b: b[0])
+
+        out = [None] * len(pts)
+        prev_idx = 0
+        carried = None
+        for idx, feed in bounds:
+            eff = feed if feed is not None else carried
+            if eff is not None:
+                for k in range(prev_idx, min(idx + 1, len(out))):
+                    out[k] = eff
+            prev_idx = max(prev_idx, idx + 1)
+            carried = eff
+        if carried is not None:                 # anything past the last waypoint
+            for k in range(prev_idx, len(out)):
+                out[k] = carried
+        return out
 
     def _contact_zone_mask(self, path_arr, center_x, contact_zone_mm,
                            r_tool, blank_thick, shell_offset):
@@ -2876,6 +2930,10 @@ class PathGenerator:
                 cz_shell_off   = float(params.get("shell_thickness", 0.0))
                 contact_mask = self._contact_zone_mask(np.array(path), center_x, contact_zone_mm,
                                                        cz_r_tool, cz_blank_thick, cz_shell_off)
+                # #100: per-point feeds from a hand-drawn exit tail, if this pass has one.
+                wp_feeds = self._waypoint_feed_map(
+                    np.array(path),
+                    getattr(self, "last_waypoint_abs", {}).get(global_path_idx))
 
                 # Per-point tilt for this (possibly decimated) point list.
                 pass_tilts = None
@@ -2951,7 +3009,16 @@ class PathGenerator:
                     # Contact zone overrides everything — slow feed near the mandrel
                     if contact_mask is not None and contact_mask[_pi]:
                         target_f = pass_feed_contact
-                    
+
+                    # #100: an explicit per-waypoint feed wins over the automatic
+                    # contact-zone slow-down. The operator typed a number on that
+                    # exact point of a tail he drew by hand; a rule inferred from
+                    # proximity should not quietly overrule it. (They rarely meet
+                    # anyway — the contact zone hugs the surface, the tail leaves it.)
+                    if wp_feeds is not None and wp_feeds[_pi] is not None:
+                        target_f = float(wp_feeds[_pi])
+
+
                     s_suffix = ""
                     if target_s != current_s_val:
                          s_suffix = f" {code_speed} S{int(target_s)}"
