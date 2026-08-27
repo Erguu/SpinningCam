@@ -5,6 +5,7 @@ from ui.dialogs.zone_manager import ZoneManager
 from ui.dialogs.tool_manager import ToolManager
 from ui.helpers_ui import _fmt_num, scroll_not_edit
 from i18n import t
+from ui import dialog_sizing
 
 # Accurate default each op-parameter field falls back to when left empty.
 # Sourced from the op.get(key, DEFAULT) fallbacks in path_generator.py so the
@@ -100,7 +101,11 @@ OP_PARAM_UNIVERSE = {
         "retract_x", "retract_z",
         "pass_shape", "p2_radius", "p2_radius_max_points", "exit_max_points",
         "exit_arc_angle", "exit_bow", "exit_bow_bias",
-        "exit_bow_trim", "exit_mid_rotation",
+        # exit_mid_rotation is deliberately absent (#102): it is no longer an
+        # editable op field, so listing it here would offer a column and a batch
+        # target for something the panel cannot show. The engine still READS it
+        # from older files — see exit_breaks.legacy_break.
+        "exit_bow_trim",
         "exit_mid_t", "exit_mid_radius", "exit_mid_radius_end", "exit_mid_trim",
         "conformal_clearance_operation_specific",
         "approach_follow_surface", "p1_x", "p1_z", "p3_x", "p3_z", "reach",
@@ -151,7 +156,7 @@ OP_PARAM_LABELS = {
     "exit_arc_angle": "lbl_exit_arc",
     "exit_bow": "lbl_exit_bow", "exit_bow_bias": "lbl_exit_bow_bias",
     "exit_bow_trim": "lbl_exit_bow_trim",
-    "exit_mid_rotation": "lbl_exit_mid_rot", "exit_mid_t": "lbl_exit_mid_t",
+    "exit_mid_t": "lbl_exit_mid_t",
     "exit_mid_radius": "lbl_exit_mid_radius", "exit_mid_trim": "lbl_exit_mid_trim",
     "exit_mid_radius_end": "lbl_exit_mid_radius_end",
     "conformal_clearance_operation_specific": "lbl_conformal_clr",
@@ -191,7 +196,7 @@ SECTION_KEYS = {
     "path_shape": ["pass_shape", "p2_radius", "p2_radius_max_points",
                    "exit_max_points",
                    "exit_arc_angle", "exit_bow",
-                   "exit_bow_bias", "exit_bow_trim", "exit_mid_rotation", "exit_mid_t",
+                   "exit_bow_bias", "exit_bow_trim", "exit_mid_t",
                    "exit_mid_radius", "exit_mid_radius_end", "exit_mid_trim",
                    "conformal_clearance_operation_specific",
                    "approach_follow_surface", "p1_x", "p1_z", "p3_x", "p3_z", "reach",
@@ -252,7 +257,7 @@ _BATCH_ELIGIBLE = {
     "speed", "feed", "count", "start_z", "end_z", "p2_z_extend",
     "proj_extend_bottom", "proj_extend_top", "p2_radius", "p2_radius_max_points",
     "exit_max_points",
-    "exit_bow", "exit_bow_bias", "exit_mid_rotation", "exit_mid_t",
+    "exit_bow", "exit_bow_bias", "exit_mid_t",
     "exit_mid_radius", "exit_mid_radius_end",
     "p1_x", "p1_z", "p3_x", "p3_z", "reach", "reach_blank_factor",
     "pass_angle", "progressive_angle_end", "progressive_reach_end",
@@ -2507,31 +2512,27 @@ class ProgramTab:
                     "pürüzsüz kıvrım; en kötü halde düze yaklaşır).\n"
                     "Sadece İÇE kıvrım (−R) parçaya girebilir; dışa kıvrımda bu koruma zaten boştadır.")
 
-                # Exit Mid Rotation — M noktasından sonrasını M etrafında döndürür
-                self._add_prop_entry(idx, "exit_mid_rotation", t("lbl_exit_mid_rot"), op, is_float=True,
-                                     readonly=_curl_on,
-                                     tooltip="P2→P3 çıkış eğrisi üzerinde bir M noktası seçip, M'den SONRASINI "
-                                             "(M→P3 kuyruğu) M etrafında bu açıda döndürür (derece, XZ düzlemi).\n"
-                                             "T2→M kısmı değişmez; P3 kuyrukla birlikte döner.\n"
-                                             "0 veya boş = etkisiz (düz çıkış eğrisi). Pozitif/negatif yönü değiştirir.\n"
-                                             "Sadece linear_approach modunda geçerli. Clearance düzeltmesi yine uygulanır.\n"
-                                             "⚠ Çıkış Kıvrım Yarıçapı doluyken DEVRE DIŞIDIR (kıvrım onun yerine geçer).")
-                if _curl_on:
-                    _lbl_off = tk.Label(self.f_prop_editor, text=t("note_rot_off_curl"),
-                                        fg=self.helper.HINT_COLOR, font=self.helper.HINT_FONT,
-                                        anchor="w")
-                    _lbl_off._pkey = "exit_mid_rotation"
-                    _lbl_off.pack(fill="x", padx=(120, 2))
-
+                # #102: "Çıkış Orta Rot" (exit_mid_rotation) BU PANELDEN KALDIRILDI —
+                # yerini pas başına Kırılma Noktaları aldı (Pas tablosu ▸ Kırılma
+                # noktaları…), çünkü artık BİRDEN FAZLA kırılma olabiliyor ve her biri
+                # pasa özel. Anahtar SİLİNMEDİ: eski programlarda duruyorsa motor onu
+                # tek elemanlı bir kırılma listesi olarak okumaya devam ediyor
+                # (`exit_breaks.legacy_break`), yani geometri birebir aynı kalıyor.
+                # Editörde OK'a basıldığı an op'tan silinip pas listelerine yazılır.
+                #
+                # `exit_mid_t` KALDI: kıvrım (curl) M noktasını hâlâ ondan okuyor
+                # (path_generator.py, `_make_curl_leg` çağrısı) — sadece kırılmaya ait
+                # bir alan değil, bu yüzden kaldırılamaz.
                 self._add_prop_entry(idx, "exit_mid_t", t("lbl_exit_mid_t"), op, is_float=True,
                                      tooltip="M noktasının çıkış üzerindeki konumu (oran, 0–1, varsayılan 0.5).\n"
                                              "Küçük = M P2'ye yakın (kıvrım erken başlar, düz kısım kısa), "
                                              "büyük = P3'e yakın (uzun düz kol, kısa kıvrım).\n"
                                              "0.05–0.95 arasına sınırlanır.\n"
-                                             "⚠ İKİ ANLAMI VARDIR (bilerek — eski programlar bit-aynı kalsın diye):\n"
-                                             "  • Çıkış KIVRIMI için: T2→P3 KİRİŞİ üzerinde oran (nokta yoğunluğundan bağımsız).\n"
-                                             "  • Çıkış Orta ROT için: nokta DİZİSİ üzerinde oran (eski davranış).\n"
-                                             "Çıkış Kavisi/Yay Açısı da doluyken bu ikisi FARKLI yerlere düşer.")
+                                             "ÇIKIŞ KIVRIMI için kullanılır: T2→P3 KİRİŞİ üzerinde oran "
+                                             "(nokta yoğunluğundan bağımsız).\n"
+                                             "⚠ Eski programlarda kalan 'Çıkış Orta Rot' değeri de bu konumu kullanır "
+                                             "(orada oran nokta DİZİSİ üzerindedir). Yeni işlerde kırılma konumları "
+                                             "Pas tablosu ▸ Kırılma noktaları… penceresinden verilir.")
 
             f_conf = ttk.Frame(self.f_prop_editor)
             f_conf._pkey = "conformal_clearance_operation_specific"
@@ -3018,7 +3019,7 @@ class ProgramTab:
         """Open a canvas-based visual guide: which parameter affects which part of the pass."""
         dlg = tk.Toplevel(self.frame.winfo_toplevel())
         dlg.title(t("dlg_pass_diagram"))
-        dlg.geometry("980x560")
+        dialog_sizing.fit(dlg, 980, 560)
         dlg.resizable(True, True)
 
         frm_top = ttk.Frame(dlg)
@@ -3663,7 +3664,7 @@ class ProgramTab:
         z/x are offsets from the current roller tip — (0,0) = at tip."""
         dlg = tk.Toplevel(self.frame.winfo_toplevel())
         dlg.title(title)
-        dlg.geometry("290x165")
+        dialog_sizing.fit(dlg, 290, 165)
         dlg.resizable(False, False)
         dlg.grab_set()
         result = [None]
