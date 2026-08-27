@@ -212,14 +212,190 @@ def test_warning_renders_for_the_dialog():
         for lang in ("EN", "TR", "ES"):
             assert lang in i18n.STRINGS[key], f"{key} missing {lang}"
 
+    for key in ("msg_cap_sec_fillet", "msg_cap_sec_exit"):
+        assert key in i18n.STRINGS, f"missing i18n key {key}"
+        for lang in ("EN", "TR", "ES"):
+            assert lang in i18n.STRINGS[key], f"{key} missing {lang}"
+
     for lang in ("EN", "TR", "ES"):
         line = i18n.STRINGS["msg_cap_warn_op"][lang].format(
-            op=cw[0]["op_name"], req=cw[0]["requested"], kept=cw[0]["kept"],
+            op=cw[0]["op_name"],
+            sec=i18n.STRINGS["msg_cap_sec_" + cw[0]["section"]][lang],
+            req=cw[0]["requested"], kept=cw[0]["kept"],
             floor=f"{cw[0]['floor']:.2f}", got=f"{cw[0]['clearance']:.2f}")
         body = i18n.STRINGS["msg_cap_warn_body"][lang].format(n=len(cw), ops=line)
         assert "ROUGH-1" in body and "{" not in body, f"{lang} body malformed: {body}"
         assert "{" not in i18n.STRINGS["scl_cap_warn"][lang].format(n=len(cw))
     print("[OK] warning dicts format cleanly in EN/TR/ES")
+
+
+# --------------------------------------------------------------------------
+# #101 — the exit-leg twin of the cap (user 2026-08-27, D21-D23)
+# --------------------------------------------------------------------------
+def _path_with_exit(radius_fn, n_exit=41):
+    """[approach] + [short fillet] + [dense EXIT curve], plus its (T1, T2) split.
+
+    Mirror of _path_with_split with the density moved to the exit leg, which is
+    where exit_bow / exit_arc_angle / exit_mid all land.
+    """
+    app = [[102.0, 0.0, -5.0]]
+    fil = [[102.0, 0.0, -2.0], [102.0, 0.0, 0.0]]
+    ext = [[radius_fn(z) + 2.0, 0.0, z] for z in np.linspace(0.0, 10.0, n_exit)][1:]
+    pts = np.array(app + fil + ext, dtype=float)
+    t1 = len(app)
+    t2 = len(app) + len(fil) - 1
+    return pts, (t1, t2)
+
+
+def test_exit_cap_unset_is_identical():
+    pts, split = _path_with_exit(FlatMgr().get_radius_fast)
+    pg = _pg(FlatMgr())
+    pg.last_calculated_paths = [pts]
+    pg.last_render_split_idx = {0: split}
+
+    old = pg.decimate_all_paths(0.5, 0.5, 0.0)
+    new = pg.decimate_all_paths(0.5, 0.5, 0.0, params=PARAMS)
+    assert np.array_equal(old[0], new[0]), "unset exit cap must be byte-identical"
+    assert pg.last_point_cap_warnings == []
+    print(f"[OK] #101 unset exit cap byte-identical ({len(old[0])} pts)")
+
+
+def test_exit_cap_applied_when_safe():
+    # Exit bulges AWAY from the part, so chords across it cost no clearance.
+    pts, split = _path_with_exit(
+        lambda z: 100.0 + 8.0 * math.sin(math.pi * z / 10.0), n_exit=61)
+    pg = _pg(FlatMgr(), op={"r_tool": 0.0, "type": "roughing", "exit_max_points": 4})
+    pg.last_calculated_paths = [pts]
+    pg.last_render_split_idx = {0: split}
+
+    plain = pg.decimate_all_paths(0.02, 0.02, 0.0)
+    capped = pg.decimate_all_paths(0.02, 0.02, 0.0, params=PARAMS)
+
+    assert len(plain[0]) > 10, f"setup: exit should survive RDP densely ({len(plain[0])})"
+    assert len(capped[0]) < len(plain[0]) - 5, (
+        f"exit cap should cut hard: {len(plain[0])} -> {len(capped[0])}")
+    assert pg.last_point_cap_warnings == [], "a safe exit cap must not warn"
+    print(f"[OK] #101 exit cap applied: {len(plain[0])} -> {len(capped[0])} pts")
+
+
+def test_exit_cap_refused_when_it_gouges():
+    pts, split = _path_with_exit(BumpMgr().get_radius_fast)
+    pg = _pg(BumpMgr(), op={"r_tool": 0.0, "type": "roughing", "name": "ROUGH-X",
+                            "exit_max_points": 3})
+    pg.last_calculated_paths = [pts]
+    pg.last_render_split_idx = {0: split}
+
+    plain = pg.decimate_all_paths(0.5, 0.5, 0.0)
+    out = pg.decimate_all_paths(0.5, 0.5, 0.0, params=PARAMS)
+
+    assert np.array_equal(out[0], plain[0]), "an unsafe exit cap must fall back"
+    assert len(pg.last_point_cap_warnings) == 1, pg.last_point_cap_warnings
+    w = pg.last_point_cap_warnings[0]
+    assert w["section"] == "exit", f"the warning must name the exit leg, got {w}"
+    assert w["requested"] == 3 and w["op_name"] == "ROUGH-X"
+    print(f"[OK] #101 exit cap refused, reported as '{w['section']}' "
+          f"({w['floor']:.2f} -> {w['clearance']:.2f} mm)")
+
+
+def test_caps_are_gated_independently():
+    """A refused fillet cap must not throw away a safe exit cap (D23).
+
+    Dense CURVED fillet hugging the bump (thinning it gouges) + dense exit that
+    bulges away from the part (thinning it is free). One must be refused and the
+    other applied, in the same pass.
+    """
+    app = [[102.0, 0.0, -5.0]]
+    fil = [[BumpMgr().get_radius_fast(z) + 2.0, 0.0, z]
+           for z in np.linspace(0.0, 10.0, 31)]
+    ext = [[120.0 + 6.0 * math.sin(math.pi * (z - 10.0) / 10.0), 0.0, z]
+           for z in np.linspace(10.0, 20.0, 41)][1:]
+    pts = np.array(app + fil + ext, dtype=float)
+    split = (len(app), len(app) + len(fil) - 1)
+
+    pg = _pg(BumpMgr(), op={"r_tool": 0.0, "type": "roughing", "name": "BOTH",
+                            "p2_radius_max_points": 3, "exit_max_points": 4})
+    pg.last_calculated_paths = [pts]
+    pg.last_render_split_idx = {0: split}
+
+    # Ordinary tolerance on purpose. RDP chords the curved fillet and gives up a
+    # little clearance by itself; the gate must charge that to RDP, not to the
+    # exit cap. Measuring against the full-resolution path instead of the
+    # uncapped decimation used to veto BOTH caps here.
+    plain = pg.decimate_all_paths(0.05, 0.05, 0.0)
+    out = pg.decimate_all_paths(0.05, 0.05, 0.0, params=PARAMS)
+
+    secs = [w["section"] for w in pg.last_point_cap_warnings]
+    assert secs == ["fillet"], f"only the fillet cap should be refused, got {secs}"
+    assert len(out[0]) < len(plain[0]), (
+        f"the SAFE exit cap must still have been applied: "
+        f"{len(plain[0])} -> {len(out[0])}")
+    # The invariant: never worse than the program that ships with no cap at all.
+    floor = pg._path_min_clearance(plain[0], pg._path_op_map[0], PARAMS)
+    got = pg._path_min_clearance(out[0], pg._path_op_map[0], PARAMS)
+    assert got >= floor - 1e-6, f"clearance dropped {floor:.3f} -> {got:.3f}"
+    print(f"[OK] #101 caps gated independently: fillet refused, exit applied "
+          f"({len(plain[0])} -> {len(out[0])} pts, clearance held at {got:.2f} mm)")
+
+
+def test_gate_baseline_is_the_uncapped_decimation():
+    """A cap that costs NOTHING must not be refused for RDP's own loss.
+
+    The metric spans the whole path, so before this was fixed a curved fillet
+    that RDP chorded would veto a cap on the EXIT leg that cost zero clearance —
+    measured: capped 1.9955 vs uncapped 1.9955, refused because full resolution
+    was 2.0000. Pins the baseline so that cannot come back.
+    """
+    app = [[102.0, 0.0, -5.0]]
+    fil = [[BumpMgr().get_radius_fast(z) + 2.0, 0.0, z]      # RDP loses a little here
+           for z in np.linspace(0.0, 10.0, 31)]
+    ext = [[120.0 + 6.0 * math.sin(math.pi * (z - 10.0) / 10.0), 0.0, z]
+           for z in np.linspace(10.0, 20.0, 41)][1:]         # bulges away: cap is free
+    pts = np.array(app + fil + ext, dtype=float)
+    split = (len(app), len(app) + len(fil) - 1)
+
+    pg = _pg(BumpMgr(), op={"r_tool": 0.0, "type": "roughing", "name": "FREE",
+                            "exit_max_points": 4})
+    pg.last_calculated_paths = [pts]
+    pg.last_render_split_idx = {0: split}
+
+    plain = pg.decimate_all_paths(0.05, 0.05, 0.0)
+    out = pg.decimate_all_paths(0.05, 0.05, 0.0, params=PARAMS)
+
+    full_c = pg._path_min_clearance(pts, pg._path_op_map[0], PARAMS)
+    plain_c = pg._path_min_clearance(plain[0], pg._path_op_map[0], PARAMS)
+    out_c = pg._path_min_clearance(out[0], pg._path_op_map[0], PARAMS)
+
+    assert plain_c < full_c - 1e-9, (
+        f"setup: RDP must lose a little on its own ({full_c:.4f} -> {plain_c:.4f})")
+    assert abs(out_c - plain_c) < 1e-9, (
+        f"setup: this cap should cost nothing ({plain_c:.4f} -> {out_c:.4f})")
+    assert len(out[0]) < len(plain[0]), (
+        f"a free cap must be APPLIED: {len(plain[0])} -> {len(out[0])}")
+    assert pg.last_point_cap_warnings == [], (
+        f"a free cap must not warn, got {pg.last_point_cap_warnings}")
+    print(f"[OK] #101 gate baseline: free cap applied "
+          f"({len(plain[0])} -> {len(out[0])} pts; RDP alone cost "
+          f"{full_c - plain_c:.4f} mm and was NOT charged to the cap)")
+
+
+def test_exit_cap_never_touches_a_hand_drawn_tail():
+    """D22: a #100 tail is the operator's own points — the cap must skip it."""
+    pts, split = _path_with_exit(
+        lambda z: 100.0 + 8.0 * math.sin(math.pi * z / 10.0), n_exit=61)
+    pg = _pg(FlatMgr(), op={"r_tool": 0.0, "type": "roughing", "exit_max_points": 3})
+    pg.last_calculated_paths = [pts]
+    pg.last_render_split_idx = {0: split}
+    pg.last_exit_verbatim = {0}          # this pass carries a hand-drawn tail
+
+    plain = pg.decimate_all_paths(0.02, 0.02, 0.0)
+    out = pg.decimate_all_paths(0.02, 0.02, 0.0, params=PARAMS)
+
+    n_exit_kept = len(out[0]) - split[1]
+    assert n_exit_kept == len(pts) - split[1], (
+        f"a hand-drawn tail must survive whole: kept {n_exit_kept} of "
+        f"{len(pts) - split[1]}")
+    assert pg.last_point_cap_warnings == [], "skipping a tail is not a refusal"
+    print(f"[OK] #101 exit cap skips a hand-drawn tail ({n_exit_kept} points intact)")
 
 
 if __name__ == "__main__":
@@ -229,4 +405,10 @@ if __name__ == "__main__":
     test_cap_refused_when_it_gouges()
     test_measure_min_clearance_regression()
     test_warning_renders_for_the_dialog()
+    test_exit_cap_unset_is_identical()
+    test_exit_cap_applied_when_safe()
+    test_exit_cap_refused_when_it_gouges()
+    test_caps_are_gated_independently()
+    test_gate_baseline_is_the_uncapped_decimation()
+    test_exit_cap_never_touches_a_hand_drawn_tail()
     print("\nALL PASS")

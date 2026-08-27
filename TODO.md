@@ -22,6 +22,37 @@ of `measure_min_clearance` so the guard metric exists once. `_test_p2_point_cap.
 `_test_plc_autotune.py` / `_test_gcode_not_plc.py` / `_test_exit_mid_curve.py` pass.
 Detail + rollback → `LAST_CHANGES.md` 2026-08-26. Original scoping below.
 
+> ⚠️ **Amended 2026-08-27 while building #101** — the safety gate here measured a
+> capped path against the FULL-RESOLUTION one. Because the metric spans the whole
+> path, clearance that RDP gave up on its own was charged to the cap, so a cap could
+> be refused (with a warning blaming it) while costing nothing: measured capped
+> 1.9955 vs uncapped 1.9955, refused only because full resolution was 2.0000. The
+> baseline is now the UNCAPPED decimation — "never worse than not using the cap",
+> which is what this feature's docstring always claimed. **Neither of #99's existing
+> verdicts changes** (verified both ways), but a #99 cap that was silently
+> ineffective in the field may now start working. Worth watching on the first run.
+
+### 101. ⏳ IMPLEMENTED 2026-08-27 (headless-verified; GUI smoke + PHYSICAL pending) — exit-leg point cap
+
+**Shipped as `exit_max_points`** (per-op, empty = off = today's behaviour bit-for-bit) —
+the exit-leg twin of #99, asked for as "the same thing for the bow".
+
+Measured cost of the exit leg in one pass, after PLC decimation: straight **1** point,
+`exit_arc_angle` 30° **4**, `exit_mid` curl **5**, `exit_bow` 6 mm **4**,
+`exit_bow` 14 mm **8**. The biggest consumer after the fillet.
+
+- **D21** — caps the whole exit leg, whichever shape produced it (bow / arc / curl).
+- **D22** — **never** applied to a #100 hand-drawn tail; those points are the operator's.
+- **D23** — two independent caps, not one shared budget; `p2_radius_max_points` unchanged.
+
+The two caps are now gated **independently**: a refused fillet cap used to discard a
+perfectly safe exit cap along with it. The warning dict carries `section`
+("fillet"/"exit") and the message names it — otherwise "raise the cap" is ambiguous.
+
+Tests: `_test_p2_point_cap.py` 12/12 (6 new, incl. the gate-baseline regression and
+the hand-drawn-tail exemption). 9 suites re-run green.
+Detail + rollback → `LAST_CHANGES.md` 2026-08-27 (6).
+
 <details><summary>original scoping</summary>
 
 

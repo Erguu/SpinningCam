@@ -5,6 +5,53 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-27 (6) — #101: çıkış kolu için nokta sınırı (#99'un ikizi)
+
+**İstek (kullanıcı):** "P2 yarıçapının nokta sayısı için bir parametre eklemiştik,
+kavis için de benzerini ekleyebilir miyiz?"
+
+**Ölçüm (araştırma):** tek pasta PLC seyreltmesinden SONRA çıkış kolunun maliyeti —
+düz çıkış **1 nokta**, `exit_arc_angle` 30° **4**, `exit_mid` kıvrım **5**,
+`exit_bow` 6 mm **4**, `exit_bow` 14 mm **8**. Yani fileto'dan sonraki en büyük
+kalem. Makine her noktada DURUYOR + 1000 satır sert tavan.
+
+**KARARLAR (D21–D23, kullanıcıya SORULDU):**
+- **D21** — sınır TÜM ÇIKIŞ KOLUNU kapsar, kolu hangi şekil oluşturduysa
+  (bow / arc / curl). #99 "fileto bölümünü" sınırlıyor, bu "çıkış bölümünü".
+- **D22** — **#100 elle çizilen yola ASLA uygulanmaz** (orada noktalar operatörün).
+- **D23** — iki ayrı sınır (tek toplam bütçe DEĞİL); `p2_radius_max_points` aynen kalır.
+
+**YENİ:** per-op `exit_max_points` (boş/0 = sınır yok = birebir eski davranış).
+`_thin_evenly` RDP'den SONRA uygulanır, `exit_verbatim` ise atlanır.
+
+### 🔴 YOL ÜSTÜNDE BULUNAN GERÇEK KUSUR (#99'da da vardı): güvenlik kapısı YANLIŞ TABANLA ölçüyordu
+Kapı, sınırlanmış yolu **TAM ÇÖZÜNÜRLÜKLÜ** yolla karşılaştırıyordu. Ama metrik
+**TÜM YOLU** tarıyor → RDP'nin filetoda kendi başına kaybettiği boşluk, ÇIKIŞ
+kolundaki sınıra fatura ediliyordu. Ölçüldü: sınırlı=**1.9955**, sınırsız=**1.9955**
+(yani sınırın maliyeti **SIFIR**) ama tam çözünürlük 2.0000 olduğu için **REDDEDİLDİ**
+— üstelik operatöre "sınır uygulanamadı" uyarısı gösterilerek.
+Bu, istenen özelliği ASIL İŞE YARAYACAĞI yerde (parçayı takip eden bir kavis)
+yapısal olarak ölü doğurtuyordu.
+→ **Fix:** taban artık **sınırsız seyreltme** (`_plain`) — yani "sınır, sınırsız
+haline göre programı asla kötüleştirmez" (docstring'in ZATEN iddia ettiği kural).
+✅ **#99'un mevcut iki testinin verdiktini DEĞİŞTİRMİYOR** (ölçüldü: gerçek gouge
+vakası her iki tabanla da reddediliyor, güvenli vaka her ikisinde de kabul).
+
+**Ayrıca:** iki sınır **BAĞIMSIZ** kapılanıyor — reddedilen bir fileto sınırı,
+güvenli bir çıkış sınırını da çöpe atmıyordu; artık atmıyor. Uyarı dict'ine
+`section` alanı eklendi ve mesaj HANGİ sınırın uygulanamadığını söylüyor
+(yoksa "sınırı yükseltin" tavsiyesi belirsiz kalıyordu).
+
+**Test:** `_test_p2_point_cap.py` 12/12 (6 yeni: sınırsız birebir aynı, güvenliyken
+uygulanıyor, gouge'da reddediliyor + 'exit' diye raporlanıyor, bağımsız kapılama,
+taban regresyonu, elle çizilen yola dokunmuyor). 9 paket regresyon geçti.
+
+**Geri alma:** `exit_max_points`'i boş bırak (özellik kapalı). Taban değişikliğini
+geri almak için `_floor = self._path_min_clearance(_p, ...)` (ama o zaman #99 de
+eski, aşırı-reddeden haline döner).
+
+---
+
 ## 2026-08-27 (5) — #100 ARAŞTIRMA SONUCU: motorun bildiği ama SÖYLEMEDİĞİ şeyler
 
 **Bu bir araştırma görevinin çıktısı** (kullanıcı: "hangi parametreler grileşmeli,

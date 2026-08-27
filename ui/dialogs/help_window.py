@@ -2275,6 +2275,15 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  drawn path with it - worth checking it still touches
                  the part where you meant.
 
+                 EXIT MAX POINTS (Path Shape): the same idea for
+                 the P2->P3 exit leg, and it applies whichever
+                 shape made that leg - Exit Bow, Exit Arc Angle or
+                 the mid-curl all end up there. Measured on one
+                 pass: a straight exit costs 1 point in the recipe,
+                 an Exit Bow of 14 mm costs 8. Empty = no cap.
+                 Same safety rule as below, and it is NEVER applied
+                 to a hand-drawn exit path - those points are yours.
+
                  P2 MAX POINTS (roughing, Path Shape): caps how
                  many points the P2 corner fillet may use in the
                  PLC recipe. The machine stops and re-accelerates
@@ -2681,6 +2690,15 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   Ters paslarda ve geri pası olan operasyonlarda
                   kullanılamaz; son noktada biten bir operasyondan
                   "Devam" ile devam edilemez.
+
+                  ÇIKIŞ MAKS. NOKTA (Yol Şekli): aynı fikrin
+                  P2→P3 çıkış kolu için olanı; o kolu HANGİ şekil
+                  oluşturduysa geçerlidir — Çıkış Kavisi, Çıkış Yay
+                  Açısı ve Kıvrım hepsi orada oluşur. Tek pasta
+                  ölçüldü: düz bir çıkış reçetede 1 nokta, 14 mm'lik
+                  bir Çıkış Kavisi 8 nokta. Boş = sınır yok. Güvenlik
+                  kuralı aşağıdakiyle aynı, ve ELLE ÇİZİLEN çıkış
+                  yoluna ASLA uygulanmaz — o noktalar sizindir.
 
                   P2 MAKS. NOKTA (kaba pas, Yol Şekli): P2 köşe
                   filetosunun PLC reçetesinde kaç nokta kullanacağını

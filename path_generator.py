@@ -3323,6 +3323,7 @@ class PathGenerator:
                                arc_end_idx=None,
                                exit_tolerance=None,
                                max_fillet_points=None,
+                               max_exit_points=None,
                                exit_verbatim=False):
         """
         Decimates a toolpath for PLC point-to-point output.
@@ -3364,6 +3365,15 @@ class PathGenerator:
             decides whether a given cap is allowed lives in `decimate_all_paths`
             — this function only applies what it is told.
 
+          max_exit_points : #101 (user 2026-08-27), the exit-leg twin of
+            max_fillet_points. Caps how many points the P2→P3 leg may spend in
+            the recipe, whichever shape produced it — exit_bow, exit_arc_angle
+            or the exit_mid curl all land in this section, and a bowed exit was
+            measured at 8 recipe points against 1 for a straight one. Same
+            safety rule: `decimate_all_paths` decides whether the cap is allowed,
+            this function only applies what it is told. Never applied to a
+            hand-drawn tail (D22) — see exit_verbatim.
+
           exit_verbatim : #100. The exit section is a hand-drawn straight-line
             tail, so it is kept EXACTLY as-is. RDP would drop a collinear
             waypoint — no change in shape, but the per-point feed step riding on
@@ -3399,6 +3409,11 @@ class PathGenerator:
             # per-point feeds riding on them), which is the whole feature.
             dec_exit = (exit_part if exit_verbatim
                         else self._decimate_path_for_plc(exit_part, _exit_tol, center_x))
+            if max_exit_points and not exit_verbatim:
+                # #101, same reasoning as the fillet cap above: RDP decides which
+                # points carry the shape, the cap decides how many stops the
+                # machine is willing to make for it. D22 — never a hand-drawn tail.
+                dec_exit = self._thin_evenly(dec_exit, max_exit_points)
             # Stitch: approach_part ends with T1, dec_fillet starts with T1 → drop one.
             # dec_fillet ends with T2, dec_exit starts with T2 → drop one.
             result = np.vstack([approach_part[:-1], dec_fillet])
@@ -3416,6 +3431,9 @@ class PathGenerator:
                 # tail. Keep it exactly — same reason as the three-section case.
                 return np.vstack([approach_part[:-1], curve_part])
             dec_curve = self._decimate_path_for_plc(curve_part, tolerance, center_x)
+            if max_exit_points:
+                # No isolated fillet here either, so this curve IS the exit leg.
+                dec_curve = self._thin_evenly(dec_curve, max_exit_points)
             return np.vstack([approach_part[:-1], dec_curve])
 
         # --- 1. Find critical (closest-to-mandrel) point ---
@@ -3443,19 +3461,25 @@ class PathGenerator:
         per-path structural split (approach / fillet / exit) generate_gcode uses.
         Read-only — does not mutate the stored paths.
 
-        When `params` is supplied, the per-op #99 fillet point cap
-        (`p2_radius_max_points`) is applied on top — but only where it costs no
-        clearance. Omitting `params` disables the cap entirely, so every existing
-        caller keeps its exact previous behaviour.
+        When `params` is supplied, the two per-op point caps are applied on top —
+        `p2_radius_max_points` on the P2 corner (#99) and `exit_max_points` on the
+        P2→P3 leg (#101) — but only where they cost no clearance. Omitting
+        `params` disables both, so every existing caller keeps its exact previous
+        behaviour.
+
+        The caps are gated INDEPENDENTLY: a fillet cap that has to be refused must
+        not take a perfectly safe exit cap down with it. Each is measured against
+        the same full-resolution path, and an accepted cap stays applied while the
+        next one is tested.
 
         SAFETY (the reason the cap lives here and not in `_decimate_path_for_plc`):
         fewer points means longer chords, and a chord across a convex fillet cuts
         the corner even when both of its endpoints are clear. So each capped path
-        is measured against the SAME full-resolution path it came from, using the
-        same metric the auto-tune guard uses. If the cap makes clearance worse,
-        the cap is DROPPED for that pass and the uncapped decimation is kept — the
-        clearance invariant always wins, and the operator is told which passes
-        could not honour their cap via `last_point_cap_warnings`.
+        is measured — with the same metric the auto-tune guard uses — against the
+        UNCAPPED decimation of the same pass: the program that would ship if the
+        cap were not set. If the cap makes clearance worse than that, it is
+        DROPPED and the uncapped decimation is kept; the operator is told which
+        passes could not honour their cap via `last_point_cap_warnings`.
         """
         self.last_point_cap_warnings = []
         out = []
@@ -3471,45 +3495,69 @@ class PathGenerator:
                                                  exit_verbatim=_verb)
 
             _op = self._path_op_map[_pi] if _pi < len(self._path_op_map) else None
-            _cap = 0
-            if params is not None and _op is not None and _split is not None:
+
+            def _cap_of(key, _o=_op, _s=_split):
+                if params is None or _o is None or _s is None:
+                    return 0
                 try:
-                    _raw = _op.get("p2_radius_max_points", None)
-                    _cap = 0 if _raw in (None, "") else int(float(_raw))
+                    _raw = _o.get(key, None)
+                    return 0 if _raw in (None, "") else int(float(_raw))
                 except (TypeError, ValueError):
-                    _cap = 0
-            if _cap <= 0:
+                    return 0
+
+            _fill_cap = _cap_of("p2_radius_max_points")     # #99, the P2 corner
+            _exit_cap = _cap_of("exit_max_points")          # #101, the P2→P3 leg
+            if _fill_cap <= 0 and _exit_cap <= 0:
                 out.append(_plain)
                 continue
 
-            _capped = self._decimate_path_for_plc(_p, tolerance, center_x,
-                                                  approach_end_idx=_app_end,
-                                                  arc_end_idx=_arc_end,
-                                                  exit_tolerance=exit_tolerance,
-                                                  max_fillet_points=_cap,
-                                                  exit_verbatim=_verb)
-            if len(_capped) >= len(_plain):
-                out.append(_plain)          # cap changed nothing
-                continue
-
-            _floor = self._path_min_clearance(_p, _op, params)
-            _got   = self._path_min_clearance(_capped, _op, params)
-            if _got >= _floor - 1e-6:
-                out.append(_capped)
-            else:
-                out.append(_plain)
-                self.last_point_cap_warnings.append({
-                    "path_index": _pi,
-                    "op_name": (_op.get("name") or _op.get("type", "?")) if _op else "?",
-                    "requested": _cap,
-                    "kept": int(len(_plain)),
-                    "clearance": float(_got),
-                    "floor": float(_floor),
-                })
-                logger.info(
-                    f"[#99] Fillet cap {_cap} REFUSED on path {_pi} "
-                    f"({self.last_point_cap_warnings[-1]['op_name']}): clearance would "
-                    f"drop {_floor:.3f} → {_got:.3f} mm. Uncapped decimation kept.")
+            # The two caps are judged INDEPENDENTLY. Testing them only together
+            # would let a refused fillet cap throw away a perfectly safe exit cap
+            # (and vice versa), which is exactly the silent "I set it and nothing
+            # happened" the warning exists to prevent. Applied fillet-first so the
+            # accepted result is what the exit cap is then measured against.
+            _best = _plain
+            _accepted = {}          # caps that already passed the clearance gate
+            # BASELINE = the decimation that would ship if no cap were set, NOT the
+            # full-resolution path. Measuring against full resolution charges the cap
+            # for clearance RDP gave up on its own — and because the metric spans the
+            # WHOLE path, a fillet that RDP chorded would veto a cap on the exit leg
+            # that costs nothing at all (measured: capped 1.9955 vs plain 1.9955,
+            # refused only because full resolution was 2.0000). The invariant that
+            # matters is "the cap never makes the exported program worse than not
+            # using it", which is what this docstring always claimed.
+            _floor = self._path_min_clearance(_plain, _op, params)
+            for _kind, _cap, _kw in (("fillet", _fill_cap, "max_fillet_points"),
+                                     ("exit", _exit_cap, "max_exit_points")):
+                if _cap <= 0:
+                    continue
+                _try = self._decimate_path_for_plc(
+                    _p, tolerance, center_x,
+                    approach_end_idx=_app_end, arc_end_idx=_arc_end,
+                    exit_tolerance=exit_tolerance, exit_verbatim=_verb,
+                    **{**_accepted, _kw: _cap})
+                if len(_try) >= len(_best):
+                    continue                    # this cap changed nothing
+                _got = self._path_min_clearance(_try, _op, params)
+                if _got >= _floor - 1e-6:
+                    _best = _try
+                    _accepted[_kw] = _cap
+                else:
+                    self.last_point_cap_warnings.append({
+                        "path_index": _pi,
+                        "section": _kind,
+                        "op_name": (_op.get("name") or _op.get("type", "?")) if _op else "?",
+                        "requested": _cap,
+                        "kept": int(len(_best)),
+                        "clearance": float(_got),
+                        "floor": float(_floor),
+                    })
+                    logger.info(
+                        f"[#{'99' if _kind == 'fillet' else '101'}] {_kind.capitalize()} "
+                        f"cap {_cap} REFUSED on path {_pi} "
+                        f"({self.last_point_cap_warnings[-1]['op_name']}): clearance would "
+                        f"drop {_floor:.3f} → {_got:.3f} mm. Uncapped decimation kept.")
+            out.append(_best)
         return out
 
     def _straight_line_flatness_dev(self, mandrel_mgr, start_z, end_z, shell_offset=0.0):

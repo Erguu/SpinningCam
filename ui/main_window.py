@@ -535,7 +535,11 @@ class SpinningCamWindow(tk.Tk):
                 return True
             ops = "\n".join(
                 "  • " + t("msg_cap_warn_op").format(
-                    op=w.get("op_name", "?"), req=w.get("requested", 0),
+                    op=w.get("op_name", "?"),
+                    # #101: two caps now, so say WHICH one could not be honoured —
+                    # otherwise "raise the cap" is ambiguous advice.
+                    sec=t("msg_cap_sec_" + str(w.get("section", "fillet"))),
+                    req=w.get("requested", 0),
                     kept=w.get("kept", 0),
                     floor=f"{w.get('floor', 0.0):.2f}",
                     got=f"{w.get('clearance', 0.0):.2f}")

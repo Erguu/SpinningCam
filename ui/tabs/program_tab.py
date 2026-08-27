@@ -31,6 +31,7 @@ OP_PARAM_DEFAULTS = {
     "p2_z_extend": 0,
     "p2_radius": 0,
     "p2_radius_max_points": "off",  # empty = no cap on the fillet's PLC point count (#99)
+    "exit_max_points": "off",       # empty = no cap on the exit leg's PLC point count (#101)
     "exit_bow_bias": 0.5,
     "exit_mid_t": 0.5,
     "exit_mid_rotation": 0,
@@ -97,7 +98,7 @@ OP_PARAM_UNIVERSE = {
         "start_z", "end_z", "p2_z_extend",
         "proj_extend_bottom", "proj_extend_top",
         "retract_x", "retract_z",
-        "pass_shape", "p2_radius", "p2_radius_max_points",
+        "pass_shape", "p2_radius", "p2_radius_max_points", "exit_max_points",
         "exit_arc_angle", "exit_bow", "exit_bow_bias",
         "exit_bow_trim", "exit_mid_rotation",
         "exit_mid_t", "exit_mid_radius", "exit_mid_radius_end", "exit_mid_trim",
@@ -146,6 +147,7 @@ OP_PARAM_LABELS = {
     "clearance": "lbl_clearance", "pass_shape": "lbl_shape_mode",
     "straight_line_mode": "lbl_straight_line",
     "p2_radius": "lbl_p2_radius", "p2_radius_max_points": "lbl_p2_max_pts",
+    "exit_max_points": "lbl_exit_max_pts",
     "exit_arc_angle": "lbl_exit_arc",
     "exit_bow": "lbl_exit_bow", "exit_bow_bias": "lbl_exit_bow_bias",
     "exit_bow_trim": "lbl_exit_bow_trim",
@@ -187,6 +189,7 @@ SECTION_KEYS = {
     "speed_feed": ["speed_mode", "speed", "feed_mode", "feed"],
     "cut_bend_move": _CUT_BEND_POINTS,
     "path_shape": ["pass_shape", "p2_radius", "p2_radius_max_points",
+                   "exit_max_points",
                    "exit_arc_angle", "exit_bow",
                    "exit_bow_bias", "exit_bow_trim", "exit_mid_rotation", "exit_mid_t",
                    "exit_mid_radius", "exit_mid_radius_end", "exit_mid_trim",
@@ -248,6 +251,7 @@ def _has_exit_waypoints(op):
 _BATCH_ELIGIBLE = {
     "speed", "feed", "count", "start_z", "end_z", "p2_z_extend",
     "proj_extend_bottom", "proj_extend_top", "p2_radius", "p2_radius_max_points",
+    "exit_max_points",
     "exit_bow", "exit_bow_bias", "exit_mid_rotation", "exit_mid_t",
     "exit_mid_radius", "exit_mid_radius_end",
     "p1_x", "p1_z", "p3_x", "p3_z", "reach", "reach_blank_factor",
@@ -2356,6 +2360,27 @@ class ProgramTab:
                                              "görülür.\n"
                                              "GÜVENLİK: sınır clearance'ı düşürecekse UYGULANMAZ; o pas "
                                              "sınırsız haliyle kalır ve size bildirilir.\n"
+                                             "Tipik: 4–8 nokta.")
+                # #101: the exit-leg twin of the fillet cap. Sits with the exit
+                # shape controls (bow / arc / curl) because it caps whichever of
+                # them produced the leg.
+                self._add_prop_entry(idx, "exit_max_points", t("lbl_exit_max_pts"), op,
+                                     is_int=True, default_hint="= ∞",
+                                     tooltip="Çıkış kolunun (P2→P3) PLC reçetesinde kaç noktaya "
+                                             "kadar inebileceği (en fazla). BOŞ/0 = sınır yok "
+                                             "(varsayılan, bugünkü davranış).\n"
+                                             "NEDEN: tezgah her noktada DURUYOR. Ölçüldü: düz bir "
+                                             "çıkış 1 nokta, Çıkış Kavisi 14 mm ise 8 nokta.\n"
+                                             "HANGİ ŞEKİL OLURSA OLSUN geçerlidir — Çıkış Kavisi "
+                                             "(exit_bow), Çıkış Yay Açısı ve Kıvrım (exit_mid) "
+                                             "hepsi bu kolda oluşur.\n"
+                                             "⚠️ SADECE PLC/SCL çıktısını etkiler — 3B görünüm ve "
+                                             ".nc dosyası tam çözünürlükte kalır; ekranda değişiklik "
+                                             "GÖRMEZSİNİZ. Etkisi SCL İnceleme penceresinde görülür.\n"
+                                             "GÜVENLİK: sınır clearance'ı düşürecekse UYGULANMAZ; o "
+                                             "pas sınırsız haliyle kalır ve size bildirilir.\n"
+                                             "ELLE ÇİZİLEN çıkış yoluna (#100) ASLA uygulanmaz — "
+                                             "orada noktalar zaten sizin koyduklarınızdır.\n"
                                              "Tipik: 4–8 nokta.")
                 # #81: exit_arc_angle is now PER-OP (this field); the Process-tab
                 # spinbox is only the default for ops that leave this empty.
