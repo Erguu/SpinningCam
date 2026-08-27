@@ -5,6 +5,61 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-27 (5) — #100 ARAŞTIRMA SONUCU: motorun bildiği ama SÖYLEMEDİĞİ şeyler
+
+**Bu bir araştırma görevinin çıktısı** (kullanıcı: "hangi parametreler grileşmeli,
+çarpışma riski var mı"). Ölçümle bulunanlar ve yapılanlar:
+
+### 🔴 EN ÖNEMLİ: motor kuyruğun parçanın İÇİNDE olduğunu biliyordu, kimseye söylemiyordu
+`last_waypoint_warnings` (`path_generator.py`) her hesapta yazılıyordu ama
+**`ui/` ve `main.py` içinde TEK BİR OKUYUCUSU YOKTU** — sadece testler.
+Omuzlu bir mandrelde ölçüldü: z=10'da çizilip doğrulanan kuyruk (3.00 mm),
+pas z=30'a taşınınca **−14.00 mm** (63 örnek ihlalli) — ve ekranda HİÇBİR ŞEY yok.
+→ **Fix:** `_confirm_waypoint_warnings()` (`ui/main_window.py`), **HEM SCL HEM .nc**
+dışa aktarımından önce. #99 kap diyaloğu gibi bilinçli olarak "bir daha gösterme"
+İÇERMİYOR: sadece dışa aktarımda ve sadece gerçekten olduğunda çıkar.
+
+### ⚠️ Güvenlik tabanı çoğu zaman kurtarıyor — ama pası işten KOPARARAK
+`min_safety_gap` ≥ op clearance ise kuyruk tam olarak toparlanıyor. AMA P2
+**68.00 → 85.00** itiliyor; kuyruksuz aynı pasta bu 68.00 → 70.99. Yani rulo
+yüzeyden ~20 mm uzakta kalıyor: pas çalışıyor, hiçbir iş yapmıyor, sessizce.
+⚠️ **`min_safety_gap` VARSAYILANI 0.0** (`main.py:95`, `config_schema.py:58`) →
+o değerde kuyruk tam **0.000 mm** boşlukta, yani payı SIFIR.
+→ **Fix:** taban bir kuyruk pasını `TAIL_SHIFT_REPORT_MM` (1.0 mm) üzerinde
+kaydırdıysa `last_waypoint_shifted`'a yazılıyor ve aynı diyalogda gösteriliyor.
+
+### 🐛 GERÇEK HATA: `pass_shape="spline"` kuyruğu atıyordu ama BESLEMELERİNİ uyguluyordu
+Spline dalı `exit_points`'e hiç bakmıyor (yol kuyruklu/kuyruksuz BİREBİR AYNI), ama
+`last_waypoint_abs` yine saklanıyor ve `_waypoint_feed_map` **mesafe sınırı olmadan**
+`argmin` ile eşleştiriyordu. Ölçüldü: waypoint'ler yoldan **6.34 / 10.84 / 13.96 mm**
+uzakta, ve 321/123 beslemeleri yine de basılıyordu → alakasız noktalara yanlış hız.
+→ **Fix:** `excluded_reason`'a `pass_shape` eklendi. Tek noktadan çözüldü: nokta yok,
+besleme yok, çalışmayan bir kuyruk hakkında sahte clearance uyarısı yok, ve Pas
+Tablosundaki düğme kendini açıklıyor.
+⚠️ **SEMANTİK NOT:** `pass_shape` anahtarı OLMAYAN op = "spline" (motor her yerde
+`op.get("pass_shape","spline")` okuyor) → böyle bir op'ta kuyruk artık dışlanır.
+Bu DOĞRU (spline zaten kuyruğu yok sayıyordu); iki test fixture'ı bu yüzden
+güncellendi — testler gerçeğe uygun HALE GELDİ, davranış bozulmadı.
+
+### Grileme sorusuna cevap
+Sadece **kuyruğu sessizce ATAN** üçlü hak ediyordu ve üçü de artık raporlanıyor:
+`pass_shape` (spline), `direction=reverse`, `back_pass_enabled`.
+Diğerleri (clearance, `r_tool`, `start_z/end_z/count`, `p2_z_extend`, conformal,
+sac/kabuk kalınlığı) kuyruğu BOZMUYOR, P2 ile birlikte RİJİT taşıyor — bunları
+grilemek yanlış olurdu; eksik olan kilit değil, UYARIYDI.
+
+**Test:** motor §9 (11 assertion: spline artık besleme basmıyor, yol birebir aynı,
+sahte uyarı yok, ignored/reason raporlanıyor) + §10 (4 assertion: taban kaydırması),
+widget §12 (11 assertion: 3 dilde mesaj + reason token'ları). **Ayrıca 11 paket
+regresyon geçti.** (`_test_program_tab_toolbar.py` HEAD'de zaten kırık — `btn_batch`
+2026-07-10'da sağ-tık menüsüne taşındı; bu değişiklikle ilgisi yok, `program_tab.py`
+bu commit'te HİÇ değişmedi.)
+
+**Geri alma:** `excluded_reason`'dan `pass_shape` bloğunu çıkar + iki export'taki
+`_confirm_waypoint_warnings()` çağrısını sil.
+
+---
+
 ## 2026-08-27 (4) — #100: 3B görünüm ve Pas Tablosu artık GERÇEK pası gösteriyor
 
 **Belirti (kullanıcı):** SCL denetleyicide ve Çıkış yolu penceresinde doğru görünüyor,

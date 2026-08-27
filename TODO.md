@@ -320,6 +320,46 @@ Tests: `_test_exit_tail_gui.py` §11 (8 assertions) + a headless render check. R
 pass, so `explain.py` can say "reach comes from a pin" for a pass where reach does
 nothing. The columns show — so the exposure is limited; worth a separate tidy-up.
 
+**✅ RESEARCH + FIXES 2026-08-27 — "can more parameters be greyed out, is there a
+collision risk?"** Measured rather than reasoned; three real problems found.
+
+1. **The engine knew a tail was inside the part and never said so.**
+   `last_waypoint_warnings` was written every calculation and had **zero readers in
+   `ui/` or `main.py`**. Measured on a shouldered mandrel: a tail drawn and validated
+   at z=10 (3.00 mm clear) reads **−14.00 mm** with 63 violating samples once the pass
+   is moved to z=30 — silently. → `_confirm_waypoint_warnings()` now runs before
+   **both** the SCL and the `.nc` export (the geometry is the same file either way).
+   Not suppressible, same reasoning as the #99 cap dialog.
+2. **The safety floor usually rescues it — by taking the pass off the work.**
+   With `min_safety_gap` ≥ op clearance the tail recovers exactly, but P2 is pushed
+   **68.00 → 85.00** where the same pass without a tail needs only 68.00 → 70.99. The
+   roller ends ~20 mm off the surface: the pass runs and cuts nothing.
+   ⚠️ `min_safety_gap` **defaults to 0.0** (`main.py:95`, `config_schema.py:58`), and at
+   0.0 the tail sits at exactly **0.000 mm** — no margin at all. → a shift beyond
+   `TAIL_SHIFT_REPORT_MM` (1.0) is now recorded and shown.
+3. **`pass_shape="spline"` discarded the tail but still applied its feeds.** The spline
+   branch never reads `exit_points` (path byte-identical with and without), yet
+   `last_waypoint_abs` was stored and `_waypoint_feed_map` matched by `argmin` with **no
+   distance limit** — measured 6.34 / 10.84 / 13.96 mm away, feeds emitted anyway.
+   → `pass_shape` joined `excluded_reason`, which fixes it at the source: no points, no
+   feeds, no false clearance report, and the Pass Table button explains itself.
+
+**Answer on greying:** only the three that silently DISCARD a tail deserved it
+(`pass_shape`, `direction=reverse`, `back_pass_enabled`) and all three are now
+reported. The rest — clearance, `r_tool`, `start_z`/`end_z`/`count`, `p2_z_extend`,
+conformal, blank/shell thickness — move the tail **rigidly with P2** rather than
+corrupting it; greying them would block legitimate edits. The gap was the warning,
+not a lock.
+
+⚠️ **Semantic note:** an op with **no** `pass_shape` key is a spline op (the engine
+reads `op.get("pass_shape", "spline")` everywhere), so such an op now excludes tails.
+This is correct — spline already ignored them — and two test fixtures were corrected
+to match reality; no behaviour regressed.
+
+Tests: engine §9 (11) + §10 (4), widget §12 (11). 11 suites re-run green.
+(`_test_program_tab_toolbar.py` fails at HEAD already — `btn_batch` moved to the
+right-click menu on 2026-07-10; `program_tab.py` is untouched by this work.)
+
 **Left open:**
 - GUI smoke in the real window — ⚠️ three rounds done, each found a real bug;
   **redo: 3D straight line + waypoint dots, and the Pass Table row/preview.**

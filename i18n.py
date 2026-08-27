@@ -193,6 +193,49 @@ STRINGS = {
                           "TR": "Bu yol artık parçadan güvenli uzaklıkta değil — pencere açıkken geometri değişmiş olmalı. Kaydetmeden önce noktaları düzeltin.",
                           "ES": "Esta salida ya no está libre de la pieza — la geometría cambió con la ventana abierta. Ajuste los puntos antes de guardar."},
     "pt_src_tail":     {"EN": "tail ({n} pts)", "TR": "yol ({n} nk)", "ES": "salida ({n} pts)"},
+    # #100 — hand-drawn exit tails needing attention, shown before an export
+    "msg_wp_warn_title": {"EN": "Check the hand-drawn exit paths",
+                          "TR": "Elle çizilen çıkış yollarını kontrol edin",
+                          "ES": "Revise las salidas dibujadas a mano"},
+    "msg_wp_warn_body": {
+        "EN": "{n} thing(s) about the exit paths in this program need your eye:\n\n{items}\n\n"
+              "An exit path is the one place you type raw geometry, so it is worth a look "
+              "before this runs. Export anyway?",
+        "TR": "Bu programdaki çıkış yollarıyla ilgili {n} durum dikkatinizi istiyor:\n\n{items}\n\n"
+              "Çıkış yolu, ham geometriyi ELLE yazdığınız tek yer — çalıştırmadan önce "
+              "bakmakta fayda var. Yine de dışa aktarılsın mı?",
+        "ES": "{n} cosa(s) sobre las salidas de este programa requieren su atención:\n\n{items}\n\n"
+              "La salida es el único sitio donde escribe geometría en bruto, así que conviene "
+              "mirarla antes de ejecutar. ¿Exportar de todos modos?"},
+    "msg_wp_warn_gouge": {
+        "EN": "{op} / {p}: the path comes within {got} mm of the part where this operation "
+              "needs {need} mm (at X{x} Z{z}).",
+        "TR": "{op} / {p}: yol, parçaya {got} mm kadar yaklaşıyor; bu operasyon {need} mm "
+              "istiyor (X{x} Z{z}).",
+        "ES": "{op} / {p}: la trayectoria se acerca a {got} mm de la pieza donde esta "
+              "operación necesita {need} mm (en X{x} Z{z})."},
+    "msg_wp_warn_ignored": {
+        "EN": "{op} / {p}: {n} point(s) drawn here are NOT running — {why}.",
+        "TR": "{op} / {p}: burada çizilen {n} nokta ÇALIŞMIYOR — {why}.",
+        "ES": "{op} / {p}: {n} punto(s) dibujados aquí NO se ejecutan — {why}."},
+    "msg_wp_warn_shifted": {
+        "EN": "{op} / {p}: the safety floor moved this pass {mm} mm outward and the drawn "
+              "path moved with it — check it still touches the part where you meant.",
+        "TR": "{op} / {p}: güvenlik tabanı bu pası {mm} mm dışarı itti, çizilen yol da onunla "
+              "birlikte kaydı — parçaya istediğiniz yerde değdiğini kontrol edin.",
+        "ES": "{op} / {p}: el suelo de seguridad movió esta pasada {mm} mm hacia fuera y la "
+              "trayectoria dibujada se movió con ella — compruebe dónde toca la pieza."},
+    "msg_wp_reason_reverse": {"EN": "this is a reverse pass",
+                              "TR": "bu bir ters pas", "ES": "es una pasada inversa"},
+    "msg_wp_reason_back_pass": {"EN": "this operation has a back pass",
+                                "TR": "bu operasyonda geri pas var",
+                                "ES": "esta operación tiene pasada de retorno"},
+    "msg_wp_reason_pass_shape": {"EN": "its Pass Shape is not a linear one",
+                                 "TR": "Pas Şekli doğrusal değil",
+                                 "ES": "su Forma de Pasada no es lineal"},
+    "msg_wp_reason_?": {"EN": "this operation cannot use them",
+                        "TR": "bu operasyon bunları kullanamıyor",
+                        "ES": "esta operación no puede usarlos"},
     "et_shape":        {"EN": "Shape:", "TR": "Şekil:", "ES": "Forma:"},
     "et_shape_straight": {"EN": "Straight lines", "TR": "Düz çizgiler", "ES": "Líneas rectas"},
     "et_shape_spline": {"EN": "Smooth curve", "TR": "Yumuşak eğri", "ES": "Curva suave"},
@@ -225,9 +268,9 @@ STRINGS = {
     "pt_tail_pick":    {"EN": "Select a pass first, then edit its exit tail.",
                         "TR": "Önce bir pas seçin, sonra çıkış yolunu düzenleyin.",
                         "ES": "Seleccione una pasada y luego edite su salida."},
-    "pt_tail_excluded": {"EN": "Exit tails are not available on reverse passes or on operations with a back pass (they are out of scope for now).",
-                         "TR": "Çıkış yolu, ters paslarda ve geri pası olan operasyonlarda kullanılamaz (şimdilik kapsam dışı).",
-                         "ES": "Las salidas no están disponibles en pasadas inversas ni con pasada de retorno (fuera de alcance por ahora)."},
+    "pt_tail_excluded": {"EN": "Exit tails need a linear Pass Shape, and are not available on reverse passes or on operations with a back pass. A 'spline' shape draws P1→P2→P3 as one curve and never looks at the points.",
+                         "TR": "Çıkış yolu, DOĞRUSAL bir Pas Şekli ister; ters paslarda ve geri pası olan operasyonlarda kullanılamaz. 'spline' şekli P1→P2→P3'ü tek eğri çizer ve noktalara hiç bakmaz.",
+                         "ES": "Las salidas requieren una Forma de Pasada lineal, y no están disponibles en pasadas inversas ni con pasada de retorno. La forma 'spline' dibuja P1→P2→P3 como una curva y nunca mira los puntos."},
     "msg_cap_warn_title": {"EN": "P2 Point Cap Not Applied",
                            "TR": "P2 Nokta Sınırı Uygulanmadı",
                            "ES": "Límite de Puntos P2 No Aplicado"},

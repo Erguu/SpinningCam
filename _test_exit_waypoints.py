@@ -214,13 +214,25 @@ def test_clearance_catches_bow_between_legal_points():
 
 def test_reverse_and_back_pass_excluded():
     wp = [{"dx": 10, "dz": 5}]
-    base = {"pass_edits": {"0": {"exit_points": wp}}}
+    # pass_shape MATTERS: the engine reads it as `op.get("pass_shape", "spline")`,
+    # so an op that omits the key is a SPLINE op — and a spline op builds
+    # P1→P2→P3 as one curve without ever looking at exit_points.
+    base = {"pass_shape": "linear_approach", "pass_edits": {"0": {"exit_points": wp}}}
 
     assert ew.excluded_reason({}) is None
     assert ew.excluded_reason({"direction": "reverse"}) == "reverse"
     assert ew.excluded_reason({"back_pass_enabled": True}) == "back_pass"
+    assert ew.excluded_reason({"pass_shape": "spline"}) == "pass_shape"
+    assert ew.excluded_reason({"pass_shape": "linear_approach"}) is None
+    assert ew.excluded_reason({"pass_shape": "linear_full"}) is None
+    # an op with no pass_shape key defaults to spline, like everywhere else
+    assert ew.excluded_reason({"direction": "forward"}) == "pass_shape"
 
     assert len(ew.get_points(dict(base), 0)) == 1, "a normal forward op keeps its points"
+
+    sp = dict(base, pass_shape="spline")
+    assert ew.get_points(sp, 0) == [], "a spline op must never build waypoints"
+    assert ew.stored_count(sp, 0) == 1, "...but the points are still THERE to report"
 
     rev = dict(base, direction="reverse")
     assert ew.get_points(rev, 0) == [], "reverse op must never build waypoints"

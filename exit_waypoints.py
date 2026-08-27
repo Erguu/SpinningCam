@@ -291,6 +291,12 @@ def check_clearance(curve, radius_at, center_x, base_offset, min_clearance):
     return bad
 
 
+# The pass shapes whose exit leg the engine actually builds from waypoints.
+# "spline" generates P1→P2→P3 as one curve (path_generator.py, the `else` branch
+# after the linear shapes) and never looks at exit_points.
+SHAPES_WITH_TAIL = ("linear_approach", "linear_full")
+
+
 def excluded_reason(op):
     """Why this op may not carry waypoints — or None when it may.
 
@@ -298,6 +304,13 @@ def excluded_reason(op):
     now. Back passes are built by a different route entirely and reverse passes
     deliberately keep the mandrel-entry leg straight, so each would need its own
     geometry, clearance handling and regression tests. Two refusals instead.
+
+    2026-08-27, found by research: `pass_shape` belongs on the same list. A
+    "spline" op ignores the tail geometry completely — but the tail was still
+    being STORED and its per-point feeds still emitted, matched to whatever path
+    point happened to be nearest (measured 6–14 mm away). Excluding the shape
+    here fixes that at the source: no points, no feeds, no clearance report
+    about a tail that is not running, and the editor button explains itself.
 
     Returns a short machine-readable token the UI turns into a message.
     """
@@ -307,7 +320,22 @@ def excluded_reason(op):
         return "reverse"
     if op.get("back_pass_enabled", False):
         return "back_pass"
+    if op.get("pass_shape", "spline") not in SHAPES_WITH_TAIL:
+        return "pass_shape"
     return None
+
+
+def stored_count(op, pass_index):
+    """How many waypoints are STORED for this pass, ignoring the exclusions.
+
+    `get_points` returns [] for an excluded op, which is what the engine needs —
+    but it makes a tail the operator drew indistinguishable from no tail at all.
+    This is what lets the UI say "you have 4 points here and they are not
+    running" instead of silently dropping them.
+    """
+    edits = (op or {}).get("pass_edits") or {}
+    pe = edits.get(str(pass_index)) or edits.get(pass_index) or {}
+    return len(normalize(pe.get("exit_points")))
 
 
 def get_points(op, pass_index):

@@ -2260,9 +2260,20 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  on each edit: two safe points can still bow into
                  the part between them.
 
-                 Not available on reverse passes or on operations
-                 with a back pass, and an operation that ends in a
-                 waypoint cannot be used by Continue.
+                 Needs a LINEAR Pass Shape. A "spline" shape draws
+                 P1-P2-P3 as one curve and never looks at your
+                 points. Also not available on reverse passes or on
+                 operations with a back pass, and an operation that
+                 ends in a waypoint cannot be used by Continue.
+
+                 BEFORE AN EXPORT you are told about three things,
+                 because a drawn path is the one place you type raw
+                 geometry: a path that comes closer to the part than
+                 the operation allows; points that are stored but
+                 not running (one of the cases above); and a pass the
+                 safety floor had to move outward, which takes the
+                 drawn path with it - worth checking it still touches
+                 the part where you meant.
 
                  P2 MAX POINTS (roughing, Path Shape): caps how
                  many points the P2 corner fillet may use in the
@@ -2642,6 +2653,20 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   Bir noktadaki İlerleme, o noktaya GELEN bölüme
                   uygulanır — yavaş değeri sac kenarına yakın noktaya
                   yazın; boş bırakırsanız önceki hız sürer.
+
+                  DOĞRUSAL bir Pas Şekli gerekir. 'spline' şekli
+                  P1-P2-P3'ü tek eğri çizer ve noktalarınıza HİÇ
+                  bakmaz. Ayrıca ters paslarda ve geri pası olan
+                  operasyonlarda kullanılamaz.
+
+                  DIŞA AKTARMADAN ÖNCE üç durum size bildirilir —
+                  çünkü çizilen yol, ham geometriyi ELLE yazdığınız
+                  tek yerdir: parçaya operasyonun izin verdiğinden
+                  fazla yaklaşan bir yol; kayıtlı ama ÇALIŞMAYAN
+                  noktalar (yukarıdaki durumlardan biri); ve güvenlik
+                  tabanının dışarı itmek zorunda kaldığı bir pas —
+                  çizilen yol da onunla birlikte kayar, parçaya
+                  istediğiniz yerde değdiğini kontrol edin.
 
                   Pencere, pasın MEVCUT şekliyle dolu açılır; yani
                   hep çalışan bir şeyden başlarsınız. Rulonun

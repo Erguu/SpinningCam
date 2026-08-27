@@ -10,6 +10,12 @@ from logger_config import logger
 from kinematics import get_kinematics
 import exit_waypoints
 
+# #100: how far the iterative safety floor may move a pass that carries a
+# hand-drawn tail before the operator is told. The tail is measured FROM P2, so
+# it travels with any such shift; past a millimetre or so the contact point is
+# no longer where it was drawn and the pass may be doing less work than intended.
+TAIL_SHIFT_REPORT_MM = 1.0
+
 
 def representative_feed_mm_min(op, path, params, center_x=0.0):
     """Resolve an operation's cutting feed to mm/min, for SIMULATION pacing.
@@ -261,6 +267,8 @@ class PathGenerator:
         self.last_tool_change_warnings = []  # custom tool-change points near the turret swing envelope
         self.last_point_cap_warnings = []  # #99: fillet caps refused because they would cost clearance
         self.last_waypoint_warnings = []   # #100: hand-drawn exit tails closer than the op clearance
+        self.last_waypoint_ignored = []    # #100: tails that are stored but this op cannot use
+        self.last_waypoint_shifted = []    # #100: tail passes the safety floor moved outward
         self.last_waypoint_abs = {}        # #100: path index → resolved waypoints for feed emission
         self.last_exit_verbatim = set()    # #100: path indices whose exit tail must NOT be decimated
 
@@ -357,6 +365,8 @@ class PathGenerator:
         self.last_back_pass_meta = {}  # {path_list_index: {"feed": ...}}
         self.last_render_split_idx = {}  # {path_list_index: (line_end_idx, arc_end_idx)}
         self.last_waypoint_warnings = []  # #100: hand-drawn exit tails closer than the op clearance
+        self.last_waypoint_ignored = []   # #100: tails that are stored but this op cannot use
+        self.last_waypoint_shifted = []   # #100: tail passes the safety floor moved outward
         self.last_waypoint_abs = {}  # #100: path index → resolved waypoints [{x,z,feed}] for feed emission
         self.last_exit_verbatim = set()  # #100: path indices whose exit tail is the operator's own points
         self._path_op_map = []  # toolpath index → op dict, synced as paths are appended
@@ -963,6 +973,19 @@ class PathGenerator:
                     # applies the D10 exclusions itself, so a reverse or back-pass
                     # op yields [] even if a hand-edited .ssp carries points.
                     _wp = exit_waypoints.get_points(op, i)
+                    # A tail the operator drew that this op cannot use (reverse /
+                    # back pass / a pass_shape that ignores it) is dropped in
+                    # silence otherwise — the very thing the research flagged.
+                    if not _wp:
+                        _n_stored = exit_waypoints.stored_count(op, i)
+                        if _n_stored:
+                            self.last_waypoint_ignored.append({
+                                "op_name": (op or {}).get("name")
+                                           or (op or {}).get("type", "?"),
+                                "pass_name": pass_label,
+                                "n_points": _n_stored,
+                                "reason": exit_waypoints.excluded_reason(op) or "?",
+                            })
                     self._create_and_store_pass(p1_x, effective_p1_z, p3_z, p3_x, gp_Pnt(p2_x, 0, p2_z), base_rot, auto_align, toolpaths, projections, control_points, deviations, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_label, params, debug_lines, op=op, op_clearance=eff_clearance, exit_points=_wp, exit_shape=exit_waypoints.get_shape(op, i))
                 
                 # Check newly added path for Rapids
@@ -2450,6 +2473,31 @@ class PathGenerator:
                             f"X{_bad[0]['x']:.2f} Z{_bad[0]['z']:.2f}")
                 except Exception:
                     pass        # a reporting failure must never break a calculation
+
+                # #100 (research 2026-08-27): the safety floor pushes P2 outward
+                # until the WHOLE pass clears — and the tail is part of the pass.
+                # A tail drawn at one Z and later run at another can therefore
+                # shove the entire pass off the work: measured 68→85 mm on a
+                # shouldered mandrel, where the same pass without a tail needed
+                # only 68→71. Nothing collides, but the roller stops touching the
+                # part and the pass silently does no work. Report the shift and
+                # let the operator judge it.
+                try:
+                    _shift = abs(p2.X() - _dbg_init_p2x)
+                    if _shift > TAIL_SHIFT_REPORT_MM:
+                        self.last_waypoint_shifted.append({
+                            "pass_name": pass_name,
+                            "op_name": (op or {}).get("name")
+                                       or (op or {}).get("type", "?"),
+                            "shift": float(_shift),
+                            "n_points": len(exit_points),
+                        })
+                        logger.info(
+                            f"[#100] '{pass_name}' carries a hand-drawn tail and the "
+                            f"safety floor moved the pass {_shift:.2f}mm outward — the "
+                            f"tail moved with it; contact may no longer be where it was drawn")
+                except Exception:
+                    pass
 
             # Reduce before gcode_resolution so the downsampler doesn't add redundant collinear pts.
             if _ap_split is not None and _ap_split > 1 and len(final_points) > _ap_split + 1:

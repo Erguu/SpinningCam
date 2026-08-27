@@ -251,6 +251,84 @@ check(0 not in getattr(pg, "last_exit_verbatim", set()),
       "a spline tail is not flagged verbatim")
 
 
+# ── 9. tails an op CANNOT use are excluded at the source, and reported ──────
+# Research 2026-08-27: a "spline" pass_shape ignores the tail geometry entirely,
+# but the tail was still stored and its per-point FEEDS were still emitted,
+# matched to whatever path point happened to be nearest (measured 6-14 mm away).
+FED2 = [wp(12.0, -6.0, feed=321.0), wp(10.0, -8.0, anchor="prev", feed=123.0)]
+
+lin_feeds = set(gcode_feeds(pass_shape="linear_approach",
+                            pass_edits={"0": {"exit_points": FED2}}))
+check(321.0 in lin_feeds and 123.0 in lin_feeds,
+      f"precondition: a linear pass DOES emit the per-point feeds ({sorted(lin_feeds)})")
+
+sp_feeds = set(gcode_feeds(pass_shape="spline", pass_edits={"0": {"exit_points": FED2}}))
+check(321.0 not in sp_feeds and 123.0 not in sp_feeds,
+      f"a spline op no longer emits feeds for a tail it ignores (got {sorted(sp_feeds)})")
+
+# the geometry is untouched either way — excluding must not change the path
+sp_plain = np.array(build(pass_shape="spline"))
+sp_tail = np.array(build(pass_shape="spline", pass_edits={"0": {"exit_points": FED2}}))
+check(np.array_equal(sp_plain, sp_tail),
+      "a spline op's path is byte-identical with and without a stored tail")
+
+# no clearance report about a tail that is not running
+build(clearance=5.0, pass_shape="spline", pass_edits={"0": {"exit_points": INTO}})
+check(pg.last_waypoint_warnings == [],
+      f"no clearance warning for a tail the op ignores (got {pg.last_waypoint_warnings})")
+
+# ...but the operator IS told the points are not running
+check(len(pg.last_waypoint_ignored) == 1,
+      f"an ignored tail is reported exactly once (got {len(pg.last_waypoint_ignored)})")
+if pg.last_waypoint_ignored:
+    _ig = pg.last_waypoint_ignored[0]
+    check(_ig["reason"] == "pass_shape" and _ig["n_points"] == 2,
+          f"the report names the reason and the point count ({_ig})")
+
+for _d, _why in (({"direction": "reverse"}, "reverse"),
+                 ({"back_pass_enabled": True}, "back_pass")):
+    build(pass_edits={"0": {"exit_points": FED2}}, **_d)
+    _got = [w["reason"] for w in pg.last_waypoint_ignored]
+    check(_got == [_why], f"D10 {_why} tail is reported as ignored (got {_got})")
+
+# a tail that IS running reports nothing
+build(pass_edits={"0": {"exit_points": FED2}})
+check(pg.last_waypoint_ignored == [],
+      f"a working tail is not reported as ignored (got {pg.last_waypoint_ignored})")
+
+
+# ── 10. the safety floor moving a tail pass is reported ─────────────────────
+# The floor pushes P2 out until the WHOLE pass clears, and the tail is part of
+# the pass — so a stale tail can shove the pass off the work without colliding.
+def shifted(**over):
+    p = make_params(**over)
+    p["min_safety_gap"] = over.pop("_gap", p["min_safety_gap"])
+    pg.calculate_paths(p, {}, mgr)
+    return pg.last_waypoint_shifted
+
+
+p_gap = make_params(clearance=0.0, pass_edits={"0": {"exit_points": INTO}})
+p_gap["min_safety_gap"] = 12.0          # forces the floor to push the pass out
+pg.calculate_paths(p_gap, {}, mgr)
+_mv = pg.last_waypoint_shifted
+check(len(_mv) == 1, f"a tail pass moved by the safety floor is reported (got {len(_mv)})")
+if _mv:
+    check(_mv[0]["shift"] > 1.0 and _mv[0]["n_points"] == 2,
+          f"the report carries the distance and the point count ({_mv[0]})")
+
+p_nogap = make_params(clearance=0.0, pass_edits={"0": {"exit_points": INTO}})
+pg.calculate_paths(p_nogap, {}, mgr)   # min_safety_gap = -999 -> no shift
+check(pg.last_waypoint_shifted == [],
+      f"an unshifted tail pass reports nothing (got {pg.last_waypoint_shifted})")
+
+# and a pass with no tail never reports, however far the floor moves it
+p_notail = make_params(clearance=0.0)
+p_notail["min_safety_gap"] = 12.0
+pg.calculate_paths(p_notail, {}, mgr)
+check(pg.last_waypoint_shifted == [],
+      "a pass without a tail is never reported as shifted")
+
+
 print()
 if fails:
     raise SystemExit(f"{fails} FAILED")

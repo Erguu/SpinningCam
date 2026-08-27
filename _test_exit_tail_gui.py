@@ -372,6 +372,63 @@ row_rev = compute_pass_rows(make_op(reach=40.0, pass_angle=170.0, direction="rev
 check(not (row_rev.get("tail") or []) and row_rev["reach"] is not None,
       "D10: a reverse op shows no tail and keeps its Reach")
 
+# 12 — the export-time warning dialog (research follow-up, 2026-08-27)
+#
+# The engine already knew about a tail inside the part; nothing read the list.
+# Check the message machinery end-to-end: every key resolves in all three
+# languages and formats cleanly against real engine dicts.
+WP_KEYS = ["msg_wp_warn_title", "msg_wp_warn_body", "msg_wp_warn_gouge",
+           "msg_wp_warn_ignored", "msg_wp_warn_shifted",
+           "msg_wp_reason_reverse", "msg_wp_reason_back_pass",
+           "msg_wp_reason_pass_shape", "msg_wp_reason_?"]
+miss = [k for k in WP_KEYS if k not in i18n.STRINGS]
+check(not miss, f"every waypoint-warning key exists (missing: {miss})")
+half = [k for k in WP_KEYS if k in i18n.STRINGS
+        and not all(lg in i18n.STRINGS[k] for lg in ("EN", "TR", "ES"))]
+check(not half, f"every waypoint-warning key has EN/TR/ES (incomplete: {half})")
+
+_gouge = {"op_name": "Roughing 1", "pass_name": "ROUGH-1", "clearance": 3.0,
+          "n_points": 4, "n_violating": 63,
+          "worst": {"index": 63, "x": 77.0, "z": 49.0, "clearance": -12.0}}
+_ign = {"op_name": "Roughing 2", "pass_name": "ROUGH-2", "n_points": 4,
+        "reason": "pass_shape"}
+_mov = {"op_name": "Roughing 3", "pass_name": "ROUGH-3", "shift": 14.2, "n_points": 4}
+
+ok_fmt = True
+for lg in ("EN", "TR", "ES"):
+    try:
+        i18n.STRINGS["msg_wp_warn_gouge"][lg].format(
+            op=_gouge["op_name"], p=_gouge["pass_name"],
+            got=f"{_gouge['worst']['clearance']:.2f}", need=f"{_gouge['clearance']:.2f}",
+            x=f"{_gouge['worst']['x']:.1f}", z=f"{_gouge['worst']['z']:.1f}")
+        i18n.STRINGS["msg_wp_warn_ignored"][lg].format(
+            op=_ign["op_name"], p=_ign["pass_name"], n=_ign["n_points"],
+            why=i18n.STRINGS["msg_wp_reason_" + _ign["reason"]][lg])
+        i18n.STRINGS["msg_wp_warn_shifted"][lg].format(
+            op=_mov["op_name"], p=_mov["pass_name"], mm=f"{_mov['shift']:.1f}")
+        i18n.STRINGS["msg_wp_warn_body"][lg].format(n=3, items="x")
+    except (KeyError, IndexError) as e:
+        ok_fmt = False
+        print(f"   {lg} format failed: {e}")
+check(ok_fmt, "every waypoint-warning message formats against real engine dicts")
+
+# the reason token the engine emits must always have a message
+import exit_waypoints as _ew
+for _op, _want in ((({"direction": "reverse"}), "reverse"),
+                   (({"back_pass_enabled": True}), "back_pass"),
+                   (({"pass_shape": "spline"}), "pass_shape")):
+    _r = _ew.excluded_reason(_op)
+    check(_r == _want and ("msg_wp_reason_" + _r) in i18n.STRINGS,
+          f"exclusion '{_r}' has a message")
+check(_ew.excluded_reason({"pass_shape": "linear_approach"}) is None,
+      "a linear forward op is not excluded")
+check(_ew.stored_count({"pass_edits": {"0": {"exit_points": [
+          {"anchor": "p2", "dx": 1.0, "dz": 1.0}]}}}, 0) == 1,
+      "stored_count sees points even when the op cannot use them")
+check(_ew.get_points({"pass_shape": "spline", "pass_edits": {"0": {"exit_points": [
+          {"anchor": "p2", "dx": 1.0, "dz": 1.0}]}}}, 0) == [],
+      "...while get_points still returns none for the engine")
+
 root.destroy()
 
 print()

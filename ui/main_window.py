@@ -547,6 +547,60 @@ class SpinningCamWindow(tk.Tk):
         except Exception:
             return True     # never block an export on a reporting bug
 
+    def _confirm_waypoint_warnings(self):
+        """#100: everything the engine knows about hand-drawn exit tails but was
+        never showing. Returns True to carry on with the export, False to abort.
+
+        Research 2026-08-27 found the engine already recorded a tail sitting
+        inside the part — 63 sampled points, worst −12 mm — and threw it away
+        because nothing read the list. A tail is the one place an operator types
+        raw geometry, so it is also the one place a stale number reaches the part
+        with nothing in between. Three conditions, worst first:
+
+          gouge   the tail is closer than the op clearance. On a machine whose
+                  min_safety_gap is below that clearance (it DEFAULTS to 0) the
+                  floor will not pull it out.
+          ignored the tail is stored but this op cannot use it (reverse / back
+                  pass / a pass_shape that ignores it). Drawn, saved, not running.
+          shifted the safety floor moved a tail pass outward; the tail moved with
+                  it, so contact is no longer where it was drawn.
+
+        Like the #99 cap dialog this is deliberately NOT suppressible: it fires
+        only at export and only when one of the three actually happened.
+        """
+        try:
+            pg = self.app.path_gen
+            bad = getattr(pg, "last_waypoint_warnings", None) or []
+            ign = getattr(pg, "last_waypoint_ignored", None) or []
+            mov = getattr(pg, "last_waypoint_shifted", None) or []
+            if not (bad or ign or mov):
+                return True
+
+            lines = []
+            for w in bad:
+                lines.append("  • " + t("msg_wp_warn_gouge").format(
+                    op=w.get("op_name", "?"), p=w.get("pass_name", "?"),
+                    got=f"{w.get('worst', {}).get('clearance', 0.0):.2f}",
+                    need=f"{w.get('clearance', 0.0):.2f}",
+                    x=f"{w.get('worst', {}).get('x', 0.0):.1f}",
+                    z=f"{w.get('worst', {}).get('z', 0.0):.1f}"))
+            for w in ign:
+                lines.append("  • " + t("msg_wp_warn_ignored").format(
+                    op=w.get("op_name", "?"), p=w.get("pass_name", "?"),
+                    n=w.get("n_points", 0),
+                    why=t("msg_wp_reason_" + str(w.get("reason", "?")))))
+            for w in mov:
+                lines.append("  • " + t("msg_wp_warn_shifted").format(
+                    op=w.get("op_name", "?"), p=w.get("pass_name", "?"),
+                    mm=f"{w.get('shift', 0.0):.1f}"))
+
+            return messagebox.askyesno(
+                t("msg_wp_warn_title"),
+                t("msg_wp_warn_body").format(n=len(lines), items="\n".join(lines)),
+                icon='warning')
+        except Exception:
+            return True     # never block an export on a reporting bug
+
     def _show_tool_change_popup(self, body):
         """Modal tool-change swing warning; Confirm (may reappear next calc) /
         Don't-show-again (suppress for the session). Mirrors _show_clamp_popup."""
@@ -1136,6 +1190,12 @@ class SpinningCamWindow(tk.Tk):
         if _p is None:
             return
 
+        # #100: a tail that sits inside the part is a .nc problem too — the
+        # geometry is the same file, the PLC route just happens to be where the
+        # #99 cap warning lives.
+        if not self._confirm_waypoint_warnings():
+            return
+
         path = filedialog.asksaveasfilename(
              defaultextension=".nc",
              filetypes=[(t("fd_gcode_files"), "*.nc"), (t("fd_all_files"), "*.*")],
@@ -1461,6 +1521,8 @@ class SpinningCamWindow(tk.Tk):
         # here costs the operator nothing, whereas after picking a filename it
         # reads as a failed export.
         if not self._confirm_point_cap_warnings():
+            return
+        if not self._confirm_waypoint_warnings():
             return
 
         default_name = db_name + ".scl"
