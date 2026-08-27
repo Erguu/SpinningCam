@@ -262,6 +262,7 @@ class PathGenerator:
         self.last_point_cap_warnings = []  # #99: fillet caps refused because they would cost clearance
         self.last_waypoint_warnings = []   # #100: hand-drawn exit tails closer than the op clearance
         self.last_waypoint_abs = {}        # #100: path index → resolved waypoints for feed emission
+        self.last_exit_verbatim = set()    # #100: path indices whose exit tail must NOT be decimated
 
     def _tc_radial_gap(self, pt, center_x, mandrel_mgr, params, r_tool):
         """Radial clearance (mm) between the roller contact at ``pt`` and the
@@ -357,6 +358,7 @@ class PathGenerator:
         self.last_render_split_idx = {}  # {path_list_index: (line_end_idx, arc_end_idx)}
         self.last_waypoint_warnings = []  # #100: hand-drawn exit tails closer than the op clearance
         self.last_waypoint_abs = {}  # #100: path index → resolved waypoints [{x,z,feed}] for feed emission
+        self.last_exit_verbatim = set()  # #100: path indices whose exit tail is the operator's own points
         self._path_op_map = []  # toolpath index → op dict, synced as paths are appended
         self.last_op_end_z = {}  # op-index → CAM Z the op's last forming pass actually reaches
         self.last_op_reach = {}       # op-index → exit reach magnitude of last forming pass (#61)
@@ -961,7 +963,7 @@ class PathGenerator:
                     # applies the D10 exclusions itself, so a reverse or back-pass
                     # op yields [] even if a hand-edited .ssp carries points.
                     _wp = exit_waypoints.get_points(op, i)
-                    self._create_and_store_pass(p1_x, effective_p1_z, p3_z, p3_x, gp_Pnt(p2_x, 0, p2_z), base_rot, auto_align, toolpaths, projections, control_points, deviations, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_label, params, debug_lines, op=op, op_clearance=eff_clearance, exit_points=_wp)
+                    self._create_and_store_pass(p1_x, effective_p1_z, p3_z, p3_x, gp_Pnt(p2_x, 0, p2_z), base_rot, auto_align, toolpaths, projections, control_points, deviations, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_label, params, debug_lines, op=op, op_clearance=eff_clearance, exit_points=_wp, exit_shape=exit_waypoints.get_shape(op, i))
                 
                 # Check newly added path for Rapids
                 if len(toolpaths) > prev_paths_len:
@@ -1964,7 +1966,7 @@ class PathGenerator:
             + f" | end=({arc[-1][0]:.2f}, Z={arc[-1][2]:.2f})")
         return np.vstack([straight[:-1], arc])
 
-    def _create_and_store_pass(self, p1_x_offset, p1_z_offset, p3_z_offset, p3_x_offset, initial_p2, base_rot, auto_align, t_list, p_list, c_list, d_list, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_name, params, debug_lines=None, op=None, op_clearance=0.0, exit_points=None):
+    def _create_and_store_pass(self, p1_x_offset, p1_z_offset, p3_z_offset, p3_x_offset, initial_p2, base_rot, auto_align, t_list, p_list, c_list, d_list, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_name, params, debug_lines=None, op=None, op_clearance=0.0, exit_points=None, exit_shape=None):
             # --- Smart Spline Optimization V6 (Morphing) ---
             # Instead of rigid shifting, independently adjust control points based on where collision occurs.
 
@@ -1999,6 +2001,11 @@ class PathGenerator:
             final_points = []
             _ap_split    = None  # index where exit portion starts in pts_raw (linear_approach/linear_full only)
             _fillet_len  = 0     # number of P2 arc-fillet points in pts_raw (0 = sharp corner)
+            # #100: "straight" (default) means the waypoints ARE the emitted
+            # points, so they must survive every downsampler below verbatim.
+            _wp_shape = exit_waypoints.normalize_shape(exit_shape)
+            _wp_verbatim = bool(exit_points) and _wp_shape != exit_waypoints.SHAPE_SPLINE
+            _exit_len = 0        # vertices in exit_portion (incl. its leading T2)
 
             # Gouge Check Parameters
             max_iterations = 20
@@ -2118,9 +2125,11 @@ class PathGenerator:
                         # hand, so no parametric shape gets a say. Starts at T2
                         # (where the fillet ends) and runs through every waypoint
                         # to the last, which IS the end of the pass.
+                        # In "straight" mode (the default) exit_portion is
+                        # exactly [T2, wp1 … wpN] — no interpolation at all.
                         exit_portion = exit_waypoints.build_curve(
                             p2_arr[0], p2_arr[2], exit_points,
-                            start_xz=(T2[0], T2[2]))
+                            start_xz=(T2[0], T2[2]), shape=_wp_shape)
                         if len(exit_portion) < 2:
                             exit_portion = np.vstack([T2, p3_arr])
                         _ignored = [k for k in ("exit_bow", "exit_arc_angle",
@@ -2233,6 +2242,7 @@ class PathGenerator:
                         n_ap     = max(2, int(np.linalg.norm(T1 - ap_start) / check_res))
                         approach = np.linspace(ap_start, T1, n_ap)
                     _ap_split = len(approach) - 1   # straight arm reduces to 2 pts; fillet+exit stays dense
+                    _exit_len = len(exit_portion)
                     if _fillet_len > 0:
                         pts_raw = np.vstack([approach[:-1], arc_pts, exit_portion[1:]])
                     else:
@@ -2455,6 +2465,12 @@ class PathGenerator:
             # in the final, possibly-downsampled array.
             gcode_res = float(params.get("gcode_resolution", 2.0))
             _force_idx = {i for i in (_line_end, _arc_end) if i is not None}
+            # #100 straight mode: the exit vertices are the operator's points.
+            # They sit contiguously after T2 (exit_portion[1:] was stacked there),
+            # and gcode_resolution would silently drop any pair closer than ~2 mm —
+            # dropping a point he can see in the table, along with its feed.
+            if _wp_verbatim and _arc_end is not None and _exit_len > 1:
+                _force_idx |= set(range(_arc_end + 1, _arc_end + _exit_len))
             _render_pos = {}
             if gcode_res > 0.01 and len(final_points) > 2:
                 downsampled = [final_points[0]]
@@ -2482,6 +2498,11 @@ class PathGenerator:
                 self.last_waypoint_abs[_path_idx] = [
                     {"x": _x, "z": _z, "feed": _w.get("feed")}
                     for (_x, _z), _w in zip(_res, exit_points)]
+                if _wp_verbatim:
+                    # Tell the PLC decimator to leave this tail alone: RDP would
+                    # happily drop a collinear waypoint, which changes no shape
+                    # but DOES lose the feed step the operator put on it.
+                    self.last_exit_verbatim.add(_path_idx)
 
             if _line_end is not None and _line_end in _render_pos:
                 self.last_render_split_idx[_path_idx] = (
@@ -3253,7 +3274,8 @@ class PathGenerator:
                                approach_end_idx=None,
                                arc_end_idx=None,
                                exit_tolerance=None,
-                               max_fillet_points=None):
+                               max_fillet_points=None,
+                               exit_verbatim=False):
         """
         Decimates a toolpath for PLC point-to-point output.
 
@@ -3294,6 +3316,12 @@ class PathGenerator:
             decides whether a given cap is allowed lives in `decimate_all_paths`
             — this function only applies what it is told.
 
+          exit_verbatim : #100. The exit section is a hand-drawn straight-line
+            tail, so it is kept EXACTLY as-is. RDP would drop a collinear
+            waypoint — no change in shape, but the per-point feed step riding on
+            that waypoint would go with it, and the operator would find fewer
+            points running than the table shows him.
+
         Returns a numpy array of the retained points.
         """
         pts = np.array(path)
@@ -3318,7 +3346,11 @@ class PathGenerator:
                 # #99: cap the fillet AFTER RDP — RDP decides which points matter,
                 # the cap decides how many the machine is willing to stop at.
                 dec_fillet = self._thin_evenly(dec_fillet, max_fillet_points)
-            dec_exit   = self._decimate_path_for_plc(exit_part, _exit_tol, center_x)
+            # #100 straight mode: the exit section IS the operator's point list.
+            # Decimating it would drop points he can see in the table (and the
+            # per-point feeds riding on them), which is the whole feature.
+            dec_exit = (exit_part if exit_verbatim
+                        else self._decimate_path_for_plc(exit_part, _exit_tol, center_x))
             # Stitch: approach_part ends with T1, dec_fillet starts with T1 → drop one.
             # dec_fillet ends with T2, dec_exit starts with T2 → drop one.
             result = np.vstack([approach_part[:-1], dec_fillet])
@@ -3330,6 +3362,11 @@ class PathGenerator:
             # Two-section split: approach verbatim, rest with RDP.
             approach_part = pts[:approach_end_idx + 1]
             curve_part    = pts[approach_end_idx:]
+            if exit_verbatim:
+                # There is no isolated fillet section here (T1 == T2, i.e.
+                # p2_radius = 0), so the whole curve part IS the hand-drawn
+                # tail. Keep it exactly — same reason as the three-section case.
+                return np.vstack([approach_part[:-1], curve_part])
             dec_curve = self._decimate_path_for_plc(curve_part, tolerance, center_x)
             return np.vstack([approach_part[:-1], dec_curve])
 
@@ -3378,10 +3415,12 @@ class PathGenerator:
             _split   = self.last_render_split_idx.get(_pi)
             _app_end = _split[0] if _split is not None else None
             _arc_end = _split[1] if _split is not None else None
+            _verb = _pi in getattr(self, "last_exit_verbatim", set())
             _plain = self._decimate_path_for_plc(_p, tolerance, center_x,
                                                  approach_end_idx=_app_end,
                                                  arc_end_idx=_arc_end,
-                                                 exit_tolerance=exit_tolerance)
+                                                 exit_tolerance=exit_tolerance,
+                                                 exit_verbatim=_verb)
 
             _op = self._path_op_map[_pi] if _pi < len(self._path_op_map) else None
             _cap = 0
@@ -3399,7 +3438,8 @@ class PathGenerator:
                                                   approach_end_idx=_app_end,
                                                   arc_end_idx=_arc_end,
                                                   exit_tolerance=exit_tolerance,
-                                                  max_fillet_points=_cap)
+                                                  max_fillet_points=_cap,
+                                                  exit_verbatim=_verb)
             if len(_capped) >= len(_plain):
                 out.append(_plain)          # cap changed nothing
                 continue

@@ -29,10 +29,23 @@ A pass carries a LIST of waypoints under `pass_edits[i]["exit_points"]`. Each is
 THERE IS NO P3. The last waypoint IS the end of the pass — this is why the
 reach / pass-angle / P3 controls are greyed out on an op that carries waypoints.
 
-THE CURVE is a centripetal Catmull-Rom through P2 and every waypoint: it passes
-THROUGH each point (the operator's whole premise — "the roller goes where I put
-it") and, unlike the uniform variant, provably never forms a cusp or a self-
-intersecting loop between control points.
+TWO SHAPES (`exit_shape`, per pass, alongside `exit_points`):
+
+* ``"straight"`` (**the default**, user 2026-08-27) — the waypoints ARE the
+  path. N waypoints produce exactly N points after P2, joined by straight
+  lines. This is what the S7-1200 wants: it has no velocity blending and a hard
+  1000-line ceiling, so every extra point is a full stop and a spent line. The
+  operator draws the route; the machine runs exactly it.
+* ``"spline"`` — a centripetal Catmull-Rom through P2 and every waypoint. It
+  passes THROUGH each point and, unlike the uniform variant, provably never
+  forms a cusp or a self-intersecting loop. Smoother, but it turns 5 waypoints
+  into ~100 emitted points, which is the opposite of what this machine needs.
+  Kept for a controller that can blend — the geometry is sound, the point
+  budget is what rules it out here.
+
+The choice is per pass because it is a property of the shape the operator drew,
+not of the machine — and a program may want a curved finishing tail alongside
+straight roughing ones.
 """
 import math
 
@@ -44,6 +57,20 @@ import numpy as np
 SAMPLES_PER_SPAN = 24
 
 VALID_ANCHORS = ("p2", "prev")
+
+SHAPE_STRAIGHT = "straight"
+SHAPE_SPLINE = "spline"
+VALID_SHAPES = (SHAPE_STRAIGHT, SHAPE_SPLINE)
+
+# Straight is the default EVERYWHERE, including tails authored before the option
+# existed (user 2026-08-27). A tail drawn as 5 points should cost 5 lines; the
+# spline silently cost ~100, which is what made the feature unusable on this PLC.
+DEFAULT_SHAPE = SHAPE_STRAIGHT
+
+# Clearance is checked along the emitted geometry, not just at its vertices: a
+# straight chord between two clear waypoints can still cut through the part.
+# 0.25 mm keeps the scan fine relative to anything the roller can hide behind.
+CHECK_STEP = 0.25
 
 # How far inside the clearance a sample may sit before it counts as a violation.
 #
@@ -136,16 +163,18 @@ def _centripetal_span(P0, P1, P2, P3, n, alpha=0.5):
 
 
 def build_curve(p2_x, p2_z, points, samples_per_span=SAMPLES_PER_SPAN,
-                start_xz=None):
-    """Dense polyline P2 → … → last waypoint, as an (N,3) array of [x, 0, z].
+                start_xz=None, shape=DEFAULT_SHAPE):
+    """Polyline P2 → … → last waypoint, as an (N,3) array of [x, 0, z].
 
     Returns an empty (0,3) array when there is nothing to build, so callers can
     treat 'no waypoints' as 'feature off' with one check.
 
-    The control sequence is P2 followed by every resolved waypoint. Ends are
-    handled by REFLECTING the neighbouring point rather than duplicating it:
-    duplicating gives a zero-length span, and centripetal parameterisation
-    divides by that length.
+    With ``shape="straight"`` (the default) the result IS the control polyline:
+    one point per waypoint, nothing interpolated, so what the operator drew is
+    exactly what gets emitted. With ``shape="spline"`` the same control points
+    are run through a centripetal Catmull-Rom; ends are handled by REFLECTING
+    the neighbouring point rather than duplicating it, because duplicating gives
+    a zero-length span and centripetal parameterisation divides by that length.
 
     `start_xz` replaces the FIRST control point without touching how the
     waypoints are anchored. The engine passes the P2 fillet's tangent point T2
@@ -171,6 +200,13 @@ def build_curve(p2_x, p2_z, points, samples_per_span=SAMPLES_PER_SPAN,
 
     if len(ctrl) == 1:
         return np.empty((0, 3))
+
+    if shape != SHAPE_SPLINE:
+        # STRAIGHT: the waypoints are the path. No sampling, no smoothing — the
+        # emitted point count equals what the operator can see in the table.
+        xz = np.array(ctrl, dtype=float)
+        return np.stack([xz[:, 0], np.zeros(len(xz)), xz[:, 1]], axis=1)
+
     if len(ctrl) == 2:                                  # single step → straight line
         n = max(2, int(samples_per_span))
         xs = np.linspace(ctrl[0][0], ctrl[1][0], n)
@@ -188,7 +224,40 @@ def build_curve(p2_x, p2_z, points, samples_per_span=SAMPLES_PER_SPAN,
     return np.stack([xz[:, 0], np.zeros(len(xz)), xz[:, 1]], axis=1)
 
 
+def normalize_shape(raw):
+    """Whatever is stored → a valid shape token. Unknown/absent → DEFAULT_SHAPE."""
+    return raw if raw in VALID_SHAPES else DEFAULT_SHAPE
+
+
+def get_shape(op, pass_index):
+    """The exit-tail shape for one pass (`straight` unless it says otherwise)."""
+    edits = (op or {}).get("pass_edits") or {}
+    pe = edits.get(str(pass_index)) or edits.get(pass_index) or {}
+    return normalize_shape(pe.get("exit_shape"))
+
+
 # ── safety ──────────────────────────────────────────────────────────────────
+def densify(curve, step=CHECK_STEP):
+    """Subdivide a polyline so no segment is longer than `step`.
+
+    Needed because the clearance check looks at POINTS. In straight mode the
+    emitted geometry is only a handful of vertices metres apart in the worst
+    case, and a chord between two perfectly clear waypoints can pass straight
+    through the part. Checking the vertices alone would miss exactly the gouge
+    the operator is most likely to draw.
+    """
+    pts = np.asarray(curve, dtype=float)
+    if len(pts) < 2:
+        return pts
+    out = [pts[0]]
+    for a, b in zip(pts[:-1], pts[1:]):
+        d = float(np.linalg.norm(b - a))
+        n = max(1, int(math.ceil(d / max(float(step), 1e-6))))
+        for k in range(1, n + 1):
+            out.append(a + (b - a) * (k / n))
+    return np.array(out)
+
+
 def check_clearance(curve, radius_at, center_x, base_offset, min_clearance):
     """Find where a waypoint tail comes closer to the part than it may.
 
@@ -202,15 +271,15 @@ def check_clearance(curve, radius_at, center_x, base_offset, min_clearance):
     clearance contour passes — see CLEARANCE_EPS for why that case is normal
     rather than marginal.
 
-    ⚠️ Checks the GENERATED CURVE, not the typed waypoints. Because the roller
-    passes through every point, two perfectly legal waypoints can still bow the
-    curve between them into the part — testing only the operator's numbers would
-    miss exactly the case that matters.
+    ⚠️ Checks the GENERATED GEOMETRY, densified — not the typed waypoints, and
+    not only the vertices. Two perfectly legal waypoints can still put the part
+    between them: a spline bows through, a straight chord cuts across. Testing
+    only the operator's numbers would miss exactly the case that matters.
     """
     if len(curve) == 0:
         return []
     bad = []
-    for k, (x, _y, z) in enumerate(curve):
+    for k, (x, _y, z) in enumerate(densify(curve)):
         r = radius_at(float(z))
         if r is None:
             continue

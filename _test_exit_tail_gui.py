@@ -70,7 +70,7 @@ P2 = (mgr.get_radius_fast(30.0) + 25.0 + 8.0, 30.0)
 op = make_op()
 app = FakeApp(op)
 applied = {}
-dlg = ExitTailDialog(root, app, 0, 0, P2, lambda pts: applied.update(points=pts))
+dlg = ExitTailDialog(root, app, 0, 0, P2, lambda pts, shape=None: applied.update(points=pts, shape=shape))
 
 # 1 — seeded, never blank
 check(len(dlg.points) > 0, f"dialog seeds itself ({len(dlg.points)} points)")
@@ -131,7 +131,7 @@ check("points" in applied and applied["points"], "OK hands the points to the cal
 op2 = make_op()
 app2 = FakeApp(op2)
 out = {}
-d2 = ExitTailDialog(root, app2, 0, 0, P2, lambda pts: out.update(points=pts))
+d2 = ExitTailDialog(root, app2, 0, 0, P2, lambda pts, shape=None: out.update(points=pts, shape=shape))
 d2.points = []
 d2._ok()
 check(out.get("points") == [], "Remove tail hands back an empty list")
@@ -144,7 +144,9 @@ check(len(d3.points) == 1 and d3.points[0]["dx"] == 11.0,
       "an existing tail is loaded, not overwritten by the seed")
 
 # 7 — i18n completeness for every key the dialog touches
-KEYS = ["et_title", "et_help", "et_col_anchor", "et_col_dx", "et_col_dz", "et_col_feed",
+KEYS = ["et_shape", "et_shape_straight", "et_shape_spline", "et_hint_cost",
+        "et_what_shape",
+        "et_title", "et_help", "et_col_anchor", "et_col_dx", "et_col_dz", "et_col_feed",
         "et_anchor_p2", "et_anchor_prev", "et_hint", "et_btn_add", "et_btn_del",
         "et_btn_seed", "et_btn_clear", "et_btn_ok", "et_btn_cancel", "et_edit_title",
         "et_edit_prompt", "et_bad_number", "et_need_one", "et_refused",
@@ -271,6 +273,53 @@ app_n.params["target_clearance"] = 2.5
 d10 = ExitTailDialog(root, app_n, 0, 0, P2, lambda p: None)
 check(abs(d10._clearance() - 2.5) < 1e-9,
       f"an op with no clearance inherits the machine default (got {d10._clearance():.2f}, not 0)")
+
+# 10 — the shape selector (user 2026-08-27: straight is what this machine needs)
+op_s = make_op()
+got = {}
+d11 = ExitTailDialog(root, FakeApp(op_s), 0, 0, P2,
+                     lambda pts, shape=None: got.update(points=pts, shape=shape))
+check(d11.shape_var.get() == ew.SHAPE_STRAIGHT, "the dialog opens on Straight lines")
+
+n_pts = len(d11.points)
+n_straight = len(ew.build_curve(d11.p2x, d11.p2z, d11.points, shape=ew.SHAPE_STRAIGHT))
+n_spline = len(ew.build_curve(d11.p2x, d11.p2z, d11.points, shape=ew.SHAPE_SPLINE))
+check(n_straight == n_pts + 1,
+      f"straight emits one point per waypoint ({n_pts} -> {n_straight} incl. P2)")
+check(n_spline > 5 * n_straight, f"the curve costs far more ({n_spline} vs {n_straight})")
+
+# the status line tells the operator the price, which is the whole point
+hint = d11._ok_hint()
+check(str(n_pts) in hint and str(n_straight - 1) in hint,
+      f"the status line states the point cost (got: {hint[:60]}...)")
+
+# OK carries the shape; straight (the default) is NOT written to the file
+d11._ok()
+check(got.get("shape") == ew.SHAPE_STRAIGHT, "OK hands the shape back to the caller")
+
+# switching to the curve is remembered
+op_c = make_op()
+got_c = {}
+d12 = ExitTailDialog(root, FakeApp(op_c), 0, 0, P2,
+                     lambda pts, shape=None: got_c.update(points=pts, shape=shape))
+d12.shape_var.set(ew.SHAPE_SPLINE)
+d12._on_shape()
+d12._ok()
+check(got_c.get("shape") == ew.SHAPE_SPLINE, "a curve tail reports shape=spline")
+
+# a stored spline reopens as a spline
+op_st = make_op(pass_edits={"0": {
+    "exit_points": [{"anchor": "p2", "dx": 11.0, "dz": -3.0, "feed": None}],
+    "exit_shape": "spline"}})
+d13 = ExitTailDialog(root, FakeApp(op_st), 0, 0, P2, lambda p, s=None: None)
+check(d13.shape_var.get() == ew.SHAPE_SPLINE, "a stored curve tail reopens as a curve")
+
+# an unknown token in a hand-edited file falls back to straight, not to the old curve
+op_bad = make_op(pass_edits={"0": {
+    "exit_points": [{"anchor": "p2", "dx": 11.0, "dz": -3.0, "feed": None}],
+    "exit_shape": "wobbly"}})
+d14 = ExitTailDialog(root, FakeApp(op_bad), 0, 0, P2, lambda p, s=None: None)
+check(d14.shape_var.get() == ew.SHAPE_STRAIGHT, "an unknown shape token falls back to straight")
 
 root.destroy()
 

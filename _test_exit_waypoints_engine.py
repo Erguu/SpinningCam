@@ -190,6 +190,67 @@ check(321.0 not in plain_feeds and 123.0 not in plain_feeds,
       f"waypoints without feeds add no feed changes (got {plain_feeds})")
 
 
+# ── 8. STRAIGHT mode: the waypoints ARE the emitted points ──────────────────
+# User 2026-08-27: "if I have 4-5 waypoints, the pass should only have those
+# after P2." The PLC stops at every point and has 1000 lines total, so the
+# spline's ~24 samples per span was the thing making this unusable.
+STR4 = [wp(12.0, -6.0), wp(10.0, -8.0, anchor="prev"),
+        wp(9.0, -10.0, anchor="prev"), wp(8.0, -14.0, anchor="prev")]
+
+straight_path = np.array(build(p2_radius=0.0, pass_edits={"0": {"exit_points": STR4}}))
+spline_path = np.array(build(p2_radius=0.0, pass_edits={
+    "0": {"exit_points": STR4, "exit_shape": "spline"}}))
+
+check(len(straight_path) < len(spline_path),
+      f"straight emits fewer points than the curve ({len(straight_path)} vs {len(spline_path)})")
+
+# Everything from P2 onward must be EXACTLY the 4 waypoints — nothing between.
+p2_s = straight_path[1]
+abs4 = ew.resolve(p2_s[0], p2_s[2], ew.normalize(STR4))
+tail = straight_path[2:]
+check(len(tail) == len(abs4),
+      f"the tail is exactly the {len(abs4)} waypoints, no interpolation (got {len(tail)})")
+if len(tail) == len(abs4):
+    worst = max(abs(t[0] - a[0]) + abs(t[2] - a[1]) for t, a in zip(tail, abs4))
+    check(worst < 1e-6, f"each emitted point IS a waypoint (worst {worst:.2e} mm)")
+
+# ...and it survives gcode_resolution, which would otherwise drop close pairs.
+TIGHT = [wp(2.0, -0.4), wp(0.6, -0.3, anchor="prev"),
+         wp(0.6, -0.3, anchor="prev"), wp(0.6, -0.3, anchor="prev")]
+tight_path = np.array(build(p2_radius=0.0, gcode_resolution=5.0,
+                            pass_edits={"0": {"exit_points": TIGHT}}))
+p2_t = tight_path[1]
+abs_t = ew.resolve(p2_t[0], p2_t[2], ew.normalize(TIGHT))
+kept = sum(1 for a in abs_t
+           if float(np.min(np.hypot(tight_path[:, 0] - a[0],
+                                    tight_path[:, 2] - a[1]))) < 1e-6)
+check(kept == len(abs_t),
+      f"points closer than gcode_resolution are NOT dropped ({kept}/{len(abs_t)} kept)")
+
+# The PLC decimator must leave the tail alone too — RDP would happily drop a
+# collinear waypoint, taking its per-point feed with it.
+COLL = [wp(6.0, 0.0), wp(6.0, 0.0, anchor="prev"), wp(6.0, 0.0, anchor="prev")]
+p_coll = make_params(p2_radius=0.0, pass_edits={"0": {"exit_points": COLL}})
+pg.calculate_paths(p_coll, {}, mgr)
+dec = pg.decimate_all_paths(0.5, 0.5, 0.0, params=p_coll)[0]
+p2_c = np.array(pg.last_calculated_paths[0])[1]
+abs_c = ew.resolve(p2_c[0], p2_c[2], ew.normalize(COLL))
+kept_c = sum(1 for a in abs_c
+             if float(np.min(np.hypot(np.asarray(dec)[:, 0] - a[0],
+                                      np.asarray(dec)[:, 2] - a[1]))) < 1e-6)
+check(kept_c == len(abs_c),
+      f"PLC decimation keeps every collinear waypoint ({kept_c}/{len(abs_c)})")
+check(0 in getattr(pg, "last_exit_verbatim", set()),
+      "the path is flagged verbatim so the decimator knows to leave it")
+
+# A spline tail is NOT flagged — it may be decimated like any other curve.
+p_sp = make_params(p2_radius=0.0, pass_edits={
+    "0": {"exit_points": COLL, "exit_shape": "spline"}})
+pg.calculate_paths(p_sp, {}, mgr)
+check(0 not in getattr(pg, "last_exit_verbatim", set()),
+      "a spline tail is not flagged verbatim")
+
+
 print()
 if fails:
     raise SystemExit(f"{fails} FAILED")

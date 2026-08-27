@@ -5,6 +5,45 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-27 (3) — #100: noktalar YOLUN KENDİSİ oldu (spline artık opsiyonel)
+
+**Neden (kullanıcı, sahada denedikten sonra):** *"4-5 waypoint'im varsa pas da sadece
+onlardan oluşsun."* Spline her aralığı ~24 noktaya açıyordu → 5 nokta ≈ 100 satır.
+PLC her noktada **duruyor** ve **1000 satır sert tavanı** var; yani özellik güzel
+çalışıyordu ama bu makinede kullanılamazdı.
+
+**KARARLAR (D15–D17, kullanıcıya SORULDU):**
+- **D15** — seçim **PAS BAŞINA**, Çıkış yolu penceresinin üstünde (`exit_shape`).
+- **D16** — **varsayılan HER YERDE düz**, daha önce kaydedilmiş yollar dâhil.
+- **D17** — P2 filetosuna **DOKUNULMADI**; kuyruk yine T2'den başlıyor (#99 sınırı geçerli).
+
+**Ne değişti:**
+- `exit_waypoints.build_curve(..., shape=)`: `"straight"` (VARSAYILAN) kontrol
+  poligonunu OLDUĞU GİBİ döndürür → **N waypoint = N nokta**. `"spline"` eski
+  centripetal Catmull-Rom (korundu — harmanlayabilen bir kontrolcü için).
+- `check_clearance` artık **`densify()` ile yoğunlaştırıp** tarıyor. ŞART: düz modda
+  iki temiz waypoint arasındaki **kiriş parçanın içinden geçebilir**; sadece köşeleri
+  kontrol etmek tam da operatörün çizeceği gouge'u kaçırırdı.
+- Motor: `_wp_verbatim` → waypoint indeksleri `gcode_resolution` seyreltmesinden
+  **zorla korunuyor** (yoksa 2 mm'den yakın noktalar sessizce düşerdi) ve
+  `last_exit_verbatim` ile **PLC RDP'si kuyruğa hiç dokunmuyor** (RDP eşdoğrusal bir
+  waypoint'i atardı — şekil değişmez ama üstündeki **besleme adımı kaybolurdu**).
+- Diyalog: üstte Şekil radyoları; şekil değiştirmek de bir düzenlemedir → clearance
+  ihlal ederse **reddedilip geri alınır**. Durum satırı artık **maliyeti** söylüyor:
+  *"4 nokta → reçetede 4 satır."*
+- Kayıt: `exit_shape` SADECE varsayılan-dışı (`spline`) ise dosyaya yazılır → düz
+  yollar hiçbir anahtar bırakmaz, eski dosyalar aynen okunur.
+
+**Test:** 2 yeni saf test (düz = N nokta + bilinmeyen token → düz; kirişin parçadan
+geçmesi YAKALANIYOR), 7 yeni motor testi (kuyruk = tam olarak waypoint'ler;
+`gcode_resolution` düşürmüyor; PLC seyreltmesi eşdoğrusalları koruyor; spline
+işaretlenmiyor), 11 yeni widget testi. **Toplam: 9/9 saf + 33/33 motor + 40/40 widget
++ 6/6 #99.**
+
+**Geri alma:** `exit_waypoints.DEFAULT_SHAPE = SHAPE_SPLINE` (eski davranış).
+
+---
+
 ## 2026-08-27 (2) — DÜZELTME: çıkış yolu editörü HER noktayı reddediyordu (#100)
 
 **Belirti (kullanıcı, saha):** ΔX düzeldikten sonra bile *hiçbir* değer kabul

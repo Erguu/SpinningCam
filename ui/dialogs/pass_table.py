@@ -837,14 +837,21 @@ class PassTableDialog(tk.Toplevel):
             return
         row = rows[idx]
 
-        def _apply(points):
+        def _apply(points, shape=None):
             edits = op.setdefault("pass_edits", {})
             key = str(row["i"])
             slot = edits.setdefault(key, {})
             if points:
                 slot["exit_points"] = points
+                # Only store a non-default shape, so a straight tail (the norm)
+                # leaves no key behind and older files stay readable as-is.
+                if shape and shape != ew.DEFAULT_SHAPE:
+                    slot["exit_shape"] = shape
+                else:
+                    slot.pop("exit_shape", None)
             else:
                 slot.pop("exit_points", None)
+                slot.pop("exit_shape", None)
                 if not slot:
                     edits.pop(key, None)
             try:

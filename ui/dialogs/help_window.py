@@ -2221,6 +2221,22 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  and P3 X/Z go read-only on an operation that uses
                  it. Remove the tail and they come back.
 
+                 SHAPE (per pass, top of the window):
+                   Straight lines  Your points ARE the path. Five
+                                   points cost five lines in the
+                                   recipe. This is the default and
+                                   what this machine wants: it
+                                   stops at every point and has a
+                                   1000-line budget.
+                   Smooth curve    A curve is drawn through your
+                                   points. Rounder motion, but it
+                                   turns five points into about a
+                                   hundred - normally too many to
+                                   afford here. Kept for a control
+                                   system that can blend corners.
+                 The status line tells you what the tail costs
+                 before you commit it.
+
                  Each point is measured either From P2 (moving it
                  moves only that point) or From previous (moving it
                  drags the ones after it). Both describe the same
@@ -2599,6 +2615,21 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   P3 YOKTUR. Bu yüzden bu özelliği kullanan bir
                   operasyonda Reach, Pas Açısı ve P3 X/Z salt-okunur
                   olur. Yolu kaldırınca hepsi geri gelir.
+
+                  ŞEKİL (pas başına, pencerenin üstünde):
+                    Düz çizgiler  Noktalarınız YOLUN KENDİSİDİR.
+                                  Beş nokta reçetede beş satır eder.
+                                  VARSAYILAN budur ve bu makinenin
+                                  istediği de budur: her noktada
+                                  durur ve 1000 satır bütçesi vardır.
+                    Yumuşak eğri  Noktalarınızdan geçen bir eğri
+                                  çizilir. Hareket daha yuvarlaktır
+                                  ama beş nokta yaklaşık yüz noktaya
+                                  çıkar — burada genelde karşılanamaz.
+                                  Köşe harmanlayabilen bir kontrol
+                                  sistemi için saklandı.
+                  Durum satırı, onaylamadan ÖNCE yolun kaç satıra
+                  mal olacağını söyler.
 
                   Her nokta ya P2'den ya da ÖNCEKİ noktadan ölçülür.
                   "P2'den" sadece o noktayı taşır; "Öncekinden" ise

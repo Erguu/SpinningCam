@@ -61,6 +61,18 @@ class ExitTailDialog(tk.Toplevel):
         tk.Label(self, text=t("et_help"), anchor="w", justify="left",
                  fg="#446688", wraplength=780).pack(fill="x", padx=8, pady=(8, 2))
 
+        # Shape (per pass). Straight is the default: the waypoints ARE the path,
+        # so N points cost N lines. The curve is kept for a controller that can
+        # blend — on this PLC it turns 5 points into ~100.
+        srow = ttk.Frame(self)
+        srow.pack(fill="x", padx=8, pady=(2, 0))
+        ttk.Label(srow, text=t("et_shape")).pack(side="left")
+        self.shape_var = tk.StringVar(value=self._stored_shape())
+        for val, key in ((ew.SHAPE_STRAIGHT, "et_shape_straight"),
+                         (ew.SHAPE_SPLINE, "et_shape_spline")):
+            ttk.Radiobutton(srow, text=t(key), value=val, variable=self.shape_var,
+                            command=self._on_shape).pack(side="left", padx=(8, 0))
+
         cols = ("n", "anchor", "dx", "dz", "feed")
         self.tree = ttk.Treeview(self, columns=cols, show="headings", height=9)
         heads = {"n": ("№", 40), "anchor": (t("et_col_anchor"), 120),
@@ -95,6 +107,7 @@ class ExitTailDialog(tk.Toplevel):
         ttk.Button(bar, text=t("et_btn_clear"), command=self._clear).pack(side="left", padx=2)
 
         self._refresh()
+        self.lbl_status.config(text=self._ok_hint())
         self.protocol("WM_DELETE_WINDOW", self.destroy)
 
     # ── data ───────────────────────────────────────────────────────────
@@ -107,6 +120,27 @@ class ExitTailDialog(tk.Toplevel):
         pe = (op.get("pass_edits") or {})
         d = pe.get(str(self.pass_index)) or pe.get(self.pass_index) or {}
         return d.get("exit_points")
+
+    def _stored_shape(self):
+        return ew.get_shape(self._op(), self.pass_index)
+
+    def _shape(self):
+        """The shape currently selected in the dialog (not yet committed)."""
+        try:
+            return ew.normalize_shape(self.shape_var.get())
+        except Exception:
+            return ew.DEFAULT_SHAPE
+
+    def _on_shape(self):
+        """Switching shape re-runs the clearance check on the SAME points.
+
+        A point list that is safe as a polyline can gouge as a curve (the spline
+        bows outside the chords) and vice versa, so the switch is an edit like
+        any other — refused and reverted if the result is not clear.
+        """
+        if not self._try(self.points, t("et_what_shape")):
+            self.shape_var.set(ew.SHAPE_SPLINE if self._shape() == ew.SHAPE_STRAIGHT
+                               else ew.SHAPE_STRAIGHT)
 
     def _clearance(self):
         """What this pass must keep clear — the SAME resolution chain the engine
@@ -240,7 +274,7 @@ class ExitTailDialog(tk.Toplevel):
         if g is None or not points:
             return []
         radius_at, center_x, base = g
-        curve = ew.build_curve(self.p2x, self.p2z, points)
+        curve = ew.build_curve(self.p2x, self.p2z, points, shape=self._shape())
         return ew.check_clearance(curve, radius_at, center_x, base, self._clearance())
 
     def _try(self, points, what):
@@ -264,8 +298,21 @@ class ExitTailDialog(tk.Toplevel):
             return False
         self.points = points
         self._refresh()
-        self.lbl_status.config(text=t("et_hint"), fg="#204060", bg="#eef3f8")
+        self.lbl_status.config(text=self._ok_hint(), fg="#204060", bg="#eef3f8")
         return True
+
+    def _ok_hint(self):
+        """Status text when all is well — leads with the point COST.
+
+        The reason this feature exists is that the PLC stops at every point and
+        has 1000 lines total, so 'what does this tail cost me' is the number the
+        operator is actually managing.
+        """
+        n_emit = len(ew.build_curve(self.p2x, self.p2z, self.points,
+                                    shape=self._shape()))
+        n_emit = max(n_emit - 1, 0)          # the leading P2/T2 is not the tail's
+        return t("et_hint_cost").format(pts=len(self.points), lines=n_emit) \
+            + "  " + t("et_hint")
 
     # ── table ──────────────────────────────────────────────────────────
     def _refresh(self):
@@ -419,7 +466,7 @@ class ExitTailDialog(tk.Toplevel):
         H = c.winfo_height() or 190
         g = self._geom()
         abs_pts = ew.resolve(self.p2x, self.p2z, self.points)
-        curve = ew.build_curve(self.p2x, self.p2z, self.points)
+        curve = ew.build_curve(self.p2x, self.p2z, self.points, shape=self._shape())
 
         xs = [self.p2x] + [p[0] for p in abs_pts]
         zs = [self.p2z] + [p[1] for p in abs_pts]
@@ -487,5 +534,5 @@ class ExitTailDialog(tk.Toplevel):
             # change under a dialog left open — never write a known gouge.
             messagebox.showerror(t("et_title"), t("et_refused_commit"), parent=self)
             return
-        self.on_apply(list(self.points))
+        self.on_apply(list(self.points), self._shape())
         self.destroy()

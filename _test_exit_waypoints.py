@@ -6,14 +6,19 @@ Covers:
   2. resolve(): per-point anchor ("p2" vs "prev"), first point always from P2.
   3. build_curve(): passes THROUGH every waypoint, ends at the last one,
      no cusp/loop, degenerate inputs handled.
-  4. check_clearance(): catches a bow BETWEEN two legal waypoints (the case
-     that testing only the typed numbers would miss).
+  3b. STRAIGHT is the default and emits exactly one point per waypoint — the
+     waypoints ARE the path (user 2026-08-27); the spline is opt-in.
+  4. check_clearance(): catches a bow BETWEEN two legal waypoints AND a straight
+     chord that cuts across the part between two clear ones (the cases that
+     testing only the typed numbers, or only the vertices, would miss).
   5. excluded_reason()/get_points(): reverse + back-pass ops carry no waypoints
      even if a hand-edited file says otherwise (#100 D10).
 
 No OCC / Tk needed, but run it in the env anyway for numpy parity:
     runtest.bat _test_exit_waypoints.py
 """
+import math
+
 import numpy as np
 
 import exit_waypoints as ew
@@ -70,8 +75,8 @@ def test_curve_passes_through_points():
         {"dx": 28, "dz": 26},
     ])
     p2 = (100.0, 50.0)
-    curve = ew.build_curve(*p2, pts)
-    assert len(curve) > 10, "curve should be densely sampled"
+    curve = ew.build_curve(*p2, pts, shape=ew.SHAPE_SPLINE)
+    assert len(curve) > 10, "the SPLINE shape should be densely sampled"
 
     # starts at P2, ends at the LAST waypoint (there is no P3)
     assert _near(curve[0][0], 100.0) and _near(curve[0][2], 50.0), curve[0]
@@ -90,7 +95,74 @@ def test_curve_passes_through_points():
     assert np.all(lens > 0), "curve must not stall"
     dots = np.sum(seg[:-1] * seg[1:], axis=1) / (lens[:-1] * lens[1:])
     assert np.all(dots > 0.0), f"direction reversal (cusp) detected, min={dots.min():.3f}"
-    print(f"[OK] build_curve: {len(curve)} pts, through every waypoint, no cusp")
+    print(f"[OK] build_curve(spline): {len(curve)} pts, through every waypoint, no cusp")
+
+
+def test_straight_is_the_default_and_costs_nothing_extra():
+    """#100, user 2026-08-27: the waypoints ARE the path.
+
+    N waypoints must produce exactly N emitted points after P2 — no sampling.
+    This is the whole point on a controller that stops at every point and has a
+    1000-line ceiling; the spline turned 5 points into ~100.
+    """
+    assert ew.DEFAULT_SHAPE == ew.SHAPE_STRAIGHT, "straight is the default (user decision)"
+
+    pts = ew.normalize([{"dx": 5, "dz": 1}, {"dx": 11, "dz": 2},
+                        {"dx": 17, "dz": 3}, {"dx": 23, "dz": 4}])
+    p2 = (100.0, 50.0)
+
+    straight = ew.build_curve(*p2, pts)                       # default
+    assert len(straight) == len(pts) + 1, (
+        f"{len(pts)} waypoints + P2 must emit {len(pts) + 1} points, got {len(straight)}")
+
+    # the emitted points ARE the waypoints, in order, exactly
+    for k, (wx, wz) in enumerate(ew.resolve(*p2, pts), start=1):
+        assert _near(straight[k][0], wx, 1e-9) and _near(straight[k][2], wz, 1e-9), (
+            f"point {k} is {straight[k]} not ({wx},{wz})")
+
+    # ...and it really is cheaper than the curve it replaced
+    spline = ew.build_curve(*p2, pts, shape=ew.SHAPE_SPLINE)
+    assert len(spline) > 5 * len(straight), (
+        f"spline {len(spline)} should dwarf straight {len(straight)}")
+
+    # an unknown/absent token falls back to straight rather than to the old curve
+    assert ew.normalize_shape(None) == ew.SHAPE_STRAIGHT
+    assert ew.normalize_shape("wobbly") == ew.SHAPE_STRAIGHT
+    assert ew.normalize_shape("spline") == ew.SHAPE_SPLINE
+    assert ew.get_shape({}, 0) == ew.SHAPE_STRAIGHT
+    assert ew.get_shape({"pass_edits": {"0": {"exit_shape": "spline"}}}, 0) == ew.SHAPE_SPLINE
+    assert ew.get_shape({"pass_edits": {"0": {"exit_shape": "spline"}}}, 1) == ew.SHAPE_STRAIGHT
+    print(f"[OK] straight: {len(pts)} waypoints -> {len(straight)} pts "
+          f"(spline would be {len(spline)})")
+
+
+def test_straight_chord_through_the_part_is_caught():
+    """Two waypoints can both be clear while the LINE between them is not.
+
+    Straight mode makes this the likely failure, not an exotic one: the operator
+    places a point above the shoulder and one below it, and the chord cuts the
+    corner. check_clearance must densify, not just look at the vertices.
+    """
+    # A part whose radius bulges in the middle of the span.
+    def radius_at(z):
+        return 50.0 + 12.0 * math.exp(-((z - 25.0) ** 2) / 8.0)
+
+    p2 = (60.0, 10.0)          # clear of the 50 mm shank
+    pts = ew.normalize([{"dx": 0.0, "dz": 30.0}])   # straight up, past the bulge
+
+    curve = ew.build_curve(*p2, pts)
+    assert len(curve) == 2, "straight mode emits just the two ends here"
+
+    # both ENDS are clear...
+    for x, _y, z in curve:
+        assert abs(x) - radius_at(z) > 1.0
+
+    # ...but the chord passes through the bulge, and that must be caught
+    bad = ew.check_clearance(curve, radius_at, 0.0, 0.0, 1.0)
+    assert bad, "a chord straight through the bulge was NOT caught"
+    assert bad[0]["clearance"] < 0, f"worst point should be inside the part: {bad[0]}"
+    print(f"[OK] densified check: chord through the part caught "
+          f"({len(bad)} samples, worst {bad[0]['clearance']:.2f} mm)")
 
 
 def test_curve_degenerate_inputs():
@@ -165,6 +237,8 @@ if __name__ == "__main__":
     test_normalize()
     test_resolve_anchors()
     test_curve_passes_through_points()
+    test_straight_is_the_default_and_costs_nothing_extra()
+    test_straight_chord_through_the_part_is_caught()
     test_curve_degenerate_inputs()
     test_clearance_catches_bow_between_legal_points()
     test_reverse_and_back_pass_excluded()

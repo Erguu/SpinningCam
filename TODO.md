@@ -262,9 +262,34 @@ one edited — the thing that actually misled the operator.
 
 Tests: `_test_exit_tail_gui.py` §9. **29/29** widget + 7/7 pure + 26/26 engine + 6/6 #99.
 
+**✅ D15–D17 2026-08-27 — the waypoints ARE the path; the spline became optional.**
+Field feedback after the fixes above: *"if I have 4-5 waypoints, the pass should only
+have those after P2."* The spline expanded every span to ~24 samples, so 5 points cost
+~100 recipe lines. The PLC **stops at every point** and has a **hard 1000-line ceiling**,
+so the feature worked but was unaffordable. Asked rather than assumed:
+- **D15** — the choice is **per pass**, at the top of the Exit tail window (`exit_shape`).
+- **D16** — **straight is the default everywhere**, including already-saved tails.
+- **D17** — the **P2 fillet is untouched**; the tail still starts at T2 (#99 cap applies).
+
+Implementation notes worth keeping:
+- `check_clearance` now **densifies** before scanning. Required, not cosmetic: in
+  straight mode the chord between two perfectly clear waypoints can pass straight
+  through the part, and checking only the vertices would miss precisely the gouge an
+  operator is most likely to draw.
+- The waypoints are **force-kept through both downsamplers** — `gcode_resolution`
+  (which would drop any pair closer than ~2 mm) and the PLC RDP (which would drop a
+  *collinear* waypoint: no shape change, but the per-point feed step riding on it would
+  vanish, and the operator would run fewer points than his table shows).
+- `exit_shape` is written only when it is NOT the default, so straight tails leave no
+  key behind and older files stay readable.
+- The status line states the cost — "4 points → 4 lines in the recipe" — because the
+  line budget is the thing the operator is actually managing.
+
+Tests: 9/9 pure + 33/33 engine + 40/40 widget + 6/6 #99.
+
 **Left open:**
 - GUI smoke in the real window (Pass Table ▸ Exit tail…) — ⚠️ two rounds done, each found
-  a real bug; **redo now that both are fixed.**
+  a real bug; **redo: straight-mode point count + the shape switch.**
 - ⚠️ PHYSICAL validation — this is the first feature that lets the operator author raw
   geometry; the clearance refusal is the only thing between a typed number and the part.
 - Drag-on-canvas editing (phase 2; the table is the only input today).
