@@ -5,6 +5,51 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-27 (4) — #100: 3B görünüm ve Pas Tablosu artık GERÇEK pası gösteriyor
+
+**Belirti (kullanıcı):** SCL denetleyicide ve Çıkış yolu penceresinde doğru görünüyor,
+**ama** (a) Pas Tablosunda kuyruk HİÇ görünmüyor — pas sıradan bir linear pas gibi
+duruyor, (b) 3B'de "düz çizgi" seçiliyken bile **EĞRİ** çiziliyor, mod değiştirince
+"birazcık" değişiyor.
+
+**İki AYRI kök neden — ikisi de GÖSTERİM katmanında, geometri doğruydu:**
+
+1. **3B: sahte eğri.** `main.py:1121` çıkış bölümünü `pv.Spline(...)` ile çiziyordu —
+   yani bir **görüntü yumuşatma filtresi**, gerçek geometriden bağımsız. Eski
+   parametrik çıkışlarda zararsızdı (noktalar zaten sık, fit birebir); ama 4 noktalı
+   elle çizilmiş kuyrukta operatörün köşelerinden geçen bir EĞRİ uyduruyordu →
+   makinenin ASLA koşmayacağı bir yol gösteriliyordu. Mod değiştirince noktalar biraz
+   kaydığı için "birazcık" fark ediyordu.
+   **Fix (D18):** `last_exit_verbatim` ile düz kuyruk `straight=True` çiziliyor +
+   her waypoint **küre nokta** olarak işaretleniyor. Noktalar **path'ten** alınıyor
+   (`last_waypoint_abs`'tan DEĞİL) → path zaten makine çerçevesinde, yani
+   [[project_canonical_x_frame]] tuzağına düşmek imkânsız.
+2. **Pas Tablosu: kuyruğu hiç bilmiyordu.** `compute_pass_rows` P3'ü hâlâ
+   reach/pass_angle'dan üretiyordu. Sonuç: önizleme P1→P2→parametrik-P3 çiziyor,
+   **Reach / P3 / Bitiş Z sütunları koşmayan bir pası anlatıyordu** — testte fark
+   Bitiş Z'de **36 mm** çıktı (91.00,33.00 yerine 76.95,69.39). Dahası "öncekiyle
+   ~aynı" ve "sac ucu aşımı" uyarıları da yanlış uç noktadan hesaplanıyordu.
+   **Fix (D19/D20):** satır kuyruğu kendisi çözüyor (`p2x_exact` üzerinden):
+   Bitiş = SON waypoint; önizleme P1→P2→her waypoint (son nokta büyük daire);
+   **Reach ve Açı sütunları "—"** (D20 — artık girdi değiller, sayı yazmak
+   düzenlenebilir sanılmasına yol açardı); Kaynak sütunu `yol (4 nk)`;
+   parametrik çıkışa ait uyarılar (reach≈0, klerens koruması) kuyruk varken
+   ÜRETİLMİYOR. Sac-ucu uyarısı KALIYOR ama gerçek P2→son-nokta mesafesinden.
+
+**Test:** `_test_exit_tail_gui.py` §11 (8 assertion) + headless render kontrolü
+(çıkış 4 noktaya çiziliyor = T2 + 3 waypoint, 3 küre, yumuşatma YOK; spline modu
+işaretlenMİYOR). Regresyon: `_test_pass_table`, `_test_pass_pins`,
+`_test_recipe_explain`, `_test_anchored_sweep` **hepsi GEÇİYOR**.
+
+**Geri alma:** `main.py`'de `straight=_verbatim` → `straight=False`;
+`compute_pass_rows`'da `_tail` bloklarını kaldır.
+
+**BİLİNEN KALAN (küçük):** `prov` (provenance) kaydı kuyruk varken hâlâ parametrik
+reach/açı kaynağını tutuyor → `explain.py` bir kuyruk pası için "reach pin'den geliyor"
+diyebilir. Sütunlar "—" gösterdiği için yanıltıcılığı sınırlı; ayrıca ele alınacak.
+
+---
+
 ## 2026-08-27 (3) — #100: noktalar YOLUN KENDİSİ oldu (spline artık opsiyonel)
 
 **Neden (kullanıcı, sahada denedikten sonra):** *"4-5 waypoint'im varsa pas da sadece

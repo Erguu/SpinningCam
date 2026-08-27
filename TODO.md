@@ -287,9 +287,42 @@ Implementation notes worth keeping:
 
 Tests: 9/9 pure + 33/33 engine + 40/40 widget + 6/6 #99.
 
+**✅ D18–D20 2026-08-27 — the 3D view and the Pass Table now show the REAL pass.**
+Field report: correct in the SCL inspector and the tail window, but (a) the Pass Table
+showed no tail at all — an ordinary linear pass — and (b) 3D drew a CURVE even with
+Straight selected, changing only "a little bit" between modes. Two separate causes,
+both in the DISPLAY layer; the geometry was already right.
+
+1. **3D drew a curve that does not exist.** `main.py:1121` rendered the exit section
+   with `pv.Spline(...)` — a display smoothing filter, independent of the actual path.
+   Harmless for the old parametric exits (already dense, fit indistinguishable), but on
+   a 4-point hand-drawn tail it invented a curve through the operator's corners. The
+   "little bit" was the underlying points shifting between modes.
+   → D18: a verbatim tail renders `straight=True`, plus a sphere on every waypoint.
+   The dots are read from the PATH, not from `last_waypoint_abs`, so the canonical/
+   machine frame trap cannot bite here.
+2. **The Pass Table knew nothing about tails.** `compute_pass_rows` still derived P3
+   from reach/pass-angle, so the preview drew P1→P2→parametric-P3 and the Reach / P3 /
+   End Z columns described a pass that was not running — the test measures a **36 mm**
+   End Z discrepancy. The "nearly the same pass" and "beyond blank edge" warnings were
+   computed off that wrong endpoint too.
+   → D19: the row resolves the tail itself (off `p2x_exact`); End = last waypoint;
+   the preview draws P1→P2→every waypoint; Source reads `tail (4 pts)`; warnings that
+   belong to the parametric exit are no longer produced. The beyond-blank advisory
+   stays, measured from the real P2→last-point distance.
+   → D20: Reach and Angle show **—**. They are not inputs on a tail pass, and a number
+   there would read as editable.
+
+Tests: `_test_exit_tail_gui.py` §11 (8 assertions) + a headless render check. Regression:
+`_test_pass_table`, `_test_pass_pins`, `_test_recipe_explain`, `_test_anchored_sweep` all pass.
+
+**Known small gap:** `prov` still records the parametric reach/angle source on a tail
+pass, so `explain.py` can say "reach comes from a pin" for a pass where reach does
+nothing. The columns show — so the exposure is limited; worth a separate tidy-up.
+
 **Left open:**
-- GUI smoke in the real window (Pass Table ▸ Exit tail…) — ⚠️ two rounds done, each found
-  a real bug; **redo: straight-mode point count + the shape switch.**
+- GUI smoke in the real window — ⚠️ three rounds done, each found a real bug;
+  **redo: 3D straight line + waypoint dots, and the Pass Table row/preview.**
 - ⚠️ PHYSICAL validation — this is the first feature that lets the operator author raw
   geometry; the clearance refusal is the only thing between a typed number and the part.
 - Drag-on-canvas editing (phase 2; the table is the only input today).

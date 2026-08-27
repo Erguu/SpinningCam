@@ -1112,13 +1112,32 @@ class SpinningApp:
                             if splits is not None:
                                 line_end = min(splits[0], n_pts - 1)
                                 arc_end  = min(max(splits[1], line_end), n_pts - 1)
+                                # #100 D18: a hand-drawn straight tail is EXACTLY the
+                                # operator's points. Smoothing it here would draw a
+                                # curve the machine will never run — and it did, which
+                                # is how this was found. Parametric exits stay smoothed:
+                                # they are already dense, so the fit is indistinguishable.
+                                _verbatim = i in getattr(self.path_gen,
+                                                         "last_exit_verbatim", set())
                                 poly = _seg_poly(p_arr[:line_end + 1], straight=True)
                                 if arc_end > line_end:
                                     # Arc points are already geometrically exact — render as
                                     # a polyline, no spline smoothing needed.
                                     poly = poly.merge(_seg_poly(p_arr[line_end:arc_end + 1], straight=True))
                                 if arc_end < n_pts - 1:
-                                    poly = poly.merge(_seg_poly(p_arr[arc_end:], straight=False))
+                                    poly = poly.merge(_seg_poly(p_arr[arc_end:],
+                                                                straight=_verbatim))
+                                if _verbatim and arc_end < n_pts - 1:
+                                    # Mark the waypoints themselves. Taken from the PATH,
+                                    # not from last_waypoint_abs: the path is already in
+                                    # machine coordinates, so there is no frame to get
+                                    # wrong (and it reflects the tip shift if that is on).
+                                    _wp = p_arr[arc_end + 1:]
+                                    if len(_wp):
+                                        self.actors["paths"].append(self.plotter.add_mesh(
+                                            pv.PolyData(np.asarray(_wp, dtype=float)),
+                                            color=col, point_size=9,
+                                            render_points_as_spheres=True))
                             else:
                                 # Fallback (e.g. back passes, spline mode): detect a sharp
                                 # corner (>90°) and split there so Spline doesn't overshoot.

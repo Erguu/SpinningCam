@@ -24,6 +24,7 @@ import numpy as np
 
 import exit_waypoints as ew
 import i18n
+from i18n import t
 from mandrel_analyzer import MandrelManager
 from path_generator import PathGenerator
 from ui.dialogs.exit_tail_dialog import ExitTailDialog
@@ -320,6 +321,56 @@ op_bad = make_op(pass_edits={"0": {
     "exit_shape": "wobbly"}})
 d14 = ExitTailDialog(root, FakeApp(op_bad), 0, 0, P2, lambda p, s=None: None)
 check(d14.shape_var.get() == ew.SHAPE_STRAIGHT, "an unknown shape token falls back to straight")
+
+# 11 — the PASS TABLE must describe the pass that actually runs (D19/D20)
+#
+# Field report 2026-08-27: with a tail active, the pass table still drew a plain
+# linear pass and reported the parametric Reach / End Z — i.e. a pass that was
+# not the one running. compute_pass_rows now resolves the tail itself.
+from ui.dialogs.pass_table import compute_pass_rows
+
+TAIL = [{"anchor": "p2", "dx": 6.0, "dz": 1.0, "feed": None},
+        {"anchor": "prev", "dx": 6.0, "dz": 1.0, "feed": None},
+        {"anchor": "prev", "dx": 6.0, "dz": 1.0, "feed": None}]
+
+pt_params = {"mandrel_pos_x_offset": 0.0, "final_part_thickness_on_mandrel": 0.0,
+             "shell_thickness": 0.0, "target_clearance": 1.0}
+
+op_plain = make_op(reach=40.0, pass_angle=170.0)
+op_tail = make_op(reach=40.0, pass_angle=170.0,
+                  pass_edits={"0": {"exit_points": TAIL}})
+
+row_p = compute_pass_rows(op_plain, pt_params, mgr)[0]
+row_t = compute_pass_rows(op_tail, pt_params, mgr)[0]
+
+check(row_p["reach"] is not None and row_t["reach"] is None,
+      "D20: Reach is a number without a tail and a dash with one")
+check(row_t["angle"] is None, "D20: Pass Angle is a dash on a tail pass")
+check(len(row_t.get("tail") or []) == 3,
+      f"the row carries the resolved waypoints ({len(row_t.get('tail') or [])})")
+
+# the endpoint must be the LAST waypoint, not the parametric P3
+exp_x = row_t["p2x_exact"] + 18.0        # 3 steps of dx=6 from P2
+exp_z = row_t["z_exact"] + 3.0
+check(abs(row_t["end_x"] - exp_x) < 1e-6 and abs(row_t["end_z"] - exp_z) < 1e-6,
+      f"End is the last waypoint ({row_t['end_x']:.2f},{row_t['end_z']:.2f}) "
+      f"not the parametric P3 ({row_p['end_x']:.2f},{row_p['end_z']:.2f})")
+check(abs(row_t["end_x"] - row_p["end_x"]) > 1.0,
+      "...and that really differs from what the table showed before")
+check(t("pt_src_tail").format(n=3) == row_t["source"],
+      f"the Source column names it a tail (got '{row_t['source']}')")
+
+# a tail must not inherit warnings computed from the exit it replaced
+_guard = t("pt_warn_guard").format(c=1.0)
+check(all(_guard not in w for w in row_t["warnings"]),
+      f"no stale clearance-guard warning on a tail pass (got {row_t['warnings']})")
+
+# and D10-excluded ops keep the old parametric behaviour entirely
+row_rev = compute_pass_rows(make_op(reach=40.0, pass_angle=170.0, direction="reverse",
+                                    pass_edits={"0": {"exit_points": TAIL}}),
+                            pt_params, mgr)[0]
+check(not (row_rev.get("tail") or []) and row_rev["reach"] is not None,
+      "D10: a reverse op shows no tail and keeps its Reach")
 
 root.destroy()
 

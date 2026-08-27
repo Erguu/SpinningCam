@@ -192,6 +192,7 @@ STRINGS = {
     "et_refused_commit": {"EN": "This tail is no longer clear of the part — the geometry must have changed while the window was open. Adjust the points before saving.",
                           "TR": "Bu yol artık parçadan güvenli uzaklıkta değil — pencere açıkken geometri değişmiş olmalı. Kaydetmeden önce noktaları düzeltin.",
                           "ES": "Esta salida ya no está libre de la pieza — la geometría cambió con la ventana abierta. Ajuste los puntos antes de guardar."},
+    "pt_src_tail":     {"EN": "tail ({n} pts)", "TR": "yol ({n} nk)", "ES": "salida ({n} pts)"},
     "et_shape":        {"EN": "Shape:", "TR": "Şekil:", "ES": "Forma:"},
     "et_shape_straight": {"EN": "Straight lines", "TR": "Düz çizgiler", "ES": "Líneas rectas"},
     "et_shape_spline": {"EN": "Smooth curve", "TR": "Yumuşak eğri", "ES": "Curva suave"},

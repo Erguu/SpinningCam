@@ -17,6 +17,7 @@ import math
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 
+import exit_waypoints
 from i18n import t
 from logger_config import logger
 
@@ -166,6 +167,20 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
         contact_z = target_z + eff_ext          # engine: contact_z = target_z + p2_z_extend
         total_off = r_tool + blank_thick + eff_clr
 
+        # Absolute P2 (non-conformal placement) — mirrors path_generator.py:861.
+        # Computed HERE rather than after the exit maths because a #100 hand-drawn
+        # tail is measured from it, and the tail decides where the pass actually
+        # ends. Everything below that used to describe the exit parametrically is
+        # skipped when a tail exists: it would describe a pass that is not running.
+        try:
+            r_contact = mgr.get_radius_fast(contact_z) + shell_off
+        except Exception:
+            r_contact = 0.0
+        p2_x_abs = center_x + r_contact + total_off
+
+        _tail = exit_waypoints.get_points(op, i)     # honours the D10 exclusions
+        _tail_abs = exit_waypoints.resolve(p2_x_abs, contact_z, _tail) if _tail else []
+
         _rec("anchor", [("op", base_tz), (_org("target_z"), edit_tz)])
         _rec("extend", [("op", p2_ext), (_org("p2_z_extend"), edit_ext)])
         _rec("clr", [("op", op_clearance), (_org("clearance"), edit_clr)])
@@ -220,7 +235,7 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
                 theta_B = theta_A + math.radians(eff_angle)
                 p3_x = L3 * math.cos(theta_B)
                 p3_z = L3 * math.sin(theta_B)
-            else:
+            elif not _tail:
                 warnings.append(t("pt_warn_reach_zero"))
             eff_reach = L3
         else:
@@ -241,7 +256,7 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
         # Clearance anchoring + fold-back guard (engine lines mirror)
         anchored = (reach_v is not None or follow_reach is not None
                     or edit_reach is not None)
-        if anchored:
+        if anchored and not _tail:
             if conformal:
                 try:
                     nx, nz = mgr.get_normal_at_z(contact_z)
@@ -265,6 +280,19 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
         # still exists (est. unformed flange at this Z) → the tail of the pass is
         # an air move. Advisory only; skipped when the blank is already fully
         # formed at this Z (flange ≈ 0 — riding the formed wall is normal there).
+        # #100: with a hand-drawn tail the pass ends at the LAST WAYPOINT, and
+        # reach/angle are no longer inputs — the operator placed the end himself.
+        # The reach FIGURE is still derived (P2 → last point) because the
+        # beyond-blank advisory is about the stroke, not about the setting; the
+        # columns show a dash so it cannot be mistaken for something editable.
+        if _tail:
+            end_x, end_z = _tail_abs[-1]
+            eff_reach = math.hypot(end_x - p2_x_abs, end_z - contact_z)
+            eff_angle = None
+        else:
+            end_x = p2_x_abs + p3_x
+            end_z = contact_z + p3_z
+
         if est_flange is not None and not is_finish:
             try:
                 _fl = est_flange(target_z)
@@ -274,15 +302,6 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
                 warnings.append(t("pt_warn_beyond_blank").format(
                     mm=round(eff_reach - _fl, 1)))
 
-        # Absolute endpoint estimate (non-conformal P2 placement, display only).
-        try:
-            r_contact = mgr.get_radius_fast(contact_z) + shell_off
-        except Exception:
-            r_contact = 0.0
-        p2_x_abs = center_x + r_contact + total_off
-        end_x = p2_x_abs + p3_x
-        end_z = contact_z + p3_z
-
         # "Nearly the same pass": consecutive exit endpoints closer than the
         # roller-contact scale (~2.5 mm) do no distinguishable extra work.
         if prev_end is not None:
@@ -291,7 +310,9 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
         prev_end = (end_x, end_z)
 
         # Source tag (priority order, matches the engine)
-        if bool(st):
+        if _tail:
+            source = t("pt_src_tail").format(n=len(_tail))
+        elif bool(st):
             source = t("pt_src_staged")
         elif bool(pe):
             source = t("pt_src_pin")
@@ -310,7 +331,11 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
                      "anchor": round(target_z, 2), "extend": round(eff_ext, 2),
                      "clr": round(eff_clr, 2),
                      "angle": None if eff_angle is None else round(eff_angle, 2),
-                     "reach": round(eff_reach, 2),
+                     # #100 D20: a tail pass shows a dash — reach and angle no
+                     # longer drive it, and a number here would read as editable.
+                     "reach": None if _tail else round(eff_reach, 2),
+                     # Resolved waypoints, for the 2D preview (absolute, canonical).
+                     "tail": [(round(x, 3), round(z, 3)) for x, z in _tail_abs],
                      "p3x": round(p3_x, 2), "p3z": round(p3_z, 2),
                      "end_x": round(end_x, 2), "end_z": round(end_z, 2),
                      # Absolute control points for the 2D preview (schematic; P1 drawn
@@ -491,7 +516,7 @@ class PassTableDialog(tk.Toplevel):
                 pre = ("✎ " if key in _st else "") + ("◆ " if field in _odd else "")
                 return f"{pre}{val}" if pre else val
             a_txt = _mark("pass_angle", "—" if r["angle"] is None else r["angle"], "angle")
-            r_txt = _mark("reach", r["reach"], "reach")
+            r_txt = _mark("reach", "—" if r["reach"] is None else r["reach"], "reach")
             an_txt = _mark("target_z", r["anchor"], "anchor")
             ex_txt = _mark("p2_z_extend", r["extend"], "extend")
             c_txt = _mark("clearance", r["clr"], "clr")
@@ -542,6 +567,7 @@ class PassTableDialog(tk.Toplevel):
         pts = []
         for r in rows:
             pts += [(mx(r["p1x"]), r["p1z"]), (mx(r["p2x"]), r["z"]), (mx(r["end_x"]), r["end_z"])]
+            pts += [(mx(x), z) for x, z in r.get("tail") or ()]   # #100: keep the tail in view
         mgr = self.app.mandrel_mgr
         prof = []
         if mgr is not None and getattr(mgr, "profile_z", None) is not None \
@@ -585,8 +611,23 @@ class PassTableDialog(tk.Toplevel):
             wdt = 3 if r["i"] == sel else 1
             p1 = to_c(mx(r["p1x"]), r["p1z"])
             p2 = to_c(mx(r["p2x"]), r["z"])
-            p3 = to_c(mx(r["end_x"]), r["end_z"])
-            c.create_line(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1], fill=col, width=wdt)
+            tail = r.get("tail") or ()
+            if tail:
+                # #100: draw the REAL exit — P1→P2 then straight through every
+                # waypoint. The schematic P2→P3 leg does not exist on this pass,
+                # and drawing it would show a pass that is not the one running.
+                flat = [p1[0], p1[1], p2[0], p2[1]]
+                for x, z in tail:
+                    flat.extend(to_c(mx(x), z))
+                c.create_line(*flat, fill=col, width=wdt)
+                for k, (x, z) in enumerate(tail):
+                    wx, wz = to_c(mx(x), z)
+                    rr = 3 if k == len(tail) - 1 else 2      # the last one ends the pass
+                    c.create_oval(wx - rr, wz - rr, wx + rr, wz + rr,
+                                  fill=col, outline="#0e141b")
+            else:
+                p3 = to_c(mx(r["end_x"]), r["end_z"])
+                c.create_line(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1], fill=col, width=wdt)
             c.create_oval(p2[0] - 2, p2[1] - 2, p2[0] + 2, p2[1] + 2, fill=col, outline="")
         c.create_text(mL, H - 5, text="Z →   (X ↑)", fill="#6a7686",
                       anchor="w", font=("Segoe UI", 7))
