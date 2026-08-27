@@ -17,6 +17,80 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.021": [
+        ("Break points: bend the exit where you want, as many times as you want",
+         "The old \"Exit Mid Rotation\" allowed ONE bend and lived on the "
+         "operation. It is replaced by a per-pass list: each row says \"at 40 % "
+         "along the exit, bend the rest by −12°\". Angles are relative, so two "
+         "rows of 10° turn the tail 20° in total. Programs that still carry the "
+         "old single rotation run EXACTLY as before — the window opens showing "
+         "that bend, and it stays on the operation until you press OK.",
+         "Program List ▸ right-click an operation ▸ Passes ▦ ▸ Break points…"),
+        ("Set the breaks on every pass at once, and ramp the angle if you want",
+         "Apply to this pass or to all of them. With all passes you can also "
+         "ramp: each row walks from its angle on the first pass to the \"angle "
+         "at last pass\" value on the last one, in equal steps — the same idea "
+         "as Progressive in the Pass Table. Leave the last column empty to keep "
+         "a row constant. Any single pass can still be adjusted afterwards.",
+         "…▸ Break points… ▸ Apply to"),
+        ("You are told when the point cap flattens a break you drew",
+         "Exit Max Points spaces the surviving points evenly and cannot tell a "
+         "break from ordinary filler — and because a flattened break moves the "
+         "tool AWAY from the part, the clearance check that guards the cap sees "
+         "nothing wrong. It used to happen in silence. Before an SCL export you "
+         "now get told which passes lost bend and how much, and the fix is "
+         "spelled out: raise Exit Max Points to at least (breaks + 2).",
+         "File ▸ Export SCL for TIA Portal (.scl)"),
+        ("The 2D sketches now agree with the 3D view — and with each other",
+         "The Pass Table, the waypoint editor and the SCL Inspector each drew a "
+         "pass a different way up: two of them had the axes swapped, and only "
+         "one mirrored the picture for a machine with the roller on the negative "
+         "side. All three now take their orientation from wherever you have the "
+         "3D view pointed, and say which way they drew it. The layout is fixed "
+         "while a window is open, so a sketch never turns under your hands.",
+         "Program List ▸ … ▸ Passes ▦ · Tools ▸ SCL Inspector"),
+        ("Windows open big enough to show their own buttons",
+         "On a screen set to 125 % or 150 %, text and buttons grow but the "
+         "windows were still asking for a fixed size — so the bottom row, the "
+         "one with OK and Cancel, could end up cut off, and the only cure was to "
+         "drag the window bigger. Every window now opens as large as its "
+         "contents need, and cannot be shrunk small enough to hide its buttons. "
+         "On a genuinely small screen the table shrinks instead of the buttons.",
+         "All windows"),
+    ],
+    "1.020": [
+        ("You can now draw the exit tail yourself, point by point",
+         "The part of a pass after the roller leaves the mandrel used to be described "
+         "only by numbers — reach, angle, bow. Now you can place the points it runs "
+         "through. The editor opens already filled with the tail the pass runs today, "
+         "so you start from a shape that works and nudge it; a point that would put "
+         "the roller inside its clearance is refused on the spot, with the reason. "
+         "The last point ends the pass, so reach and pass angle are greyed out while "
+         "a tail is drawn. Each point can carry its own feed. Passes with no drawn "
+         "tail behave exactly as before.",
+         "Program List ▸ right-click an operation ▸ Passes ▦ ▸ Exit tail…"),
+        ("A drawn tail runs exactly as drawn — five points cost five lines",
+         "The points are joined by straight lines by default, which is what this "
+         "machine wants: it cannot blend corners and a recipe cannot exceed 1000 "
+         "lines. A smooth curve through the same points is still available per pass, "
+         "but it turns five points into about a hundred, so it is off unless you ask "
+         "for it.",
+         "…▸ Exit tail… ▸ Shape"),
+        ("The program now tells you when a tail you drew is not running",
+         "Reverse passes, back passes and spline-shaped passes build their exit "
+         "differently and ignore drawn tails. They used to ignore them silently — the "
+         "points stayed in the file and the pass table showed a shape the machine "
+         "would never cut. The button now says why it is unavailable, and the pass "
+         "table no longer shows a tail that is not being run.",
+         "Program List ▸ right-click an operation ▸ Passes ▦"),
+        ("You can cap how many points the P2 corner and the exit leg spend",
+         "Both are the smoothest parts of a pass and the most expensive in recipe "
+         "lines. Each operation can now cap its own — leave them empty and nothing "
+         "changes. Set a cap and the shape is kept, drawn with fewer points, freeing "
+         "lines for the rest of the program. If a cap is too tight to hold the shape "
+         "it is refused rather than quietly ignored, and the reason is shown.",
+         "Program List ▸ select an operation ▸ Path Shape ▸ P2 Max Points / Exit Max Points"),
+    ],
     "1.019": [
         ("The recipe no longer begins by pulling the roller back to zero — re-export",
          "An exported recipe used to open with two identical rapids to the zero "

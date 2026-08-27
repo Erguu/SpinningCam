@@ -5,6 +5,166 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-28 — SÜRÜM 1.020 + "Kırılma Noktaları" tasarımı (kod YOK)
+
+**Sürüm:** `version.py` 1.019 → **1.020**, `changelog.py`'ye 4 maddelik operatör
+girdisi eklendi. Kapsam: `feature/point-control` dalındaki BİTMİŞ iş — #99 (P2
+fileto nokta sınırı), #100 (elle çizilen çıkış yolu + düz varsayılan + çalışmayan
+yolu bildirme), #101 (çıkış kolu nokta sınırı). Dal hâlâ **PUSH/MERGE EDİLMEDİ**;
+#100 için FİZİKSEL doğrulama hâlâ bekliyor.
+
+**Yeni tasarım dokümanı:** `PROPOSAL_break_points.md` — çok-kırılmalı çıkış
+şekillendirme, mevcut TEK kırılmalı `exit_mid`'in halefi. Kullanıcıyla kararlaştırıldı,
+**henüz UYGULANMADI**:
+- Veri: pas başına `pass_edits[i]["exit_breaks"] = [{"t": 0.40, "angle": -12.0}, …]`;
+  yeni saf modül `exit_breaks.py` (`exit_waypoints.py` deseni).
+- Motor: `path_generator.py:2236` tek rotasyon bloğu → DÖNGÜ. Liste yoksa op
+  seviyesindeki `exit_mid_t`/`exit_mid_rotation`'dan tek elemanlı liste kurulur →
+  **eski programlar birebir aynı geometri**, dosya göçü YOK.
+- Açılar GÖRELİ büküm (bugünkü tek kırılmayla aynı davranış); yüzdeler ORİJİNAL
+  kol dizisine göre, rotasyon sadece kendi indeksinden SONRASINI etkilediği için sıra kararlı.
+- Öncelik kuralları AYNEN: #100 waypoint'ler > kıvrım (curl) > kırılmalar; ters/
+  back-pass/spline'da atlanır.
+- UI: pas tablosunda "Exit tail…" → **Waypoints**, yanına **Break Points**;
+  yeni `ui/dialogs/break_points_dialog.py` (% / açı tablosu, 3D önizleme YOK,
+  "tüm paslara uygula", boş asla değil — eski tek kırılmadan tohumlanır).
+- Eski op seviyesi alanları panelden KALKAR (sessiz geri-dönüş korunur).
+
+### UYGULANDI (motor katmanı) — UI HENÜZ YOK
+- **YENİ `exit_breaks.py`** (saf, OCC/Tk yok): `normalize` / `legacy_break` /
+  `stored` / `get_breaks` / `excluded_reason` / `index_at` / `rotate_about` / `apply`.
+- **`path_generator.py`**: `import exit_breaks`; `calculate_paths`'te pas başına
+  `_brk = exit_breaks.get_breaks(op, i)` → `_create_and_store_pass(..., breaks=_brk)`;
+  eski TEK rotasyon bloğu (17 satır) → `exit_breaks.apply(exit_portion, breaks)`;
+  waypoint'lerin "IGNORED" log satırı artık `exit_breaks(N)` de yazıyor
+  (per-pass liste op anahtarlarından GÖRÜNMEZ, o yüzden çözülmüş listeden raporlanıyor).
+- **`_test_exit_breaks.py` — 47/47 GEÇTİ.** En önemlisi: eski `exit_mid` geometrisi
+  BİREBİR aynı (float düzeyinde), hem birim hem uçtan uca; `rotate_about` OCC
+  `_apply_rotation` ile karşılaştırılıp sabitlendi (kayma imkânsız).
+- **Regresyon:** `_test_exit_mid_curve.py`, `_test_exit_waypoints_engine.py`,
+  `_test_p2_point_cap.py` → hepsi ALL PASS.
+
+**ARAŞTIRMADA ÇIKAN ÖNEMLİ AYRINTI:** `linear_full` çıkış kolunu DAHA ERKEN bir
+`elif` dalında kuruyor (`path_generator.py:2177`) ve rotasyon bloğuna HİÇ ulaşmıyor
+→ eski tek kırılma `linear_full`'da ZATEN çalışmıyordu. Bu yüzden
+`SHAPES_WITH_BREAKS = ("linear_approach",)` — `exit_waypoints.SHAPES_WITH_TAIL`
+ile BİLEREK farklı. Sessizce "düzeltmedim": #92 döneminden gelen davranış, yeni
+özelliğin altına gizlenerek değiştirilmemeli.
+
+### UI KATMANI DA UYGULANDI (aynı gün)
+- **YENİ `ui/dialogs/break_points_dialog.py`**: № / Konum % / Açı ° / Son pastaki açı °
+  tablosu, Ekle-Sil-Temizle, **Uygula: bu pas | tüm paslar** + **rampa** onay kutusu.
+  3D önizleme YOK (kırılma bir konum değil, orana bağlı bir dönüş).
+- **`pass_table.py`**: `pt_btn_tail` artık **"Ara noktalar…"**, yanına
+  **"Kırılma noktaları…"** düğmesi (`_edit_break_points`); dışlanan op'ta kendi
+  gerekçesiyle disabled.
+- **`program_tab.py`**: `exit_mid_rotation` panelden, `OP_PARAM_UNIVERSE`'ten,
+  `SECTION_KEYS`'ten, `_BATCH_ELIGIBLE`'dan ve `OP_PARAM_LABELS`'tan ÇIKARILDI.
+  Anahtar SİLİNMİYOR — motor eski dosyalarda okumaya devam ediyor.
+- **`help_window.py`** EN+TR + `i18n.py` 36 anahtar (EN/TR/ES tam).
+- **`_test_break_points_ui.py` 21/21** + gerçek Tk smoke (pencere açıldı, eski tek
+  kırılmadan tohumlandı, 4 pasa 0→12° rampa doğru yazıldı).
+
+**RAMPA (kullanıcı 2026-08-28, "kolaysa evet"):** kolaydı, çünkü YAZMA eylemi —
+saklama biçimi değişmiyor, N tane somut liste yazılıyor. Aritmetik pas tablosundaki
+Progressive ile AYNI (`a + (b-a)*i/(n-1)`), operatörün bildiği deyim.
+**ÖNCEKİ İDDİAM YANLIŞTI:** `_BATCH_ELIGIBLE` **operasyonlar arasında** toplu
+düzenlemedir (add/set/scale), paslar boyunca rampa DEĞİL → `exit_mid_rotation`
+zaten hiç rampalanamıyordu; korunacak bir davranış yoktu, rampa TAMAMEN YENİ.
+
+### YOL ÜSTÜNDE BULUNAN İKİ GERÇEK KUSUR
+1. **`exit_mid_t` SİLİNEMEZ** — #92 kıvrımı (curl) M noktasını ondan okuyor
+   (`_make_curl_leg`). İlk taslakta OK'ta `exit_mid_rotation` ile birlikte
+   siliniyordu → operatör sonradan kıvrım verirse M sessizce 0.5'e düşerdi.
+   Artık SADECE `exit_mid_rotation` siliniyor.
+2. **#100 çıkış yolu editöründe undo BOZUKTU** (`pass_table._edit_exit_tail._apply`):
+   `_push_undo` mutasyondan SONRA çağrılıyordu, oysa sözleşme "mutasyondan ÖNCE
+   anlık görüntü al" (`program_tab.py:1438`) → tek geri-al eski yolu getiremezdi.
+   Tek satırlık sıra düzeltmesi yapıldı (yeni düğmede zaten doğru).
+
+### KULLANICININ 3 SORUSU — HEPSİ ÖLÇÜLDÜ VE DÜZELTİLDİ (aynı gün)
+
+**S1 — "Kırılma noktaları `exit_max_points` ile sınırlanıyor mu?" → EVET, hem de SESSİZCE.**
+3×10° kırılmalı pasta ÖLÇÜLDÜ: sınır 4 → kayıp yok; **sınır 3 → 5.03° kayıp;
+sınır 2 → 15.0° kayıp**, `last_point_cap_warnings` BOŞ. İki neden: `_thin_evenly`
+noktaları YAY UZUNLUĞUNA göre seçer, köşe kavramı yoktur; ve sınırı koruyan kapı
+sadece CLEARANCE'a bakar — düzleşen kırılma takımı parçadan UZAKLAŞTIRDIĞI için
+kapıdan sorunsuz geçer. **KARAR (kullanıcı): davranış AYNI KALSIN, sadece UYARSIN.**
+→ `last_exit_break_counts` (path→kırılma sayısı), `_total_turn_deg` (nokta
+sayısından bağımsız şekil parmak izi), `last_break_flatten_warnings`,
+`_confirm_break_flatten_warnings` (SCL export'ta, .nc'de değil — seyreltme orada yok).
+
+**S2 — "Pas tablosu neden güncellenmiyor?" → Önizleme kırılmaları HİÇ BİLMİYORDU.**
+`compute_pass_rows` her şeyi op parametrelerinden YENİDEN TÜRETİR, hesaplanmış
+yola BAKMAZ; kırılmalar ise parametrik P3'ten SONRA uygulanır → şematik çizgi
+kıpırdayamazdı. Satırlara `break_leg` + `n_breaks` eklendi, `end_x/end_z` artık
+bükülmüş uca göre. **YAKLAŞIKTIR ve bilerek:** motor `t`'yi T2'den başlayan GERÇEK
+kol dizisinde ölçer, şematik ise P2→uç düz çizgi; büyük `p2_radius`'ta kırılma
+biraz ileri düşer. Kesinlikle yanlış düz çizgi yerine yaklaşık doğru büküm.
+
+**S3 — kamera açısı: ÜÇ FARKLI YÖN varmış (asıl bulgu).**
+Pas tablosu **Z yatay / büyük X yukarı** + makine-tarafı aynası; çıkış yolu editörü
+**X yatay / Z yukarı** + ayna YOK — aynı pas, eksenler TAKAS. Üstüne operatörün
+istediği yere çevirdiği 3D. → **YENİ `ui/preview_orient.py`**: canlı 3D kameradan
+`right`/`up` vektörlerini okuyup 4 yönden birine OTURTUR; ayna da artık burada.
+Pencere AÇILIRKEN bir kez çözülür (elin altında dönmesin — kullanıcı kararı).
+Kamera okunamazsa eski pas-tablosu düzenine döner → 3D yokken davranış aynı.
+Eksen etiketi artık sabit değil, gerçekten çizileni söylüyor.
+
+**Testler:** `_test_preview_orient.py` 17/17 (YENİ) + önceki 11 paketin tamamı OK.
+Gerçek Tk smoke: pas tablosu 9 öğe, çıkış yolu 101 öğe çizdi; kırılmalı pasın ucu
+(104.00, 55.00) → **(100.77, 62.10)** olarak tabloda göründü.
+
+### SCL İNCELEME PENCERESİ de aynı yöne bağlandı (kullanıcı hatırlattı)
+DÖRDÜNCÜ önizlemeydi, aynı sabit düzenle. **TUZAK:** çizdiği yollar
+`last_calculated_paths`'ten geliyor = **MAKİNE X** (motor sonda aynalamış), diğer
+ikisi KANONİK. Olduğu gibi kullansaydım İKİNCİ KEZ aynalanacaktı — pozitif taraflı
+makinede TAMAMEN görünmez, negatifte saçma. → `resolve(app, frame=MACHINE)`
+eklendi; `MACHINE`'de ayna kapalı, eksen düzeni iki çerçevede de aynı.
+Eksen etiketi (`scl_axis_hint`) sabit cümleden `{h}/{v}` şablonuna çevrildi.
+`roller_preview.py` (5. görünüm) KASTEN dokunulmadı — konusu takım kesiti,
+kendi zoom/pan'i var (kullanıcı: "leave roller preview alone").
+
+## 2026-08-28 (2) — #103: OPERATÖR PC'sinde DÜĞMELER GÖRÜNMÜYORDU
+
+**ŞİKÂYET:** "benim PC'mde pop-up'lar yeterince büyük açılıyor, operatörün
+PC'sinde bazı düğmeler altta gizli kalıyor; pencereyi büyütmek gerekiyor ama
+unutuyorlar ve 'Tamam düğmesi nerede' diye soruyorlar."
+
+**KÖK NEDEN — ÖLÇÜLDÜ.** Ana pencere DPI'dan Tk ölçeğini kuruyor
+(`main_window.py:55`, `tk scaling = dpi/72`) → yazı tipi/dolgu/düğme BÜYÜYOR;
+ama her dialog SABİT piksel istiyordu (`self.geometry("820x600")`) → pencere
+büyümüyor. Çıkış yolu editöründe ölçüm:
+
+| DPI | İçeriğin ihtiyacı | Açılan | Sonuç |
+|-----|-------------------|--------|-------|
+| 96 (%100)  | 781x594 | 820x600 | 6 px payla sığıyor (SENİN PC) |
+| 120 (%125) | 786x**654** | 820x600 | **54 px KESİK = OK/İptal satırı** |
+| 144 (%150) | 785x**626** | 820x600 | **26 px kesik** |
+
+**ÇÖZÜM İKİ PARÇA:**
+1. **YENİ `ui/dialog_sizing.py` → `fit(win, w, h)`**: sabit sayı artık CEVAP
+   değil, EN AZ İSTEK. Pencere, Tk'nin kendi ölçtüğü içerik boyutuna (idle'da,
+   widget'lar var olduktan sonra) veya isteğe — hangisi büyükse — açılıyor;
+   ekranın %95/%90'ına kırpılıyor; `minsize` = İÇERİK ihtiyacı, yani düğmeler
+   sonradan da sürüklenerek yok edilemiyor. Ebeveyne ortalanıp ekrana sabitleniyor.
+   **17 dialog + program_tab'daki 2 pencere** tek satırlık değişiklikle geçirildi
+   (`self.geometry("WxH")` → `dialog_sizing.fit(self, W, H)`).
+2. **Düğme çubuğu artık `side="bottom"` ile İLK paketleniyor** (pas tablosu,
+   çıkış yolu, kırılma noktaları). Tk yeri PAKETLEME SIRASINA göre dağıtır; yer
+   yetmediğinde EN SON paketleneni kırpar — yukarıdan aşağı kurulan bir dialogda
+   bu HER ZAMAN düğme satırıdır. Ekran gerçekten küçükse pencereyi büyütmek
+   çözmez; bu çözer (tablo kısalır, düğmeler kalır).
+
+**SONUÇ (ölçüldü):** %125'te çıkış yolu editörü artık **820x654** açılıyor,
+minsize (786, 654). `_test_dialog_sizing.py` **17/17** — içinde pencereyi
+içeriğinden çok daha küçüğe (500x150) ZORLAYIP OK düğmesinin hâlâ ekranda
+olduğunu doğrulayan test de var. 12 paketin tamamı OK.
+
+**KALAN:** gerçek uygulamada GUI smoke (pas tablosundan açılış), FİZİKSEL doğrulama.
+
+---
+
 ## 2026-08-27 (6) — #101: çıkış kolu için nokta sınırı (#99'un ikizi)
 
 **İstek (kullanıcı):** "P2 yarıçapının nokta sayısı için bir parametre eklemiştik,
