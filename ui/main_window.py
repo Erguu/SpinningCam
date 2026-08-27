@@ -551,6 +551,32 @@ class SpinningCamWindow(tk.Tk):
         except Exception:
             return True     # never block an export on a reporting bug
 
+    def _confirm_break_flatten_warnings(self):
+        """#102: the Exit Max Points cap deleted corners a break point created.
+
+        Separate from `_confirm_point_cap_warnings` because it is the OPPOSITE
+        event: there the cap was refused and the shape survived, here the cap was
+        applied and the shape did not. Both are safe to export — the difference
+        is which one the operator has to go and fix.
+
+        Returns True to carry on with the export, False to abort.
+        """
+        try:
+            bw = getattr(self.app.path_gen, "last_break_flatten_warnings", None) or []
+            if not bw:
+                return True
+            ops = "\n".join(
+                "  • " + t("msg_bp_flat_op").format(
+                    op=w.get("op_name", "?"), cap=w.get("cap", 0),
+                    n=w.get("n_breaks", 0), lost=f"{w.get('lost_deg', 0.0):.1f}")
+                for w in bw)
+            return messagebox.askyesno(
+                t("msg_bp_flat_title"),
+                t("msg_bp_flat_body").format(n=len(bw), ops=ops),
+                icon='warning')
+        except Exception:
+            return True     # never block an export on a reporting bug
+
     def _confirm_waypoint_warnings(self):
         """#100: everything the engine knows about hand-drawn exit tails but was
         never showing. Returns True to carry on with the export, False to abort.
@@ -1525,6 +1551,8 @@ class SpinningCamWindow(tk.Tk):
         # here costs the operator nothing, whereas after picking a filename it
         # reads as a failed export.
         if not self._confirm_point_cap_warnings():
+            return
+        if not self._confirm_break_flatten_warnings():      # #102
             return
         if not self._confirm_waypoint_warnings():
             return
