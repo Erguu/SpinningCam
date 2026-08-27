@@ -109,6 +109,14 @@ class ExitTailDialog(tk.Toplevel):
         return d.get("exit_points")
 
     def _clearance(self):
+        """What this pass must keep clear — the SAME resolution chain the engine
+        and the pass table use (`compute_pass_rows`, `pass_table.py:80`).
+
+        The fallback matters: an op that never had `clearance` written on it
+        inherits the machine default, and returning 0.0 there would let this
+        dialog accept a tail the engine treats as a gouge — the refusal is the
+        only thing standing between a typed number and the part.
+        """
         op = self._op() or {}
         pe = (op.get("pass_edits") or {})
         d = pe.get(str(self.pass_index)) or pe.get(self.pass_index) or {}
@@ -118,7 +126,19 @@ class ExitTailDialog(tk.Toplevel):
                     return float(src)
             except (TypeError, ValueError):
                 pass
-        return 0.0
+
+        p = getattr(self.app, "params", {}) or {}
+
+        def _f(v, dflt=0.0):
+            try:
+                return float(v) if v not in (None, "") else dflt
+            except (TypeError, ValueError):
+                return dflt
+
+        if op.get("type") == "finishing":
+            return (_f(op.get("finish_allowance"))
+                    + _f(p.get("safety_clearance_roller_to_part")))
+        return _f(p.get("target_clearance"))
 
     def _geom(self):
         """(radius_at, center_x, base_offset) for the clearance check, or None."""
@@ -229,10 +249,15 @@ class ExitTailDialog(tk.Toplevel):
         bad = self._violations(points)
         if bad:
             w = bad[0]
+            need = self._clearance()
+            # 3 decimals, and the SHORTFALL spelled out. At 2 decimals a small
+            # violation printed as "1.70 mm, needs 1.70 mm" — the same number
+            # twice, which reads as a bug rather than as a measurement.
             self.lbl_status.config(
                 text=t("et_refused").format(
-                    what=what, need=f"{self._clearance():.2f}",
-                    got=f"{w['clearance']:.2f}",
+                    what=what, need=f"{need:.3f}",
+                    got=f"{w['clearance']:.3f}",
+                    short=f"{max(need - w['clearance'], 0.0):.3f}",
                     x=f"{w['x']:.1f}", z=f"{w['z']:.1f}"),
                 fg="#a01000", bg="#ffecea")
             self.bell()

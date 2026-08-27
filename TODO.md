@@ -232,9 +232,39 @@ side. Verified to bite: with `_to_canonical` stubbed to identity the seed return
 (Every earlier #100 test ran at the default positive side, which is precisely why this
 got past 26 engine + 16 widget assertions.)
 
+**✅ SECOND BUG, FIXED 2026-08-27 — every point of every pass was refused.**
+With ΔX sane again, nothing was accepted: all 4 points gave the SAME message,
+*"1.70 mm from the part … needs at least 1.70 mm"* — the same number twice, reported at
+X122.3 **Z12.0**, which is the pass's own P2_Z. So the refusal was about the START of
+the tail (P2 itself), not about the edit; `_try` always reports the WORST violation, so
+every point produced the identical complaint about a point the operator cannot move.
+
+Three separate faults, all fixed:
+1. **Root cause — rounded P2.** The row carried `round(p2_x_abs, 2)`. P2 sits at
+   *exactly* the op clearance by construction, so rounding it up to 5 µm inward is
+   enough to fail the check, while both numbers still print as "1.70".
+   → row now also carries `p2x_exact` / `z_exact`; `_edit_exit_tail` uses those.
+   **Never hand a rounded display value to something that does geometry.**
+2. **Knife-edge comparison.** Lying exactly ON the clearance contour is legal and
+   normal (P2 always does; a surface-following tail does at every point).
+   → `exit_waypoints.CLEARANCE_EPS = 1e-3` (1 µm) — below anything the machine can
+   position, above float noise. A real gouge is tenths of a mm, never microns.
+   ⚠️ The tolerance does **not** subsume fix 1: rounding drift is 5 µm = 5×EPS. Both
+   are needed; the test characterises this so neither gets dropped later.
+3. **Safety hole (found on the way).** `_clearance()` returned **0.0** when the op had
+   no explicit `clearance`, so the dialog could ACCEPT a tail the engine treats as a
+   gouge. → now mirrors the engine/pass-table chain (finishing →
+   `finish_allowance + safety_clearance_roller_to_part`, else `params.target_clearance`).
+
+Also made the refusal readable (`et_refused`, EN/TR/ES): states the SHORTFALL, prints
+3 decimals instead of 2, and warns that the tight spot may be a different point than the
+one edited — the thing that actually misled the operator.
+
+Tests: `_test_exit_tail_gui.py` §9. **29/29** widget + 7/7 pure + 26/26 engine + 6/6 #99.
+
 **Left open:**
-- GUI smoke in the real window (Pass Table ▸ Exit tail…) — ⚠️ partially done, found the
-  bug above; **redo now that it is fixed.**
+- GUI smoke in the real window (Pass Table ▸ Exit tail…) — ⚠️ two rounds done, each found
+  a real bug; **redo now that both are fixed.**
 - ⚠️ PHYSICAL validation — this is the first feature that lets the operator author raw
   geometry; the clearance refusal is the only thing between a typed number and the part.
 - Drag-on-canvas editing (phase 2; the table is the only input today).

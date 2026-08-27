@@ -317,6 +317,13 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
                      # at the P1_Z anchor so it matches the columns).
                      "p1x": round(p2_x_abs + p1_x, 2), "p1z": round(target_z, 2),
                      "p2x": round(p2_x_abs, 2),
+                     # UNROUNDED P2, for callers that do geometry rather than
+                     # display (#100's exit-tail editor). P2 sits at EXACTLY the
+                     # op clearance by construction, so the 2-decimal rounding
+                     # above — up to 5 µm inward — is enough on its own to make a
+                     # clearance check report "1.70 mm, needs 1.70 mm" and refuse
+                     # every edit. Never hand the rounded value to a check.
+                     "p2x_exact": p2_x_abs, "z_exact": contact_z,
                      "source": source, "pinned": pinned,
                      "legacy_override": legacy, "warnings": warnings,
                      "prov": prov})
@@ -851,8 +858,11 @@ class PassTableDialog(tk.Toplevel):
                 pass
 
         from ui.dialogs.exit_tail_dialog import ExitTailDialog
+        # EXACT P2 — the rounded display values would put the tail's own start
+        # a few µm inside its clearance and refuse every edit (see the row dict).
         dlg = ExitTailDialog(self, self.app, self.op_index, row["i"],
-                             (row["p2x"], row["z"]), _apply)
+                             (row.get("p2x_exact", row["p2x"]),
+                              row.get("z_exact", row["z"])), _apply)
         dlg.grab_set()
         self.wait_window(dlg)
 

@@ -214,6 +214,64 @@ same = (len(d8p.points) == len(seeded)
                 for a, b in zip(d8p.points, seeded)))
 check(same, "the stored tail is side-independent (same numbers on either machine)")
 
+# 9 — the tail STARTS at exactly the op clearance, and that must be legal
+#
+# Field report 2026-08-27: every point of every pass refused with
+# "1.70 mm from the part ... needs at least 1.70 mm" — the same number twice,
+# reported at P2's own Z. Two causes, both here:
+#   (a) the dialog was handed round(p2_x_abs, 2); P2 sits at EXACTLY the
+#       clearance, so rounding a few µm inward put the tail's own start inside.
+#   (b) an exact comparison makes "exactly on the clearance contour" — which is
+#       what P2 is by construction — a knife edge.
+CLR = 1.70
+z_c = 30.0
+p2_exact = mgr.get_radius_fast(z_c) + 25.0 + CLR      # r + r_tool + clearance
+tight = make_op(clearance=CLR, start_z=z_c)
+app_t = FakeApp(tight)
+
+d9 = ExitTailDialog(root, app_t, 0, 0, (p2_exact, z_c), lambda p: None)
+check(abs(d9._clearance() - CLR) < 1e-9,
+      f"the dialog reads the op clearance ({d9._clearance():.2f})")
+
+# A tail that hugs the clearance contour: every point exactly at the limit.
+hug = [{"anchor": "p2", "feed": None, "dx": 0.0, "dz": dz}
+       for dz in (0.45, 0.86, 1.26, 1.66)]
+hug = [{**w, "dx": round(mgr.get_radius_fast(z_c + w["dz"]) - mgr.get_radius_fast(z_c), 6)}
+       for w in hug]
+v = d9._violations(hug)
+check(not v, f"a tail lying ON the clearance contour is allowed ({len(v)} flagged)")
+
+# Worst-case 2-decimal rounding is 5 µm INWARD. That is 5x CLEARANCE_EPS, so the
+# tolerance alone does NOT cover it — which is exactly why the pass table now
+# hands over p2x_exact instead of the rounded display value. Characterise both
+# halves so neither fix can be dropped in the belief the other one covers it.
+d9r = ExitTailDialog(root, app_t, 0, 0, (p2_exact - 0.005, z_c), lambda p: None)
+check(bool(d9r._violations(hug)),
+      "a 5 um inward P2 (what rounding did) DOES refuse - so exact P2 is required")
+check(0.005 > ew.CLEARANCE_EPS,
+      f"...because rounding drift ({5:.0f} um) exceeds CLEARANCE_EPS "
+      f"({ew.CLEARANCE_EPS * 1000:.0f} um)")
+
+# And the pass table supplies that exact value.
+import ui.dialogs.pass_table as _pt
+src = open(_pt.__file__, encoding="utf-8").read()
+check('"p2x_exact"' in src and 'row.get("p2x_exact"' in src,
+      "compute_pass_rows exports p2x_exact and the tail editor consumes it")
+
+# ...and a genuine gouge is still caught at this tight clearance.
+dig = [dict(w) for w in hug]
+dig[1]["dx"] = dig[1]["dx"] - 0.5              # 0.5 mm into the part
+check(bool(d9._violations(dig)), "0.5 mm into the part is still refused at 1.70 mm clearance")
+
+# clearance falls back to the machine default when the op does not carry one
+noc = make_op()
+noc.pop("clearance")
+app_n = FakeApp(noc)
+app_n.params["target_clearance"] = 2.5
+d10 = ExitTailDialog(root, app_n, 0, 0, P2, lambda p: None)
+check(abs(d10._clearance() - 2.5) < 1e-9,
+      f"an op with no clearance inherits the machine default (got {d10._clearance():.2f}, not 0)")
+
 root.destroy()
 
 print()

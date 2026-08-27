@@ -5,6 +5,54 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-27 (2) — DÜZELTME: çıkış yolu editörü HER noktayı reddediyordu (#100)
+
+**Belirti (kullanıcı, saha):** ΔX düzeldikten sonra bile *hiçbir* değer kabul
+edilmiyordu; bir pasın 4 noktasının hepsi AYNI hatayı veriyordu:
+*"rulonun parçaya 1.70 mm kalmasına yol açardı; bu operasyon en az 1.70 mm istiyor."*
+**Aynı sayı iki kez** — ve bildirilen konum (X122.3 **Z12.0**) pasın kendi P2_Z'siydi.
+
+Yani reddedilen şey operatörün düzenlemesi değil, **kuyruğun BAŞLANGICI = P2'nin
+kendisiydi.** Operatör P2'yi kıpırdatamaz; bu yüzden hangi noktayı düzenlerse
+düzenlesin aynı hatayı alıyordu (`_try` her zaman EN KÖTÜ ihlali yazar).
+
+**Üç ayrı sorun, üçü de düzeltildi:**
+
+1. **KÖK NEDEN — yuvarlanmış P2.** `compute_pass_rows` satıra `round(p2_x_abs, 2)`
+   koyuyor ve diyaloga o veriliyordu. P2 tanım gereği **TAM OLARAK** op clearance'ında
+   durur; 2 ondalığa yuvarlamak onu 5 µm'ye kadar İÇERİ itiyor → clearance
+   `1.695 < 1.700` → ihlal, ama ikisi de "1.70" diye yazılıyor.
+   **Fix:** satıra `p2x_exact` / `z_exact` (yuvarlanmamış) eklendi; `_edit_exit_tail`
+   bunları kullanıyor. *Geometri yapan bir çağırana ASLA yuvarlanmış değer verme.*
+2. **Bıçak sırtı karşılaştırma.** Clearance kontürünün TAM ÜSTÜNDE durmak yasal ve
+   olağandır (P2 hep öyledir; yüzeyi takip eden bir kuyruğun her noktası öyledir).
+   Kesin karşılaştırma bunu kıl payı hataya çeviriyordu.
+   **Fix:** `exit_waypoints.CLEARANCE_EPS = 1e-3` (**1 µm**) — makinenin
+   konumlayabileceğinin çok altında, float gürültüsünün çok üstünde. Gerçek gouge
+   onda birler mertebesindedir, mikron değil.
+   ⚠️ **Tolerans TEK BAŞINA yetmez:** yuvarlama sapması 5 µm = 5×EPS. İki fix
+   birbirinin yerine geçmez; ikisi de gerekli (test bunu açıkça karakterize ediyor).
+3. **GÜVENLİK AÇIĞI (yan bulgu).** `_clearance()` op'ta `clearance` yoksa **0.0**
+   dönüyordu → diyalog, motorun gouge saydığı bir kuyruğu KABUL edebilirdi.
+   **Fix:** motorun/pas tablosunun zinciri birebir kopyalandı (bitirme →
+   `finish_allowance + safety_clearance_roller_to_part`, aksi hâlde
+   `params.target_clearance`).
+
+**Ayrıca — hata mesajı okunabilir yapıldı** (`et_refused`, EN/TR/ES): artık **EKSİK
+MİKTARI** söylüyor, 2 yerine **3 ondalık** basıyor ("1.70 mm ... 1.70 mm istiyor"
+hatayı hataya benzetiyordu) ve *"dar yer düzenlediğinizden BAŞKA bir nokta olabilir"*
+uyarısını ekliyor — kullanıcıyı asıl yanıltan buydu.
+
+**Test:** `_test_exit_tail_gui.py` §9 — clearance kontürüne YAPIŞIK kuyruk kabul
+ediliyor; 5 µm içeri itilmiş P2 reddediliyor (yuvarlamanın yaptığı şey — yani exact
+P2 ŞART); 0.5 mm dalma hâlâ reddediliyor; clearance'sız op makine varsayılanını
+miras alıyor. **29/29** widget + 7/7 saf + 26/26 motor + 6/6 #99.
+
+**Geri alma:** `p2x_exact` yerine `p2x` geç + `CLEARANCE_EPS`'i `1e-9` yap (eski
+davranış) — ama o zaman özellik yine kullanılamaz olur.
+
+---
+
 ## 2026-08-27 — DÜZELTME: çıkış yolu editörü NEGATİF taraflı makinede saçmalıyordu (#100)
 
 **Belirti (kullanıcı, gerçek pencerede):** Pas Tablosu ▸ "Çıkış yolu…" açılınca ΔX

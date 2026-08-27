@@ -45,6 +45,21 @@ SAMPLES_PER_SPAN = 24
 
 VALID_ANCHORS = ("p2", "prev")
 
+# How far inside the clearance a sample may sit before it counts as a violation.
+#
+# Sitting EXACTLY on the clearance contour is legal and common: P2 is placed at
+# exactly the op clearance by construction, and an exit tail that follows the
+# part surface has every point on that contour by design. An exact comparison
+# turns those legitimate shapes into a knife edge — the interpolating curve
+# bows a few nanometres inside the chord between two points that are both
+# precisely on the limit, and the operator gets "1.70 mm, needs 1.70 mm" with
+# no number he can type to satisfy it.
+#
+# 1 µm: far below anything this machine can position or measure (and far below
+# the mandrel-profile sampling error), while being orders of magnitude above
+# float noise. A real gouge is tenths of a millimetre, never microns.
+CLEARANCE_EPS = 1e-3
+
 
 # ── data model ──────────────────────────────────────────────────────────────
 def normalize(raw):
@@ -182,7 +197,10 @@ def check_clearance(curve, radius_at, center_x, base_offset, min_clearance):
     the engine uses, passed in so this module stays free of engine state.
 
     Returns a list of {index, x, z, clearance} for the sampled points that
-    violate, worst first. Empty list = the tail is clear.
+    violate, worst first. Empty list = the tail is clear. A sample is judged
+    against `min_clearance - CLEARANCE_EPS`, so a tail lying exactly ON the
+    clearance contour passes — see CLEARANCE_EPS for why that case is normal
+    rather than marginal.
 
     ⚠️ Checks the GENERATED CURVE, not the typed waypoints. Because the roller
     passes through every point, two perfectly legal waypoints can still bow the
@@ -197,7 +215,7 @@ def check_clearance(curve, radius_at, center_x, base_offset, min_clearance):
         if r is None:
             continue
         clear = abs(float(x) - center_x) - (float(r) + base_offset)
-        if clear < min_clearance - 1e-9:
+        if clear < min_clearance - CLEARANCE_EPS:
             bad.append({"index": int(k), "x": float(x), "z": float(z),
                         "clearance": float(clear)})
     bad.sort(key=lambda d: d["clearance"])
