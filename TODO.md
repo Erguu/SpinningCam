@@ -187,42 +187,54 @@ commit: `exit_waypoints.py` (pure), `ui/dialogs/exit_tail_dialog.py`, the Pass T
 Tests: 7/7 pure + 26/26 engine (**absent = byte-identical**) + 16/16 real-widget.
 Detail + rollback → `LAST_CHANGES.md` 2026-08-27.
 
-**🔴 BUG — FIRST THING NEXT SESSION (found by the user in the real window, 2026-08-27).**
-Screenshot: `images/ExitTailCalculationError.JPG`. Two symptoms, ONE root cause:
+**✅ BUG FIXED 2026-08-27** (found by the user in the real window; screenshot
+`images/ExitTailCalculationError.JPG`). Two symptoms, ONE root cause:
 1. ΔX opens at huge negatives (−270.15, −292.99, −315.58, −338.17) while ΔZ is small.
 2. **Every hand-typed value is refused**, and no sensible number is ever accepted.
 
 **ΔZ is CORRECT** — 0.45 / 0.86 / 1.26 / 1.66, and 1.66 is exactly `P3_Z − P2_Z`
-(13.66 − 12.0) from the pass table. So only the X frame is wrong.
+(13.66 − 12.0) from the pass table. So only the X frame was wrong.
 
-**ROOT CAUSE (code-confirmed, not yet fixed): P2's X comes from the wrong frame.**
-`compute_pass_rows` builds `p2_x_abs = center_x + r_contact + total_off`
-(`ui/dialogs/pass_table.py:282`) — **always the POSITIVE side, no `side` factor**. The
-engine mirrors real paths by `side = 1.0 if roller_positive_x_side else -1.0`
-(`path_generator.py:387`). On this machine the paths are on the NEGATIVE side, so
-`row["p2x"]` ≈ +123 while the pass actually runs at ≈ −123. `ExitTailDialog` is handed
-`(row["p2x"], row["z"])`, so its P2 is mirrored away from the path.
-Arithmetic check against the screenshot: seed point 1 true x ≈ −147 ⇒
-`dx = −147 − (+123) = −270` ✓; last point true x ≈ −218 ⇒ `dx = −341` ≈ −338 ✓.
+**ROOT CAUSE: the SEED sampled machine-frame X and subtracted a canonical P2.**
+The engine generates every pass in the canonical (+X) frame and mirrors X around the
+mandrel centre only at the very END of `calculate_paths` (`path_generator.py:1141`).
+So `last_calculated_paths` is in MACHINE X, while `exit_points`, `p2`,
+`last_waypoint_abs` and the emitted feeds are all canonical.
+`_seed_from_current_path` read those mirrored paths and subtracted `self.p2x`,
+giving `dx ≈ −2·P2ₓ` on a negative-side machine.
 
-**Why every typed value is refused** (the non-obvious half): the SEED still round-trips —
-`resolve()` adds the same wrong P2 back, so the seeded absolute positions are right and
-the seed itself validates. But a sensible number the operator types (say −20) resolves
-to `+123 − 20 = +103`, i.e. the WRONG SIDE of the axis, which is inside the part ⇒
-refused. Only absurd values near −270 are accepted. One root cause, both symptoms.
+⚠️ **The first diagnosis (written at the end of the previous session) blamed
+`compute_pass_rows` and was WRONG.** Its `p2_x_abs = center_x + r_contact + total_off`
+(`ui/dialogs/pass_table.py:282`) is *exactly* the engine's canonical `p2_x`
+(`path_generator.py:861`) — right formula, right frame, correct to hand to the dialog.
+Patching it, as that note proposed, would have broken a correct call site and left the
+seed broken anyway. Lesson for this codebase: ask *which frame is this value in* before
+reading a missing `side` factor as a bug.
 
-**Fix direction (decide next session):** do NOT patch `compute_pass_rows` — its `p2x`
-is only used for its own self-consistent schematic preview, and changing it risks that.
-Either (a) mirror it for this caller by `roller_positive_x_side`, or (b) better, take P2
-straight from the calculated path (the tail already starts at `split[1]` = T2), so the
-dialog and the path can never be in different frames again. (b) also kills the whole
-class of bug rather than this instance. Add a regression test on a negative-side machine
-— every #100 test so far runs at the default positive side, which is why this got past
-26 engine + 16 widget assertions.
+**Why every typed value was refused** (the non-obvious half): the seed round-trips —
+`resolve()` adds the same P2 back, so the seeded absolute positions were self-consistent
+and the seed itself validated. But any sensible typed number resolved against a baseline
+~2·P2ₓ away, landing inside the part ⇒ refused. Only absurd values near −270 were
+accepted. One root cause, both symptoms.
+
+**FIX:** new `ExitTailDialog._to_canonical()` un-mirrors sampled path X via
+`roller_positive_x_side` / `mandrel_pos_x_offset`; `_seed_from_current_path` routes every
+sample through it. Identity on a positive-side machine, so nothing changes there.
+The dialog is now documented as canonical-throughout (module docstring, FRAME section),
+which is also the sense the stored `dx` already shared with the op's own `p3_x`: **+dx
+means "away from the axis" whichever side the roller runs on.**
+
+**Regression:** `_test_exit_tail_gui.py` §8 — negative-side machine with a mirrored path:
+the seed lands back on the canonical path (err 0.0), an ordinary outward nudge is
+ACCEPTED, a real gouge is still refused, and the stored numbers are identical on either
+side. Verified to bite: with `_to_canonical` stubbed to identity the seed returns
+−161…−179 and the nudge is refused — the screenshot reproduced. 22/22 pass.
+(Every earlier #100 test ran at the default positive side, which is precisely why this
+got past 26 engine + 16 widget assertions.)
 
 **Left open:**
 - GUI smoke in the real window (Pass Table ▸ Exit tail…) — ⚠️ partially done, found the
-  bug above; redo after the fix.
+  bug above; **redo now that it is fixed.**
 - ⚠️ PHYSICAL validation — this is the first feature that lets the operator author raw
   geometry; the clearance refusal is the only thing between a typed number and the part.
 - Drag-on-canvas editing (phase 2; the table is the only input today).

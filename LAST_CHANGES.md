@@ -5,6 +5,55 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-27 — DÜZELTME: çıkış yolu editörü NEGATİF taraflı makinede saçmalıyordu (#100)
+
+**Belirti (kullanıcı, gerçek pencerede):** Pas Tablosu ▸ "Çıkış yolu…" açılınca ΔX
+kocaman negatif sayılar gösteriyordu (−270.15 / −292.99 / −315.58 / −338.17), ΔZ ise
+küçük ve DOĞRU (sonuncusu tam olarak `P3_Z − P2_Z`). Üstelik **elle girilen her makul
+değer reddediliyordu.** Ekran görüntüsü: `images/ExitTailCalculationError.JPG`.
+
+**Kök neden — TEK bir yerde, çerçeve karışıklığı.** Motor her pası KANONİK (+X)
+çerçevede üretir ve X'i mandrel merkezine göre ancak `calculate_paths`'in EN SONUNDA
+aynalar (`path_generator.py:1141`). Yani `last_calculated_paths` MAKİNE çerçevesinde;
+`exit_points`, `p2`, `last_waypoint_abs` ve basılan feed'ler ise KANONİK.
+`_seed_from_current_path` aynalanmış path'ten örnekleyip kanonik `self.p2x`'i çıkarıyordu
+→ negatif taraflı makinede `dx ≈ −2·P2ₓ`.
+
+*Reddetmenin sebebi de aynı kök:* tohum kendi içinde tutarlıydı (aynı P2 geri eklenince
+mutlak konumlar doğru çıkıyor), ama operatörün yazdığı makul bir sayı ~2·P2ₓ uzaktaki bir
+tabana göre çözülüp parçanın İÇİNE düşüyordu → haklı olarak reddediliyordu.
+
+⚠️ **Bir önceki oturumun sonunda yazılan ilk teşhis YANLIŞTI** — `compute_pass_rows`
+suçlanmıştı. Oradaki `p2_x_abs = center_x + r_contact + total_off`
+(`ui/dialogs/pass_table.py:282`) motorun kanonik `p2_x`'i ile BİREBİR AYNI
+(`path_generator.py:861`); doğru formül, doğru çerçeve. O not uygulansaydı ÇALIŞAN bir
+çağrı yeri bozulacak, tohum yine bozuk kalacaktı.
+
+**Değişen (tek dosya):** `ui/dialogs/exit_tail_dialog.py`
+- YENİ `_to_canonical(x)` — `roller_positive_x_side` / `mandrel_pos_x_offset` ile
+  makine X'ini kanonik X'e geri çevirir. **Pozitif taraflı makinede birebir kimlik
+  (identity) → orada HİÇBİR ŞEY değişmez.**
+- `_seed_from_current_path` her örneği bu fonksiyondan geçirir (tek satır).
+- Modül docstring'ine FRAME bölümü eklendi: diyalog baştan sona KANONİK çalışır — bu
+  zaten saklanan `dx`'in op'un kendi `p3_x`'i ile paylaştığı anlam, yani **+dx = eksenden
+  UZAĞA**, roller hangi tarafta olursa olsun.
+
+**Test:** `_test_exit_tail_gui.py` §8 (negatif taraflı makine + aynalanmış path):
+tohum kanonik path'e geri oturuyor (hata 0.0), normal bir dışa itme KABUL EDİLİYOR,
+gerçek gouge hâlâ REDDEDİLİYOR, saklanan sayılar iki tarafta da AYNI. **22/22 geçiyor.**
+Testin gerçekten ısırdığı kanıtlandı: `_to_canonical` kimliğe sabitlenince tohum
+−161…−179 dönüyor ve itme reddediliyor — ekran görüntüsü aynen tekrar üretiliyor.
+Diğer paketler: 7/7 saf + 26/26 motor + 6/6 #99 — hepsi yeşil.
+
+**Geri alma:** `_to_canonical`'ı `return float(x)` yap (eski davranış) — ama o zaman
+negatif taraflı makinede özellik yine kullanılamaz olur.
+
+**NOT:** #100'ün o güne dek yazılmış 26 motor + 16 widget testinin HEPSİ varsayılan
+POZİTİF tarafta koşuyordu; bug tam da bu yüzden kaçtı. Aynalanan bir şeye dokunan yeni
+testler iki tarafta da koşturulmalı.
+
+---
+
 ## 2026-08-27 — Elle çizilen çıkış yolu (TODO #100) — pas başına waypoint'ler
 
 **Neden (kullanıcı, 2026-08-26):** "exit_mid_t'nin gelişmiş hâli" — operatör P2'den

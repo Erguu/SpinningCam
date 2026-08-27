@@ -15,6 +15,16 @@ Two rules shape the whole dialog:
   clearance is refused and the old value restored, with the reason. Because the
   roller passes THROUGH every point, the whole tail is rebuilt and re-checked on
   every edit — moving one point bows the curve through its neighbours.
+
+FRAME (2026-08-27, bug fix). Everything here is CANONICAL (positive-X) space,
+the frame the engine generates in and the frame the stored dx/dz live in — the
+same sense as the op's own `p3_x`/`p3_z`, so +dx always means "away from the
+axis" whichever side the roller is on. The one thing that is NOT canonical is
+`last_calculated_paths`: the engine mirrors X around the mandrel centre at the
+very end of `calculate_paths` (path_generator.py:1141) for a negative-side
+machine. The seed samples those paths, so it MUST mirror them back — see
+`_to_canonical`. Getting this wrong is silent on a positive-side machine and
+nonsense on a negative-side one (ΔX seeded at −270 instead of +5).
 """
 import tkinter as tk
 from tkinter import ttk, messagebox
@@ -133,6 +143,19 @@ class ExitTailDialog(tk.Toplevel):
                 + float(op.get("r_tool", 25.0)))
         return radius_at, float(p.get("mandrel_pos_x_offset", 0.0)), base
 
+    # ── frame ──────────────────────────────────────────────────────────
+    def _to_canonical(self, x):
+        """Real machine X → canonical (positive-X) X.
+
+        Identity on a positive-side machine. On a negative-side one it undoes
+        the end-of-calculation mirror around the mandrel centre, which is the
+        only reason a calculated path ever disagrees with P2 here.
+        """
+        p = getattr(self.app, "params", {}) or {}
+        if p.get("roller_positive_x_side", True):
+            return float(x)
+        return 2.0 * float(p.get("mandrel_pos_x_offset", 0.0)) - float(x)
+
     # ── seeding ────────────────────────────────────────────────────────
     def _seed_from_current_path(self):
         """Sample the pass's CURRENT exit leg into a handful of P2-relative points.
@@ -140,6 +163,12 @@ class ExitTailDialog(tk.Toplevel):
         Uses the real calculated path rather than re-deriving the parametric
         shape, so whatever the op is doing today — bow, curl, arc, plain line —
         is what the operator starts from.
+
+        The sampled path is in MACHINE X, P2 is in canonical X, so every sample
+        goes through `_to_canonical` before the subtraction. Without it, a
+        negative-side machine seeds ΔX ≈ −(2·P2) and then refuses every sane
+        number the operator types, because they resolve to the far side of the
+        axis — i.e. inside the part.
         """
         try:
             pg = self.app.path_gen
@@ -165,7 +194,7 @@ class ExitTailDialog(tk.Toplevel):
             for target in picks:
                 k = int(np.argmin(np.abs(cum - target)))
                 out.append({"anchor": "p2", "feed": None,
-                            "dx": round(float(tail[k][0]) - self.p2x, 3),
+                            "dx": round(self._to_canonical(tail[k][0]) - self.p2x, 3),
                             "dz": round(float(tail[k][2]) - self.p2z, 3)})
             return ew.normalize(out)
         except Exception as e:

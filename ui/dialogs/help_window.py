@@ -2224,7 +2224,11 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  Each point is measured either From P2 (moving it
                  moves only that point) or From previous (moving it
                  drags the ones after it). Both describe the same
-                 shape; pick whichever is easier to think in. A
+                 shape; pick whichever is easier to think in.
+                 +DX is always AWAY FROM THE AXIS and +DZ toward
+                 the open end, whichever side of the mandrel your
+                 roller is mounted on - the same sense as the
+                 operation's own P3 X / P3 Z fields. A
                  Feed on a point applies to the stretch ARRIVING at
                  it, so put the slow number on the point near the
                  sheet edge; leave it empty to keep the previous
@@ -2600,6 +2604,10 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   "P2'den" sadece o noktayı taşır; "Öncekinden" ise
                   sonraki noktaları da sürükler. İkisi de aynı şekli
                   anlatır; hangisiyle düşünmek kolaysa onu seçin.
+                  +ΔX her zaman EKSENDEN UZAĞA, +ΔZ ise açık uca
+                  doğrudur — rulo mandrelin hangi tarafında olursa
+                  olsun. Bu, operasyonun kendi P3 X / P3 Z
+                  alanlarıyla AYNI işaret kuralıdır.
                   Bir noktadaki İlerleme, o noktaya GELEN bölüme
                   uygulanır — yavaş değeri sac kenarına yakın noktaya
                   yazın; boş bırakırsanız önceki hız sürer.

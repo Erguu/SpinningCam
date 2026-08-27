@@ -11,6 +11,10 @@ Tk works headless in this env) and drives its logic directly:
   5. Toggling an anchor does not move the point.
   6. OK writes into pass_edits; Remove tail takes it back out.
   7. Every i18n key the dialog uses exists in EN/TR/ES.
+  8. NEGATIVE-SIDE MACHINE: the seed reads a mirrored path but P2 is canonical,
+     so it must mirror back. Regression for the 2026-08-27 bug (ΔX seeded at
+     −270 and every typed value refused). Everything above runs on the default
+     positive side, which is exactly why that bug got through.
 
     runtest.bat _test_exit_tail_gui.py
 """
@@ -154,6 +158,61 @@ check(not missing, f"every dialog i18n key exists (missing: {missing})")
 half = [k for k in KEYS if k in i18n.STRINGS
         and not all(lg in i18n.STRINGS[k] for lg in ("EN", "TR", "ES"))]
 check(not half, f"every dialog key has EN/TR/ES (incomplete: {half})")
+
+# 8 — negative-side machine: the seed must come back into the canonical frame
+#
+# The engine mirrors X around the mandrel centre at the END of calculate_paths
+# (path_generator.py:1141), so last_calculated_paths is in MACHINE X while P2
+# (compute_pass_rows, matching path_generator.py:861) is canonical. Feed the
+# dialog a mirrored path and check the seed lands back on the canonical one.
+CANON_TAIL = [(P2[0] + 5.0, 31.0), (P2[0] + 11.0, 32.0),
+              (P2[0] + 17.0, 33.0), (P2[0] + 23.0, 34.0)]
+CANON_PATH = [(P2[0] - 20.0, 26.0), (P2[0] - 6.0, 29.0),
+              (P2[0] + 0.5, 30.0)] + CANON_TAIL          # index 2 = T2
+
+
+def app_with_path(positive_side):
+    """A FakeApp whose path_gen carries one pass, stored the way the engine
+    stores it: canonical on a positive-side machine, mirrored on a negative one."""
+    a = FakeApp(make_op())
+    a.params["roller_positive_x_side"] = positive_side
+    sign = 1.0 if positive_side else -1.0
+    a.path_gen.last_calculated_paths = [
+        np.array([[sign * x, 0.0, z] for x, z in CANON_PATH], dtype=float)]
+    a.path_gen._path_op_map = [a.params["operations"][0]]
+    a.path_gen.last_render_split_idx = {0: (1, 2)}
+    return a
+
+neg = app_with_path(False)
+d8 = ExitTailDialog(root, neg, 0, 0, P2, lambda pts: None)
+seeded = d8.points
+check(len(seeded) == 4, f"negative side: seeded from the real path ({len(seeded)} points)")
+
+worst = min(p["dx"] for p in seeded)
+check(worst > -100.0,
+      f"negative side: no wrong-frame ΔX (min {worst:.1f}, pre-fix was ~{-2 * P2[0]:.0f})")
+
+got = ew.resolve(d8.p2x, d8.p2z, seeded)
+err = max(np.hypot(g[0] - c[0], g[1] - c[1]) for g, c in zip(got, CANON_TAIL))
+check(err < 1e-6,
+      f"negative side: the seed resolves onto the canonical path (max err {err:.2e} mm)")
+
+# The whole point of the bug report: a sane number was refused. It must not be.
+cand = [dict(p) for p in seeded]
+cand[0]["dx"] = float(cand[0]["dx"]) + 4.0        # nudge 4 mm further out
+check(d8._try(cand, "test"), "negative side: an ordinary outward nudge is ACCEPTED")
+
+# ...while a genuine gouge is still caught, on this side too.
+gouge = [dict(p) for p in d8.points]
+gouge[0]["dx"] = -P2[0] * 2.0
+check(not d8._try(gouge, "test"), "negative side: a real gouge is still refused")
+
+# Same canonical geometry, either side → identical stored numbers.
+d8p = ExitTailDialog(root, app_with_path(True), 0, 0, P2, lambda pts: None)
+same = (len(d8p.points) == len(seeded)
+        and all(abs(a["dx"] - b["dx"]) < 1e-9 and abs(a["dz"] - b["dz"]) < 1e-9
+                for a, b in zip(d8p.points, seeded)))
+check(same, "the stored tail is side-independent (same numbers on either machine)")
 
 root.destroy()
 
