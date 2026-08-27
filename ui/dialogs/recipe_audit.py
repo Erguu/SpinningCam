@@ -20,6 +20,7 @@ from tkinter import ttk, messagebox, font as tkfont
 from i18n import t
 from logger_config import logger
 from recipe_explain import audit_operations, format_report
+from ui import dialog_sizing
 
 # Row marker per severity — colour alone is not enough (projectors, colour
 # blindness, and the copied text report has no colour at all).
@@ -33,7 +34,7 @@ class RecipeAuditDialog(tk.Toplevel):
         self.ptab = program_tab
         self.findings = []
         self.title(t("dlg_recipe_audit"))
-        self.geometry("1000x560")
+        dialog_sizing.fit(self, 1000, 560)
         self.transient(parent)
 
         tk.Label(self, text=t("rx_help"), anchor="w", justify="left",

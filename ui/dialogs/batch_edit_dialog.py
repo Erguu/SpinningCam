@@ -3,6 +3,7 @@ from tkinter import ttk
 
 from i18n import t
 from ui.helpers_ui import _fmt_num
+from ui import dialog_sizing
 
 
 class BatchEditDialog(tk.Toplevel):
@@ -23,7 +24,7 @@ class BatchEditDialog(tk.Toplevel):
         self._changes = {}
 
         self.title(t("dlg_batch_title").format(n=len(targets)))
-        self.geometry("520x420")
+        dialog_sizing.fit(self, 520, 420)
         self.transient(parent)
         self.grab_set()
         self.focus_force()

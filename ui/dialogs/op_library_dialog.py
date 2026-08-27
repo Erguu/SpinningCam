@@ -3,6 +3,7 @@ from tkinter import ttk, messagebox, simpledialog
 
 from i18n import t
 import ops_library as ol
+from ui import dialog_sizing
 
 _TYPES = ("roughing", "finishing", "cutting", "bending")
 
@@ -24,7 +25,7 @@ class OpLibraryDialog(tk.Toplevel):
         self.entries = ol.load_library(app.get_base_path())
 
         self.title(t("dlg_op_library"))
-        self.geometry("560x420")
+        dialog_sizing.fit(self, 560, 420)
         self.transient(parent)
         self.focus_force()
 

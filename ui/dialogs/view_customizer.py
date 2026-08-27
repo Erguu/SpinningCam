@@ -3,6 +3,7 @@ from tkinter import ttk
 
 from i18n import t
 from ui.tabs.program_tab import _default_cfg, _BATCH_ELIGIBLE, BORDER_COLORS
+from ui import dialog_sizing
 
 # Op types shown as tabs, with their display-label i18n keys.
 _OP_TYPES = [
@@ -44,7 +45,7 @@ class ViewCustomizerDialog(tk.Toplevel):
         self.pt = program_tab
 
         self.title(t("dlg_customize_view"))
-        self.geometry("720x600")
+        dialog_sizing.fit(self, 720, 600)
         self.transient(parent)
         self.focus_force()
 

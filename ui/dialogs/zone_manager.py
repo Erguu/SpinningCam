@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from ui import dialog_sizing
 
 class ZoneManager(tk.Toplevel):
     def __init__(self, parent, app, op_idx):
@@ -15,7 +16,7 @@ class ZoneManager(tk.Toplevel):
         if "zones" not in self.op: self.op["zones"] = []
         
         self.title(f"Zones: Op #{op_idx+1}")
-        self.geometry("500x400")
+        dialog_sizing.fit(self, 500, 400)
         self.focus_force()
         
         self._create_ui()

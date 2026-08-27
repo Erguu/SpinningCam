@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import math
 import numpy as np
+from ui import dialog_sizing
 
 
 class TouchCalibrationDialog(tk.Toplevel):
@@ -42,7 +43,7 @@ class TouchCalibrationDialog(tk.Toplevel):
         # and write it back over the correction on their next focus-out.
         self._on_applied = on_applied
         self.title("Touch Point Calibration")
-        self.geometry("1060x680")
+        dialog_sizing.fit(self, 1060, 680)
         self.minsize(820, 520)
         self.resizable(True, True)
         self.grab_set()
@@ -813,7 +814,7 @@ class TouchCalibrationDialog(tk.Toplevel):
     def _show_formula_reference(self):
         win = tk.Toplevel(self)
         win.title("Calibration — Formula Reference")
-        win.geometry("720x700")
+        dialog_sizing.fit(win, 720, 700)
         win.configure(bg="#0d1520")
         win.resizable(True, True)
 

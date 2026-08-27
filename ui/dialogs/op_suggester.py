@@ -5,6 +5,7 @@ from i18n import t, get_language
 from process_planner import (load_materials, analyze_profile,
                              suggest_operations, save_default_materials)
 from logger_config import logger
+from ui import dialog_sizing
 
 
 class OpSuggesterDialog(tk.Toplevel):
@@ -25,7 +26,7 @@ class OpSuggesterDialog(tk.Toplevel):
         self.result = None
 
         self.title(t("sug_title"))
-        self.geometry("620x560")
+        dialog_sizing.fit(self, 620, 560)
         self.transient(parent)
         self.focus_force()
 

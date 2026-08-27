@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 from i18n import t, get_language
+from ui import dialog_sizing
 
 # ── Help content ──────────────────────────────────────────────────────────────
 # Stored here (not in i18n.py) because it's long prose, not short UI labels.
@@ -2213,7 +2214,8 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  lowers clearance below the normal G-code path
                  (it warns if the target can't be met safely).
 
-                 EXIT TAIL (per pass, from the Pass Table): lets
+                 WAYPOINTS (per pass, from the Pass Table - this
+                 button was called "Exit tail"): lets
                  you place the points the roller passes THROUGH
                  after P2, instead of describing the exit with
                  Reach and Pass Angle. The LAST point is where the
@@ -2274,6 +2276,40 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  safety floor had to move outward, which takes the
                  drawn path with it - worth checking it still touches
                  the part where you meant.
+
+                 BREAK POINTS (per pass, from the Pass Table):
+                 the other way to shape the exit, and the one to
+                 reach for first because it is cheap. Instead of
+                 placing points, you say "at 40% along the exit,
+                 bend the rest by -12 degrees", and you can list
+                 several. Angles are RELATIVE: two rows of 10
+                 degrees turn the tail 20 degrees in total. Each
+                 break is one corner, so it costs about one recipe
+                 line.
+
+                 This replaces the old Exit Mid Rotation field,
+                 which allowed a single break and lived on the
+                 operation. Programs that still carry it keep
+                 running exactly as before - the window opens
+                 showing that break, and it stays on the operation
+                 until you press OK here.
+
+                 APPLY TO: this pass, or all passes at once. With
+                 ALL PASSES you can also RAMP THE ANGLE: each row
+                 goes from its Angle on the first pass to the
+                 "Angle at last pass" value on the last one, in
+                 equal steps - the same idea as Progressive in the
+                 Pass Table. Leave the last column empty to keep a
+                 row constant. The ramp writes the values once; you
+                 can edit any single pass afterwards.
+
+                 Break points need Pass Shape = linear_approach,
+                 and are off when the Exit Mid Radius curl is set
+                 (the curl shapes that leg instead). If a break
+                 swings the tail too close to the part you are
+                 WARNED rather than blocked: the safety floor will
+                 push the whole pass outward to keep it clear,
+                 which also moves where the roller touches.
 
                  EXIT MAX POINTS (Path Shape): the same idea for
                  the P2->P3 exit leg, and it applies whichever
@@ -2628,7 +2664,8 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   clearance normal G-code yolunun altına asla düşürülmez
                   (hedef güvenle karşılanamazsa uyarır).
 
-                  ÇIKIŞ YOLU (pas başına, Pas Tablosundan): P2'den
+                  ARA NOKTALAR (pas başına, Pas Tablosundan; bu
+                  düğmenin eski adı "Çıkış yolu" idi): P2'den
                   sonra rulonun ÜZERİNDEN GEÇECEĞİ noktaları elle
                   koymanızı sağlar — çıkışı Reach ve Pas Açısıyla
                   tarif etmek yerine. SON nokta pasın bittiği yerdir;
@@ -2690,6 +2727,38 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   Ters paslarda ve geri pası olan operasyonlarda
                   kullanılamaz; son noktada biten bir operasyondan
                   "Devam" ile devam edilemez.
+
+                  KIRILMA NOKTALARI (pas başına, Pas Tablosundan):
+                  çıkışı şekillendirmenin ÖTEKİ yolu ve ucuz olduğu
+                  için önce buna bakın. Nokta koymak yerine "çıkışın
+                  %40'ında, geri kalanı −12 derece bük" dersiniz ve
+                  birden fazla satır yazabilirsiniz. Açılar
+                  GÖRELİDİR: 10 derecelik iki satır kuyruğu toplam
+                  20 derece çevirir. Her kırılma bir köşedir, yani
+                  yaklaşık bir reçete satırına mal olur.
+
+                  Bu, tek kırılmaya izin veren ve operasyon üzerinde
+                  duran eski "Çıkış Orta Rot" alanının yerine geçti.
+                  O alanı taşıyan programlar aynen çalışmaya devam
+                  eder: pencere o kırılmayı göstererek açılır ve siz
+                  burada Tamam'a basana kadar operasyonda kalır.
+
+                  UYGULA: bu pas ya da tüm paslar. TÜM PASLAR
+                  seçiliyken AÇIYI RAMPALAYABİLİRSİNİZ: her satır,
+                  ilk pastaki Açı değerinden son pastaki "Son
+                  pastaki açı" değerine eşit adımlarla gider — Pas
+                  Tablosundaki Progressive ile aynı fikir. Bir satır
+                  sabit kalsın isterseniz son sütunu boş bırakın.
+                  Rampa değerleri BİR KEZ yazar; sonradan tek bir
+                  pası elle düzeltebilirsiniz.
+
+                  Kırılma noktaları için Pas Şekli = linear_approach
+                  olmalıdır; Çıkış Kıvrım Yarıçapı doluyken kapalıdır
+                  (o kolu kıvrım şekillendirir). Bir kırılma kuyruğu
+                  parçaya fazla yaklaştırırsa ENGELLENMEZSİNİZ,
+                  UYARILIRSINIZ: güvenlik tabanı temizliği korumak
+                  için tüm pası dışarı iter, bu da rulonun temas
+                  ettiği yeri kaydırır.
 
                   ÇIKIŞ MAKS. NOKTA (Yol Şekli): aynı fikrin
                   P2→P3 çıkış kolu için olanı; o kolu HANGİ şekil
@@ -3081,7 +3150,7 @@ class HelpWindow(tk.Toplevel):
     def __init__(self, parent):
         super().__init__(parent)
         self.title(t("help_win_title"))
-        self.geometry("720x580")
+        dialog_sizing.fit(self, 720, 580)
         self.minsize(560, 400)
         self.resizable(True, True)
 

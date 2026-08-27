@@ -4,6 +4,7 @@ import os
 from i18n import t
 import tool_library_io
 from logger_config import logger
+from ui import dialog_sizing
 
 class ToolManager(tk.Toplevel):
     # Curated palette for the tool "Color" dropdown (any PyVista/Tk color name or
@@ -17,8 +18,7 @@ class ToolManager(tk.Toplevel):
         self.editing_id = None
 
         self.title(t("tm_title"))
-        self.geometry("700x600")
-
+        dialog_sizing.fit(self, 700, 600)
         self._create_ui()
 
     def _create_ui(self):

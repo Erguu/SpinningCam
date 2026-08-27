@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import ttk
 import math
 import threading
+from ui import dialog_sizing
 
 
 # ─── OCC cross-section extraction ────────────────────────────────────────────
@@ -177,7 +178,7 @@ class RollerPreviewDialog(tk.Toplevel):
 
         name = tool.get("name", tool.get("id", "Roller"))
         self.title(f"Roller Preview — {name}")
-        self.geometry("620x520")
+        dialog_sizing.fit(self, 620, 520)
         self.resizable(True, True)
         self.configure(bg=self.C_BG)
 

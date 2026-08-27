@@ -11,6 +11,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from i18n import t
+from ui import dialog_sizing
 
 
 class PdfParamDialog(tk.Toplevel):
@@ -60,7 +61,7 @@ class PdfParamDialog(tk.Toplevel):
         ttk.Button(fok, text=t("pdfsel_ok"), command=self._ok).pack(side="right", padx=(0, 4))
 
         self.protocol("WM_DELETE_WINDOW", self._cancel)
-        self.geometry("380x470")
+        dialog_sizing.fit(self, 380, 470)
         try:
             self.grab_set()
         except Exception:
