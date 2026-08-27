@@ -9,6 +9,7 @@ from OCC.Core.GeomAPI import GeomAPI_PointsToBSpline
 from logger_config import logger
 from kinematics import get_kinematics
 import exit_waypoints
+import exit_breaks
 
 # #100: how far the iterative safety floor may move a pass that carries a
 # hand-drawn tail before the operator is told. The tail is measured FROM P2, so
@@ -271,6 +272,8 @@ class PathGenerator:
         self.last_waypoint_shifted = []    # #100: tail passes the safety floor moved outward
         self.last_waypoint_abs = {}        # #100: path index → resolved waypoints for feed emission
         self.last_exit_verbatim = set()    # #100: path indices whose exit tail must NOT be decimated
+        self.last_exit_break_counts = {}   # #102: path index → how many breaks shaped its exit leg
+        self.last_break_flatten_warnings = []  # #102: exit caps that blunted a break
 
     def _tc_radial_gap(self, pt, center_x, mandrel_mgr, params, r_tool):
         """Radial clearance (mm) between the roller contact at ``pt`` and the
@@ -369,6 +372,7 @@ class PathGenerator:
         self.last_waypoint_shifted = []   # #100: tail passes the safety floor moved outward
         self.last_waypoint_abs = {}  # #100: path index → resolved waypoints [{x,z,feed}] for feed emission
         self.last_exit_verbatim = set()  # #100: path indices whose exit tail is the operator's own points
+        self.last_exit_break_counts = {}  # #102: path index → break count on its exit leg
         self._path_op_map = []  # toolpath index → op dict, synced as paths are appended
         self.last_op_end_z = {}  # op-index → CAM Z the op's last forming pass actually reaches
         self.last_op_reach = {}       # op-index → exit reach magnitude of last forming pass (#61)
@@ -986,7 +990,11 @@ class PathGenerator:
                                 "n_points": _n_stored,
                                 "reason": exit_waypoints.excluded_reason(op) or "?",
                             })
-                    self._create_and_store_pass(p1_x, effective_p1_z, p3_z, p3_x, gp_Pnt(p2_x, 0, p2_z), base_rot, auto_align, toolpaths, projections, control_points, deviations, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_label, params, debug_lines, op=op, op_clearance=eff_clearance, exit_points=_wp, exit_shape=exit_waypoints.get_shape(op, i))
+                    # #102: this pass's break points. Its own list when it has
+                    # one, otherwise the op's legacy single exit_mid break — so
+                    # a program saved before this feature cuts identically.
+                    _brk = exit_breaks.get_breaks(op, i)
+                    self._create_and_store_pass(p1_x, effective_p1_z, p3_z, p3_x, gp_Pnt(p2_x, 0, p2_z), base_rot, auto_align, toolpaths, projections, control_points, deviations, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_label, params, debug_lines, op=op, op_clearance=eff_clearance, exit_points=_wp, exit_shape=exit_waypoints.get_shape(op, i), breaks=_brk)
                 
                 # Check newly added path for Rapids
                 if len(toolpaths) > prev_paths_len:
@@ -1989,7 +1997,7 @@ class PathGenerator:
             + f" | end=({arc[-1][0]:.2f}, Z={arc[-1][2]:.2f})")
         return np.vstack([straight[:-1], arc])
 
-    def _create_and_store_pass(self, p1_x_offset, p1_z_offset, p3_z_offset, p3_x_offset, initial_p2, base_rot, auto_align, t_list, p_list, c_list, d_list, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_name, params, debug_lines=None, op=None, op_clearance=0.0, exit_points=None, exit_shape=None):
+    def _create_and_store_pass(self, p1_x_offset, p1_z_offset, p3_z_offset, p3_x_offset, initial_p2, base_rot, auto_align, t_list, p_list, c_list, d_list, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_name, params, debug_lines=None, op=None, op_clearance=0.0, exit_points=None, exit_shape=None, breaks=None):
             # --- Smart Spline Optimization V6 (Morphing) ---
             # Instead of rigid shifting, independently adjust control points based on where collision occurs.
 
@@ -2156,8 +2164,14 @@ class PathGenerator:
                         if len(exit_portion) < 2:
                             exit_portion = np.vstack([T2, p3_arr])
                         _ignored = [k for k in ("exit_bow", "exit_arc_angle",
-                                                "exit_mid_radius", "exit_mid_rotation")
+                                                "exit_mid_radius")
                                     if (op or {}).get(k) not in (None, "", 0)]
+                        # Breaks are reported from the resolved list rather than from
+                        # op keys: it covers both a per-pass list (invisible on the op)
+                        # and the legacy exit_mid_rotation it falls back to, and it
+                        # cannot claim a break that is not actually there.
+                        if breaks:
+                            _ignored.append(f"exit_breaks({len(breaks)})")
                         if _ignored:
                             logger.info(
                                 f"[#100] '{pass_name}' exit waypoints active "
@@ -2233,22 +2247,19 @@ class PathGenerator:
                         else:
                             exit_portion = self._tangent_chord_arc(T2, p3_arr, _exit_arc_deg, check_res)
 
-                        # Mid-point rotation: pick M at exit_mid_t along the exit and rotate
-                        # everything after it about M by exit_mid_rotation degrees (Y-axis,
-                        # XZ plane). Whatever the exit shape currently is, this just swings
-                        # the M→P3 tail to a new orientation around M — T2→M is untouched.
-                        # P3 moves with the tail. Clearance correction (below) still applies.
+                        # #102 BREAK POINTS: each one picks M at its own fraction along
+                        # the exit and swings everything after it about M by its angle
+                        # (Y-axis, XZ plane). Whatever the exit shape currently is, this
+                        # just re-orients the tail around M — the leg up to M is
+                        # untouched, the end point moves with the tail, and the
+                        # clearance correction (below) still applies.
+                        # `breaks` is already the pass's own list OR the op's legacy
+                        # single exit_mid break, so one break here is bit-identical to
+                        # what the old code produced.
                         # #92: mutually exclusive with the curl — radius wins, and the
-                        # editor greys the Rot field out so this is visible, not silent.
-                        _emid_rot = (0.0 if (abs(_curl_r) > 1e-4 or abs(_curl_re) > 1e-4)
-                                     else float((op or {}).get("exit_mid_rotation", 0.0)))
-                        if abs(_emid_rot) > 0.01 and len(exit_portion) >= 3:
-                            _emid_t = min(max(float((op or {}).get("exit_mid_t", 0.5)), 0.05), 0.95)
-                            _k = int(round(_emid_t * (len(exit_portion) - 1)))
-                            _k = min(max(_k, 1), len(exit_portion) - 2)
-                            _Mp = gp_Pnt(float(exit_portion[_k][0]), 0.0, float(exit_portion[_k][2]))
-                            _tail = self._apply_rotation(exit_portion[_k + 1:], _emid_rot, _Mp)
-                            exit_portion = np.vstack([exit_portion[:_k + 1], _tail])
+                        # editor greys the button out so this is visible, not silent.
+                        if not (abs(_curl_r) > 1e-4 or abs(_curl_re) > 1e-4):
+                            exit_portion = exit_breaks.apply(exit_portion, breaks or [])
 
                     if _swap_legs and pass_shape != "linear_full":
                         # #82: the arm is the OUTGOING leg after reversal — it carries
@@ -2551,6 +2562,15 @@ class PathGenerator:
                     # happily drop a collinear waypoint, which changes no shape
                     # but DOES lose the feed step the operator put on it.
                     self.last_exit_verbatim.add(_path_idx)
+
+            # #102: how many breaks shaped this path's exit leg. Recorded here
+            # because the decimator works on path indices and cannot see which
+            # pass a path came from — and without it, a point cap that flattens
+            # a break cannot tell that anything was lost (the clearance gate it
+            # already has only notices when the tail moves TOWARD the part; a
+            # flattened break moves it away and passes silently).
+            if breaks:
+                self.last_exit_break_counts[_path_idx] = len(breaks)
 
             if _line_end is not None and _line_end in _render_pos:
                 self.last_render_split_idx[_path_idx] = (
@@ -3318,6 +3338,23 @@ class PathGenerator:
         idx[-1] = len(pts) - 1
         return pts[np.unique(idx)]
 
+    @staticmethod
+    def _total_turn_deg(pts):
+        """Sum of the direction changes along a polyline, in degrees.
+
+        A shape fingerprint that is blind to point COUNT: decimating a straight
+        run leaves it at 0, while dropping a corner removes that corner's angle
+        outright. That is what makes it the right measure for "did the cap eat a
+        break" — #102.
+        """
+        d = np.diff(np.asarray(pts, dtype=float), axis=0)
+        n = np.linalg.norm(d, axis=1)
+        d = d[n > 1e-9] / n[n > 1e-9][:, None]
+        if len(d) < 2:
+            return 0.0
+        dots = np.clip(np.einsum("ij,ij->i", d[:-1], d[1:]), -1.0, 1.0)
+        return float(np.degrees(np.arccos(dots)).sum())
+
     def _decimate_path_for_plc(self, path, tolerance, center_x,
                                approach_end_idx=None,
                                arc_end_idx=None,
@@ -3482,6 +3519,7 @@ class PathGenerator:
         passes could not honour their cap via `last_point_cap_warnings`.
         """
         self.last_point_cap_warnings = []
+        self.last_break_flatten_warnings = []      # #102
         out = []
         for _pi, _p in enumerate(self.last_calculated_paths):
             _split   = self.last_render_split_idx.get(_pi)
@@ -3540,6 +3578,29 @@ class PathGenerator:
                     continue                    # this cap changed nothing
                 _got = self._path_min_clearance(_try, _op, params)
                 if _got >= _floor - 1e-6:
+                    # #102: the gate above only refuses a cap that costs
+                    # CLEARANCE. Blunting a break rotates the tail AWAY from the
+                    # part, so it passes the gate while quietly deleting the
+                    # shape the operator typed. Measured: 3 breaks of 10° under
+                    # a cap of 3 lost 5°, under a cap of 2 lost 15°, in silence.
+                    # The cap still wins (user 2026-08-28: "leave it, just
+                    # warn") — but it says so now.
+                    _n_brk = getattr(self, "last_exit_break_counts", {}).get(_pi, 0)
+                    if _kind == "exit" and _n_brk:
+                        _lost = self._total_turn_deg(_best) - self._total_turn_deg(_try)
+                        if _lost > 0.5:
+                            self.last_break_flatten_warnings.append({
+                                "path_index": _pi,
+                                "op_name": (_op.get("name") or _op.get("type", "?")) if _op else "?",
+                                "cap": _cap,
+                                "n_breaks": int(_n_brk),
+                                "lost_deg": float(_lost),
+                            })
+                            logger.info(
+                                f"[#102] Exit cap {_cap} on path {_pi} "
+                                f"({self.last_break_flatten_warnings[-1]['op_name']}) "
+                                f"blunted {_n_brk} break(s): {_lost:.1f}° of bend lost. "
+                                f"Cap kept (clearance is unaffected).")
                     _best = _try
                     _accepted[_kw] = _cap
                 else:
