@@ -265,7 +265,7 @@ class PathGenerator:
         self._path_op_map = []             # toolpath index → op dict (parallel to last_calculated_paths)
         self.last_op_end_z = {}            # op-index → CAM Z the op's last forming pass reaches (incl. p2_z_extend)
         self.last_tool_change_warnings = []  # custom tool-change points near the turret swing envelope
-        self.last_point_cap_warnings = []  # #99: fillet caps refused because they would cost clearance
+        self.last_point_cap_warnings = []  # #99/#101: fillet or exit caps refused because they would cost clearance
         self.last_waypoint_warnings = []   # #100: hand-drawn exit tails closer than the op clearance
         self.last_waypoint_ignored = []    # #100: tails that are stored but this op cannot use
         self.last_waypoint_shifted = []    # #100: tail passes the safety floor moved outward
@@ -3469,7 +3469,7 @@ class PathGenerator:
 
         The caps are gated INDEPENDENTLY: a fillet cap that has to be refused must
         not take a perfectly safe exit cap down with it. Each is measured against
-        the same full-resolution path, and an accepted cap stays applied while the
+        the same baseline (below), and an accepted cap stays applied while the
         next one is tested.
 
         SAFETY (the reason the cap lives here and not in `_decimate_path_for_plc`):

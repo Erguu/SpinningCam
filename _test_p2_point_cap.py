@@ -1,5 +1,6 @@
 """
-Headless tests for TODO #99 — per-op P2 fillet point cap (`p2_radius_max_points`).
+Headless tests for the two per-op point caps: TODO #99 on the P2 fillet
+(`p2_radius_max_points`) and TODO #101 on the exit leg (`exit_max_points`).
 
 Covers:
   1. _thin_evenly: caps the count, keeps both endpoints, spaces by ARC LENGTH.
@@ -8,6 +9,12 @@ Covers:
   4. Cap REFUSED when it would cut the corner — uncapped path kept + warning raised.
   5. measure_min_clearance still behaves after being refactored onto
      _path_min_clearance (regression on the auto-tune guard).
+  6. #101 the same four for the exit leg, plus: the caps are gated INDEPENDENTLY,
+     the gate baseline is the UNCAPPED decimation (not full resolution), and a
+     hand-drawn #100 tail is never thinned.
+  7. #101 END-TO-END through calculate_paths on a real bowed pass — everything
+     above builds synthetic paths by hand, which cannot catch the wiring between
+     the op key, the split indices and the decimator.
 
 Run inside the `spinning_cam` conda env (path_generator pulls pythonocc):
     conda run -n spinning_cam python _test_p2_point_cap.py
@@ -15,6 +22,7 @@ Run inside the `spinning_cam` conda env (path_generator pulls pythonocc):
 import math
 import numpy as np
 
+from mandrel_analyzer import MandrelManager
 from path_generator import PathGenerator
 
 
@@ -398,6 +406,60 @@ def test_exit_cap_never_touches_a_hand_drawn_tail():
     print(f"[OK] #101 exit cap skips a hand-drawn tail ({n_exit_kept} points intact)")
 
 
+def test_exit_cap_end_to_end_on_a_real_bow():
+    """The wiring, on a genuinely generated pass rather than a hand-built array.
+
+    Everything above constructs its own arrays and split indices, so none of it
+    would notice if the op key never reached the decimator, or if the split
+    indices pointed at the wrong section on a real path.
+    """
+    mgr = MandrelManager(); mgr.create_default_cone()
+    mgr.update_geometry(0, 0, 0, 0.0, 0.0)
+
+    def run(cap, bow=14.0):
+        op = {"type": "roughing", "count": 3, "start_z": 20.0, "end_z": 60.0,
+              "r_tool": 25.0, "clearance": 2.0, "p1_x": 40.0, "p1_z": 12.0,
+              "p3_x": 40.0, "p3_z": -30.0, "pass_shape": "linear_approach",
+              "direction": "forward", "p2_radius": 6.0, "exit_bow": bow,
+              "name": "ROUGH"}
+        if cap:
+            op["exit_max_points"] = cap
+        p = {"operations": [op], "auto_calc_angle": False, "min_safety_gap": 0.0,
+             "final_part_thickness_on_mandrel": 0.0, "shell_thickness": 0.0,
+             "collision_resolution": 0.5, "gcode_resolution": 2.0,
+             "mandrel_pos_x_offset": 0.0, "plc_mode": True}
+        pg = PathGenerator()
+        pg.calculate_paths(p, {}, mgr)
+        capped = pg.decimate_all_paths(0.5, 0.5, 0.0, params=p)
+        plain = pg.decimate_all_paths(0.5, 0.5, 0.0)
+        return (sum(len(d) for d in capped), sum(len(d) for d in plain),
+                min(pg._path_min_clearance(d, op, p) for d in capped),
+                min(pg._path_min_clearance(d, op, p) for d in plain),
+                list(pg.last_point_cap_warnings))
+
+    base, base_plain, _, _, w0 = run(0)
+    assert base == base_plain and not w0, "unset cap must change nothing end-to-end"
+
+    counts = []
+    for cap in (8, 6, 4, 3, 2):
+        tot, plain, clr, clr_plain, warns = run(cap)
+        assert tot <= plain, f"cap {cap} increased the point count: {plain} -> {tot}"
+        assert clr >= clr_plain - 1e-6, (
+            f"cap {cap} cost clearance: {clr_plain:.4f} -> {clr:.4f}")
+        counts.append(tot)
+
+    assert counts == sorted(counts, reverse=True), (
+        f"tightening the cap must not increase points: {counts}")
+    assert counts[-1] < base, f"the cap never bit: {base} -> {counts}"
+
+    # a STRAIGHT exit has nothing to thin — the cap must be a no-op there
+    s_cap, s_plain, _, _, s_w = run(3, bow=0.0)
+    assert s_cap == s_plain and not s_w, (
+        f"a straight exit must be untouched by the cap ({s_plain} -> {s_cap})")
+    print(f"[OK] #101 end-to-end on a real bow: {base} pts uncapped -> {counts} "
+          f"for caps 8/6/4/3/2, clearance never worse, straight exit untouched")
+
+
 if __name__ == "__main__":
     test_thin_evenly()
     test_unset_cap_is_identical()
@@ -411,4 +473,5 @@ if __name__ == "__main__":
     test_caps_are_gated_independently()
     test_gate_baseline_is_the_uncapped_decimation()
     test_exit_cap_never_touches_a_hand_drawn_tail()
+    test_exit_cap_end_to_end_on_a_real_bow()
     print("\nALL PASS")
