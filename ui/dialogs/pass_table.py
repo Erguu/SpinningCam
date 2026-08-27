@@ -17,9 +17,20 @@ import math
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 
+import numpy as np
+
+import exit_breaks
 import exit_waypoints
 from i18n import t
 from logger_config import logger
+from ui import preview_orient
+from ui import dialog_sizing
+
+# How finely the schematic exit leg is sampled before break points are applied
+# to it (#102). The engine picks a break's pivot by INDEX into the leg's point
+# array, so the sketch needs enough points that a small position difference is
+# visible; 41 puts them 2.5% apart, finer than the operator can type.
+_BREAK_LEG_SAMPLES = 41
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -293,6 +304,27 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
             end_x = p2_x_abs + p3_x
             end_z = contact_z + p3_z
 
+        # #102: break points bend the exit leg AFTER the parametric P3 is placed,
+        # so without this the table and its sketch describe a pass the machine is
+        # not running — the same blind spot #100 had to fix for waypoints.
+        #
+        # APPROXIMATE BY CONSTRUCTION, and that is a deliberate trade. The engine
+        # measures `t` along the REAL exit leg's point array, which starts at T2
+        # (after the P2 fillet) and may already be curved by a bow or arc. Here
+        # the leg is the schematic straight P2→end. With a small p2_radius the
+        # two agree closely; with a large one a break lands a little further
+        # along than drawn. Showing the bend approximately beats showing a
+        # straight line that is certainly wrong.
+        _brk = [] if _tail else exit_breaks.get_breaks(op, i)
+        if _brk and not exit_breaks.excluded_reason(op):
+            _leg = np.linspace([p2_x_abs, 0.0, contact_z],
+                               [end_x, 0.0, end_z], _BREAK_LEG_SAMPLES)
+            _leg = exit_breaks.apply(_leg, _brk)
+            end_x, end_z = float(_leg[-1][0]), float(_leg[-1][2])
+            _brk_leg = [(round(float(p[0]), 3), round(float(p[2]), 3)) for p in _leg]
+        else:
+            _brk_leg = []
+
         if est_flange is not None and not is_finish:
             try:
                 _fl = est_flange(target_z)
@@ -336,6 +368,11 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
                      "reach": None if _tail else round(eff_reach, 2),
                      # Resolved waypoints, for the 2D preview (absolute, canonical).
                      "tail": [(round(x, 3), round(z, 3)) for x, z in _tail_abs],
+                     # #102: the break-bent exit leg, for the 2D preview. Empty
+                     # when this pass has no breaks — the straight P2→end line
+                     # the preview already draws is then correct.
+                     "break_leg": _brk_leg,
+                     "n_breaks": len(_brk) if _brk_leg else 0,
                      "p3x": round(p3_x, 2), "p3z": round(p3_z, 2),
                      "end_x": round(end_x, 2), "end_z": round(end_z, 2),
                      # Absolute control points for the 2D preview (schematic; P1 drawn
@@ -371,8 +408,15 @@ class PassTableDialog(tk.Toplevel):
         op = app.params["operations"][op_index]
         self.title(t("pt_title").format(name=op.get("name") or op.get("type", "?"),
                                         n=int(op.get("count", 1))))
-        self.geometry("900x640")
+        dialog_sizing.fit(self, 900, 640)
         self.transient(parent)
+
+        # Apply / Cancel / Waypoints / Break points packed FIRST, to the bottom
+        # (#103): Tk squeezes whatever was packed LAST when there is not enough
+        # room, which in a top-down dialog is always the button row. This is the
+        # row operators were losing on a high-DPI screen. Filled in further down.
+        bar = ttk.Frame(self)
+        bar.pack(side="bottom", fill="x", padx=6, pady=6)
 
         # Plain-language helper: how to edit one pass vs. fill many (#89).
         tk.Label(self, text=t("pt_help"), anchor="w", justify="left", fg="#446688",
@@ -408,6 +452,10 @@ class PassTableDialog(tk.Toplevel):
         # #89 — live 2D side view (X-Z): each pass drawn P1→P2→P3 (schematic), the
         # mandrel faint, the selected pass highlighted. Redraws from the CURRENT rows
         # (staged edits included) so you watch the sweep form before Apply.
+        # #102: resolved ONCE, here — the sketch must not re-orient while the
+        # operator is working in it (user 2026-08-28). Reopen the window to pick
+        # up a new camera angle.
+        self._orient = preview_orient.resolve(self.app)
         self.preview = tk.Canvas(self, height=150, bg="#0e141b", highlightthickness=0)
         self.preview.pack(fill="x", padx=6, pady=(4, 0))
         self.preview.bind("<Configure>", lambda e: self._draw_preview())
@@ -437,8 +485,6 @@ class PassTableDialog(tk.Toplevel):
         ttk.Button(fill, text=t("pt_fill_setall"), command=self._fill_set_all).pack(side="left", padx=2)
         ttk.Button(fill, text=t("pt_fill_progressive"), command=self._fill_progressive).pack(side="left", padx=2)
 
-        bar = ttk.Frame(self)
-        bar.pack(fill="x", padx=6, pady=6)
         self.btn_apply = ttk.Button(bar, text=t("pt_btn_apply"), command=self._apply)
         self.btn_apply.pack(side="right", padx=2)
         ttk.Button(bar, text=t("pt_btn_cancel"), command=self._cancel).pack(side="right", padx=2)
@@ -453,6 +499,18 @@ class PassTableDialog(tk.Toplevel):
             import exit_waypoints as _ew
             if _ew.excluded_reason(op):
                 self.btn_tail.state(["disabled"])
+        except Exception:
+            pass
+        # #102: per-pass break points. Disabled with its own reason on the ops
+        # whose exit leg never reaches the rotation — a different set from the
+        # waypoint exclusions, so it gets its own check rather than sharing one.
+        self.btn_breaks = ttk.Button(bar, text=t("pt_btn_breaks"),
+                                     command=self._edit_break_points)
+        self.btn_breaks.pack(side="left", padx=2)
+        try:
+            import exit_breaks as _eb
+            if _eb.excluded_reason(op):
+                self.btn_breaks.state(["disabled"])
         except Exception:
             pass
 
@@ -554,42 +612,48 @@ class PassTableDialog(tk.Toplevel):
             return
         mL, mR, mT, mB = 34, 12, 8, 16
 
-        # Match the 3D-sim orientation: rows are computed in the canonical +X frame,
-        # but a negative-X-side roller is mirrored around the mandrel center there —
-        # so mirror X the same way here (2·cx − x) to compare side-by-side (#89, user).
+        # Everything below stays in CANONICAL +X — the machine-side mirror that
+        # used to live here as `mx()` is now inside `preview_orient.to_plane`,
+        # so the pass table and the waypoint editor cannot disagree about it
+        # (#89's requirement, #102's implementation).
         cx = float(self.app.params.get("mandrel_pos_x_offset", 0.0) or 0.0)
-        _pos_side = self.app.params.get("roller_positive_x_side", True)
-
-        def mx(x):
-            return x if _pos_side else (2.0 * cx - x)
 
         # Points: each pass P1→P2→P3 (schematic) + the mandrel profile (roller side).
         pts = []
         for r in rows:
-            pts += [(mx(r["p1x"]), r["p1z"]), (mx(r["p2x"]), r["z"]), (mx(r["end_x"]), r["end_z"])]
-            pts += [(mx(x), z) for x, z in r.get("tail") or ()]   # #100: keep the tail in view
+            pts += [(r["p1x"], r["p1z"]), (r["p2x"], r["z"]), (r["end_x"], r["end_z"])]
+            pts += list(r.get("tail") or ())         # #100: keep the tail in view
+            pts += list(r.get("break_leg") or ())    # #102: and the break-bent leg
         mgr = self.app.mandrel_mgr
         prof = []
         if mgr is not None and getattr(mgr, "profile_z", None) is not None \
                 and len(mgr.profile_z) > 1:
-            prof = [(mx(cx + float(rr)), float(z))
+            prof = [(cx + float(rr), float(z))
                     for z, rr in zip(mgr.profile_z, mgr.profile_r)]
         allpts = pts + prof
         if not allpts:
             return
-        xs = [p[0] for p in allpts]
-        zs = [p[1] for p in allpts]
-        xmin, xmax, zmin, zmax = min(xs), max(xs), min(zs), max(zs)
-        xr = max(xmax - xmin, 1.0)
-        zr = max(zmax - zmin, 1.0)
-        xmin -= xr * 0.06; xmax += xr * 0.06
-        zmin -= zr * 0.06; zmax += zr * 0.06
-        xr, zr = xmax - xmin, zmax - zmin
+        # #102: which axis goes across the sketch now comes from the 3D camera,
+        # through the same helper the waypoint editor uses — the two windows used
+        # to disagree with each other AND with the 3D view. `to_plane` also
+        # applies the machine-side mirror, so `mx()` above must NOT be applied
+        # again; the raw canonical values are what go in.
+        _or = self._orient
+        hv = [preview_orient.to_plane(_or, x, z) for x, z in allpts]
+        hs = [p[0] for p in hv]
+        vs = [p[1] for p in hv]
+        hmin, hmax, vmin, vmax = min(hs), max(hs), min(vs), max(vs)
+        hr = max(hmax - hmin, 1.0)
+        vr = max(vmax - vmin, 1.0)
+        hmin -= hr * 0.06; hmax += hr * 0.06
+        vmin -= vr * 0.06; vmax += vr * 0.06
+        hr, vr = hmax - hmin, vmax - vmin
         dW, dH = W - mL - mR, H - mT - mB
 
         def to_c(x, z):
-            return (mL + (z - zmin) / zr * dW,        # Z → horizontal
-                    mT + (xmax - x) / xr * dH)        # X → vertical (larger X up)
+            h, v = preview_orient.to_plane(_or, x, z)
+            return (mL + (h - hmin) / hr * dW,
+                    mT + (vmax - v) / vr * dH)        # canvas Y grows downward
 
         if len(prof) > 1:
             coords = []
@@ -609,27 +673,42 @@ class PassTableDialog(tk.Toplevel):
         for r in rows:
             col = pal[r["i"] % len(pal)]
             wdt = 3 if r["i"] == sel else 1
-            p1 = to_c(mx(r["p1x"]), r["p1z"])
-            p2 = to_c(mx(r["p2x"]), r["z"])
+            p1 = to_c(r["p1x"], r["p1z"])
+            p2 = to_c(r["p2x"], r["z"])
             tail = r.get("tail") or ()
+            brk_leg = r.get("break_leg") or ()
             if tail:
                 # #100: draw the REAL exit — P1→P2 then straight through every
                 # waypoint. The schematic P2→P3 leg does not exist on this pass,
                 # and drawing it would show a pass that is not the one running.
                 flat = [p1[0], p1[1], p2[0], p2[1]]
                 for x, z in tail:
-                    flat.extend(to_c(mx(x), z))
+                    flat.extend(to_c(x, z))
                 c.create_line(*flat, fill=col, width=wdt)
                 for k, (x, z) in enumerate(tail):
-                    wx, wz = to_c(mx(x), z)
+                    wx, wz = to_c(x, z)
                     rr = 3 if k == len(tail) - 1 else 2      # the last one ends the pass
                     c.create_oval(wx - rr, wz - rr, wx + rr, wz + rr,
                                   fill=col, outline="#0e141b")
+            elif brk_leg:
+                # #102: the exit leg as the breaks bend it, not the straight
+                # P2→P3 schematic — which is the line that never moved no matter
+                # what the operator typed into the break editor.
+                flat = [p1[0], p1[1]]
+                for x, z in brk_leg:
+                    flat.extend(to_c(x, z))
+                c.create_line(*flat, fill=col, width=wdt)
+                ex, ez = to_c(*brk_leg[-1])
+                c.create_oval(ex - 3, ez - 3, ex + 3, ez + 3, fill=col, outline="#0e141b")
             else:
-                p3 = to_c(mx(r["end_x"]), r["end_z"])
+                p3 = to_c(r["end_x"], r["end_z"])
                 c.create_line(p1[0], p1[1], p2[0], p2[1], p3[0], p3[1], fill=col, width=wdt)
             c.create_oval(p2[0] - 2, p2[1] - 2, p2[0] + 2, p2[1] + 2, fill=col, outline="")
-        c.create_text(mL, H - 5, text="Z →   (X ↑)", fill="#6a7686",
+        # #102: the axis legend is no longer a constant — it says which way the
+        # sketch is actually laid out, which is the only way to tell a flipped
+        # view from a differently-shaped pass.
+        _hl, _vl = preview_orient.axis_labels(_or)
+        c.create_text(mL, H - 5, text=f"{_hl}   ({_vl})", fill="#6a7686",
                       anchor="w", font=("Segoe UI", 7))
 
     # ── interactions ──────────────────────────────────────────────────
@@ -879,6 +958,14 @@ class PassTableDialog(tk.Toplevel):
         row = rows[idx]
 
         def _apply(points, shape=None):
+            # BEFORE the mutation: `_push_undo` snapshots the CURRENT ops list
+            # ("Snapshot the ops list BEFORE a mutating action", program_tab.py:
+            # 1438). This used to run after the writes below, so the snapshot
+            # captured the new tail and one undo could not get the old one back.
+            try:
+                self.ptab._push_undo("exit_tail")
+            except Exception:
+                pass
             edits = op.setdefault("pass_edits", {})
             key = str(row["i"])
             slot = edits.setdefault(key, {})
@@ -895,10 +982,6 @@ class PassTableDialog(tk.Toplevel):
                 slot.pop("exit_shape", None)
                 if not slot:
                     edits.pop(key, None)
-            try:
-                self.ptab._push_undo("exit_tail")
-            except Exception:
-                pass
             self.refresh()
             try:
                 self.ptab._schedule_auto_calc()
@@ -911,6 +994,82 @@ class PassTableDialog(tk.Toplevel):
         dlg = ExitTailDialog(self, self.app, self.op_index, row["i"],
                              (row.get("p2x_exact", row["p2x"]),
                               row.get("z_exact", row["z"])), _apply)
+        dlg.grab_set()
+        self.wait_window(dlg)
+
+    def _edit_break_points(self):
+        """#102: open the break-point editor for the SELECTED pass.
+
+        Writes straight into op["pass_edits"][i]["exit_breaks"] on OK, for the
+        same reason the tail editor does: it is its own modal with its own OK,
+        and staging it behind the pass table's [Apply] would let an operator
+        cancel away changes a window has already accepted.
+        """
+        op = self._op()
+        if op is None:
+            return
+        try:
+            import exit_breaks as eb
+        except Exception as e:
+            logger.debug(f"#102 unavailable: {e}")
+            return
+        reason = eb.excluded_reason(op)
+        if reason:
+            self.lbl_explain.config(text=t(f"pt_breaks_excl_{reason}"))
+            return
+
+        sel = self.tree.selection()
+        if not sel:
+            self.lbl_explain.config(text=t("pt_breaks_pick"))
+            return
+        idx = self.tree.index(sel[0])
+        rows = self._last_rows or []
+        if idx >= len(rows):
+            return
+        pass_index = rows[idx]["i"]
+
+        def _apply(per_pass):
+            """per_pass: {pass index -> list of breaks}. An empty list REMOVES
+            the key, which is what lets a pass fall back to the op's legacy
+            single break instead of being pinned to 'no breaks' forever."""
+            # BEFORE the mutation — `_push_undo` snapshots the current ops list,
+            # so pushing afterwards would record the already-changed state.
+            try:
+                self.ptab._push_undo(t("pt_btn_breaks"))
+            except Exception:
+                pass
+            edits = op.setdefault("pass_edits", {})
+            for i, brk in per_pass.items():
+                key = str(i)
+                slot = edits.setdefault(key, {})
+                if brk:
+                    slot["exit_breaks"] = brk
+                else:
+                    slot.pop("exit_breaks", None)
+                if not slot:
+                    edits.pop(key, None)
+            # The legacy op-level break is now expressed per pass. Leaving it in
+            # place would make it reappear on any pass later cleared — the two
+            # would silently disagree about what this operation does.
+            #
+            # ONLY the rotation. `exit_mid_t` is shared with the #92 curl, which
+            # reads it for its own M point; dropping it here would quietly move a
+            # curl the operator sets later to the 0.5 default. With the rotation
+            # gone `legacy_break` returns nothing anyway, so leaving t costs
+            # nothing and removing it costs a shape.
+            if any(per_pass.values()):
+                op.pop("exit_mid_rotation", None)
+            self.refresh()
+            if len(per_pass) > 1:
+                self.lbl_explain.config(
+                    text=t("bp_applied_all").format(n=len(per_pass)))
+            try:
+                self.ptab._schedule_auto_calc()
+            except Exception:
+                pass
+
+        from ui.dialogs.break_points_dialog import BreakPointsDialog
+        dlg = BreakPointsDialog(self, self.app, self.op_index, pass_index, _apply)
         dlg.grab_set()
         self.wait_window(dlg)
 

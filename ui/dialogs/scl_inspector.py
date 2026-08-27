@@ -19,6 +19,8 @@ from tkinter import ttk
 import numpy as np
 
 from i18n import t
+from ui import preview_orient
+from ui import dialog_sizing
 
 
 # ── analysis (pure — no Tk, so it can be tested headless) ────────────────────
@@ -195,7 +197,7 @@ class SclInspectorDialog(tk.Toplevel):
         super().__init__(parent)
         self.app = app
         self.title(t("dlg_scl_inspector"))
-        self.geometry("1000x680")
+        dialog_sizing.fit(self, 1000, 680)
         self.minsize(720, 480)
         self._data = None
         self._build()
@@ -214,6 +216,9 @@ class SclInspectorDialog(tk.Toplevel):
                                 anchor="w", justify="left", wraplength=960)
         self.lbl_sub.pack(fill="x", padx=10)
 
+        # #102: resolved once, when the window opens — see preview_orient. The
+        # paths drawn here are MACHINE coordinates, hence frame=MACHINE.
+        self._orient = preview_orient.resolve(self.app, frame=preview_orient.MACHINE)
         self.canvas = tk.Canvas(self, height=300, bg="#0e141b", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True, padx=10, pady=6)
         self.canvas.bind("<Configure>", lambda e: self._draw())
@@ -312,11 +317,27 @@ class SclInspectorDialog(tk.Toplevel):
         xr = max(xmax - xmin, 1.0); zr = max(zmax - zmin, 1.0)
         xmin -= xr * 0.05; xmax += xr * 0.05
         zmin -= zr * 0.05; zmax += zr * 0.05
-        xr, zr = xmax - xmin, zmax - zmin
         dW, dH = W - mL - mR, H - mT - mB
 
+        # #102: same shared orientation as the pass table and the waypoint
+        # editor, so all three windows draw a pass the same way up.
+        #
+        # frame=MACHINE, and it matters: these points come out of
+        # `last_calculated_paths`, which the engine already mirrored for a
+        # negative-side machine. The other two previews are canonical. Asking
+        # for the mirror here would apply it twice — invisible on a
+        # positive-side machine, nonsense on a negative-side one.
+        _or = self._orient
+        _corners = [preview_orient.to_plane(_or, x, z)
+                    for x in (xmin, xmax) for z in (zmin, zmax)]
+        h0 = min(p[0] for p in _corners); h1 = max(p[0] for p in _corners)
+        v0 = min(p[1] for p in _corners); v1 = max(p[1] for p in _corners)
+        hr = max(h1 - h0, 1e-6); vr = max(v1 - v0, 1e-6)
+
         def to_c(x, z):
-            return (mL + (z - zmin) / zr * dW, mT + (xmax - x) / xr * dH)
+            h, v = preview_orient.to_plane(_or, x, z)
+            return (mL + (h - h0) / hr * dW,
+                    mT + (v1 - v) / vr * dH)      # canvas Y grows downward
 
         sel = None
         s = self.tree.selection()
@@ -352,5 +373,10 @@ class SclInspectorDialog(tk.Toplevel):
                 c.create_oval(x - rr, y - rr, x + rr, y + rr,
                               fill=colour, outline=colour)
 
+        # #102: say which way this actually got drawn — it is no longer fixed.
+        _hz, _hx = t("scl_axis_z"), t("scl_axis_x")
+        _h, _v = ((_hz, _hx) if _or.z_horizontal else (_hx, _hz))
+        _h += " →" if _or.h_sign > 0 else " ←"
+        _v += " ↑" if _or.v_sign > 0 else " ↓"
         c.create_text(mL + 2, H - 8, anchor="w", fill="#5b6673",
-                      font=("Arial", 7), text=t("scl_axis_hint"))
+                      font=("Arial", 7), text=t("scl_axis_hint").format(h=_h, v=_v))

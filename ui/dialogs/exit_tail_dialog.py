@@ -34,6 +34,8 @@ import numpy as np
 import exit_waypoints as ew
 from i18n import t
 from logger_config import logger
+from ui import preview_orient
+from ui import dialog_sizing
 
 SEED_POINTS = 4          # what a freshly seeded tail starts with
 
@@ -51,12 +53,20 @@ class ExitTailDialog(tk.Toplevel):
         self.title(t("et_title").format(
             name=(op or {}).get("name") or (op or {}).get("type", "?"),
             i=pass_index + 1))
-        self.geometry("820x600")
+        dialog_sizing.fit(self, 820, 600)
         self.transient(parent)
 
         self.points = ew.normalize(self._stored_points())
         if not self.points:
             self.points = self._seed_from_current_path()
+
+        # OK / Cancel / Clear packed FIRST, to the bottom (#103): Tk squeezes
+        # whatever was packed LAST when the screen is too small, and in a
+        # top-down dialog that is always the buttons. This window measured
+        # 654 px of content at 125 % DPI against a 600 px window — the missing
+        # 54 px was exactly this row. Filled in further down.
+        bar = ttk.Frame(self)
+        bar.pack(side="bottom", fill="x", padx=6, pady=6)
 
         tk.Label(self, text=t("et_help"), anchor="w", justify="left",
                  fg="#446688", wraplength=780).pack(fill="x", padx=8, pady=(8, 2))
@@ -85,6 +95,10 @@ class ExitTailDialog(tk.Toplevel):
         self.tree.bind("<Double-1>", self._on_double_click)
         self.tree.bind("<<TreeviewSelect>>", lambda _e: self._draw())
 
+        # #102: fixed for the life of the window — see pass_table for the same
+        # call and the reason (a sketch that re-orients mid-edit is worse than a
+        # slightly stale one).
+        self._orient = preview_orient.resolve(self.app)
         self.preview = tk.Canvas(self, height=190, bg="#0e141b", highlightthickness=0)
         self.preview.pack(fill="x", padx=6, pady=(4, 0))
         self.preview.bind("<Configure>", lambda _e: self._draw())
@@ -100,8 +114,6 @@ class ExitTailDialog(tk.Toplevel):
         ttk.Button(row, text=t("et_btn_del"), command=self._delete).pack(side="left", padx=2)
         ttk.Button(row, text=t("et_btn_seed"), command=self._reseed).pack(side="left", padx=8)
 
-        bar = ttk.Frame(self)
-        bar.pack(fill="x", padx=6, pady=6)
         ttk.Button(bar, text=t("et_btn_ok"), command=self._ok).pack(side="right", padx=2)
         ttk.Button(bar, text=t("et_btn_cancel"), command=self.destroy).pack(side="right", padx=2)
         ttk.Button(bar, text=t("et_btn_clear"), command=self._clear).pack(side="left", padx=2)
@@ -478,12 +490,22 @@ class ExitTailDialog(tk.Toplevel):
         z0, z1 = min(zs), max(zs)
         pad = max((x1 - x0), (z1 - z0)) * 0.18 + 3.0
         x0 -= pad; x1 += pad; z0 -= pad; z1 += pad
-        sx = (W - 40) / max(x1 - x0, 1e-6)
-        sz = (H - 30) / max(z1 - z0, 1e-6)
-        s = min(sx, sz)
+
+        # #102: this window used to draw X across and Z up, while the pass table
+        # drew Z across and X up — the same pass, axes swapped, and this one
+        # never applied the machine-side mirror either. Both now lay out through
+        # the shared helper, which takes its orientation from the 3D camera.
+        # (z0/z1 above stay CAM Z: the clearance contour below sweeps real Z.)
+        _or = self._orient
+        _corners = [preview_orient.to_plane(_or, x, z)
+                    for x in (x0, x1) for z in (z0, z1)]
+        h0 = min(p[0] for p in _corners); h1 = max(p[0] for p in _corners)
+        v0 = min(p[1] for p in _corners); v1 = max(p[1] for p in _corners)
+        s = min((W - 40) / max(h1 - h0, 1e-6), (H - 30) / max(v1 - v0, 1e-6))
 
         def to_c(x, z):
-            return (20 + (x - x0) * s, H - 15 - (z - z0) * s)
+            h, v = preview_orient.to_plane(_or, x, z)
+            return (20 + (h - h0) * s, H - 15 - (v - v0) * s)
 
         # clearance contour — the line the tail may not cross
         if g is not None:
