@@ -1258,10 +1258,12 @@ this in any other feature."*). Two reasons it is the right way round:
 
 **If the original #82 intent is ever wanted back** — straight in, shaped on the
 way OUT along the arm — it is a new feature, not a revert: it needs the `:2514`
-collapse fixed AND `last_render_split_idx` restored for reverse passes (else the
-arm's extra points cannot be trimmed by `exit_max_points`, which is dead on
-reverse passes for the same reason — `_cap_of` returns 0 when the split is None,
-`:3538`).
+arm collapse fixed, and the shaped arm would then have to be trimmable.
+
+> `exit_max_points` / `p2_radius_max_points` were dead on reverse passes for the
+> same dropped-split reason. **Fixed 2026-08-30** (user: they should behave like
+> a forward pass): `decimate_all_paths` decimates the reversed array with the
+> forward indices via `last_reverse_split_idx` and flips the result back.
 
 > **SIBLING FINDING — ✅ RESOLVED 2026-08-29 by removing the combination.**
 > User: *"there should not be such a thing as a back pass of a reverse pass. Back

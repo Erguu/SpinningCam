@@ -143,6 +143,53 @@ check("the audit reports the dead Back Pass tick",
       any("Back Pass" in f["msg"] or "Geri Pas" in f["msg"] for f in _a4))
 
 
+# ── 4b. the point caps reach a reverse pass (2026-08-30) ───────────────────
+# They used to be dead there: the dropped split index left the whole path as one
+# RDP region and `_cap_of` returns 0 without a split, so exit_max_points simply
+# did nothing on a reverse pass. `decimate_all_paths` now decimates the reversed
+# array with the forward indices and flips the result back.
+print("\n[4b] exit_max_points / p2_radius_max_points apply to a reverse pass")
+CAPS = {"0": {"exit_breaks": [{"t": 0.30, "angle": -12.0},
+                              {"t": 0.60, "angle": -12.0},
+                              {"t": 0.85, "angle": -12.0}]}}
+
+
+def decimated(direction, **extra):
+    op = {"type": "roughing", "count": 1, "start_z": 30.0, "r_tool": 25.0,
+          "clearance": 0.0, "p1_x": 40.0, "p1_z": 50.0, "p3_x": 30.0,
+          "p3_z": -25.0, "p2_radius": 10.0, "pass_shape": "linear_approach",
+          "direction": direction, "pass_edits": CAPS}
+    op.update(extra)
+    p = {"operations": [op], "auto_calc_angle": False, "min_safety_gap": -999.0,
+         "final_part_thickness_on_mandrel": 0.0, "shell_thickness": 0.0}
+    pg.calculate_paths(p, {}, mgr)
+    return np.asarray(pg.decimate_all_paths(0.5, 0.5, 0.0, params=p)[0])
+
+
+for label, kw in (("no cap", {}),
+                  ("exit_max_points=2", {"exit_max_points": 2}),
+                  ("both caps = 2", {"exit_max_points": 2,
+                                     "p2_radius_max_points": 2})):
+    f, r = decimated("forward", **kw), decimated("reverse", **kw)
+    check(f"{label}: reverse decimates like forward "
+          f"({len(r)} vs {len(f)} pts)",
+          f.shape == r.shape and np.allclose(r, f[::-1], atol=1e-12))
+
+_free = decimated("reverse")
+_cap = decimated("reverse", exit_max_points=2)
+check(f"the exit cap actually bites on a reverse pass ({len(_free)} → {len(_cap)} pts)",
+      len(_cap) < len(_free))
+check("and the flattened break is WARNED about, as on a forward pass",
+      len(getattr(pg, "last_break_flatten_warnings", []) or []) == 1)
+
+# Decimation must never reorder a pass: the roller still starts where it started.
+_full = build("reverse", pass_edits=CAPS, p2_radius=10.0)
+_dec = decimated("reverse", exit_max_points=2)
+check("the decimated reverse pass keeps its own start and end points",
+      np.allclose(_dec[0], _full[0], atol=1e-9)
+      and np.allclose(_dec[-1], _full[-1], atol=1e-9))
+
+
 # ── 5. the break editor can still find the exit leg ────────────────────────
 print("\n[5] last_reverse_split_idx locates the exit leg (editor advisory)")
 r_brk = build("reverse", pass_edits=PASS_EDITS)

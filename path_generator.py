@@ -3583,6 +3583,28 @@ class PathGenerator:
         out = []
         for _pi, _p in enumerate(self.last_calculated_paths):
             _split   = self.last_render_split_idx.get(_pi)
+            # A reverse pass is stored back-to-front and its split index is
+            # dropped, so it used to arrive here with no structure at all: one
+            # RDP region over the whole path, and BOTH point caps dead
+            # (`_cap_of` returns 0 on a missing split). exit_max_points simply
+            # did nothing on a reverse pass — user, 2026-08-30: it should behave
+            # like a forward one.
+            #
+            # Decimated REVERSED with the forward indices, then flipped back.
+            # Feeding the mirrored pair to the splitter would swap the roles of
+            # the arm and the exit leg — it slices `pts[:approach_end+1]` as the
+            # arm and `pts[arc_end:]` as the exit, which on a back-to-front array
+            # is exactly the wrong way round. RDP and `_thin_evenly` are both
+            # symmetric (endpoints pinned, selection by deviation / arc length),
+            # so reversing input reverses output and nothing else.
+            _rev_flip = False
+            if _split is None:
+                _rv = getattr(self, "last_reverse_split_idx", {}).get(_pi)
+                if _rv is not None:
+                    _p = np.asarray(_p, dtype=float)[::-1]
+                    _n = len(_p)
+                    _split = (_n - 1 - _rv[1], _n - 1 - _rv[0])
+                    _rev_flip = True
             _app_end = _split[0] if _split is not None else None
             _arc_end = _split[1] if _split is not None else None
             _verb = _pi in getattr(self, "last_exit_verbatim", set())
@@ -3606,7 +3628,7 @@ class PathGenerator:
             _fill_cap = _cap_of("p2_radius_max_points")     # #99, the P2 corner
             _exit_cap = _cap_of("exit_max_points")          # #101, the P2→P3 leg
             if _fill_cap <= 0 and _exit_cap <= 0:
-                out.append(_plain)
+                out.append(_plain[::-1] if _rev_flip else _plain)
                 continue
 
             # The two caps are judged INDEPENDENTLY. Testing them only together
@@ -3678,7 +3700,8 @@ class PathGenerator:
                         f"cap {_cap} REFUSED on path {_pi} "
                         f"({self.last_point_cap_warnings[-1]['op_name']}): clearance would "
                         f"drop {_floor:.3f} → {_got:.3f} mm. Uncapped decimation kept.")
-            out.append(_best)
+            # Back to the order the rest of the program expects (see _rev_flip).
+            out.append(_best[::-1] if _rev_flip else _best)
         return out
 
     def _straight_line_flatness_dev(self, mandrel_mgr, start_z, end_z, shell_offset=0.0):

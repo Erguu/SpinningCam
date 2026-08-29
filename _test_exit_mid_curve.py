@@ -131,15 +131,16 @@ if pg_old is not None:
     # (2026-08-30). The #82 leg swap used to force a reverse pass's exit leg
     # straight and move the bow onto the arm, where `:2514` then deleted it —
     # so a bow on a reverse pass did nothing at all. The swap is gone: a reverse
-    # pass is the forward pass driven backwards and the bow cuts. Asserted both
-    # ways round so neither half can regress silently.
-    _rev_over = {"direction": "reverse", "exit_bow": 12.0}
-    _old = build(gen=pg_old, **_rev_over)
-    _new = build(**_rev_over)
-    check(not (_old.shape == _new.shape and np.allclose(_old, _new, atol=1e-9)),
-          "CHANGED ON PURPOSE: reverse + bow no longer matches HEAD")
-    check(np.allclose(_new, build(exit_bow=12.0)[::-1], atol=1e-12),
-          "...it is now exactly the forward pass with the same bow, reversed")
+    # pass is the forward pass driven backwards and the bow cuts.
+    #
+    # NOT asserted as "differs from HEAD": this baseline is read from git HEAD,
+    # which advances every time the change is committed, so such a check passes
+    # once and then fails forever. The durable statement of the same fact is
+    # below — the shape a reverse pass cuts is the forward one reversed — and it
+    # holds whatever HEAD happens to be.
+    check(np.allclose(build(direction="reverse", exit_bow=12.0),
+                      build(exit_bow=12.0)[::-1], atol=1e-12),
+          "reverse + bow == the forward pass with the same bow, reversed")
     check(np.allclose(build(gen=pg_old, direction="reverse"),
                       build(direction="reverse"), atol=1e-12),
           "a reverse pass with NO exit shape is still HEAD-identical")

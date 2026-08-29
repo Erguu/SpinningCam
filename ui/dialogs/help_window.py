@@ -2342,8 +2342,10 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
 
                  ON A REVERSE PASS they work the same way, with
                  nothing to switch on first - a reverse pass is
-                 just the forward pass driven backwards. Four
-                 things differ, and they are worth knowing:
+                 just the forward pass driven backwards. Exit Max
+                 Points caps them the same way, and warns the same
+                 way when a tight cap flattens one. Three things
+                 differ, and they are worth knowing:
 
                  1. The percentage is a PLACE ON THE PART, not a
                     moment in the stroke. 0% is at the mandrel, 100%
@@ -2357,13 +2359,7 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                     reverse pass that same point is where the roller
                     first touches down, so the rapid approach lands
                     somewhere new. Check it before running.
-                 3. EXIT MAX POINTS DOES NOT APPLY to a reverse
-                    pass. On a forward pass a tight cap can quietly
-                    flatten a break (you get a warning at export).
-                    On a reverse pass the cap does nothing at all -
-                    your breaks always survive, but they also always
-                    cost their recipe lines.
-                 4. NO BACK PASS. A reverse pass already is the
+                 3. NO BACK PASS. A reverse pass already is the
                     return stroke, so the Back Pass tick does
                     nothing on a reverse operation.
 
@@ -2821,8 +2817,10 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
 
                   TERS PASTA da aynı şekilde çalışır; önceden
                   açılması gereken bir şey YOKTUR — ters pas, ileri
-                  pasın tersten sürülmüş hâlidir. Bilinmesi gereken
-                  dört fark var:
+                  pasın tersten sürülmüş hâlidir. Çıkış Maks. Nokta
+                  da aynı şekilde sınırlar ve dar bir sınır bir
+                  kırılmayı düzleştirdiğinde aynı şekilde uyarır.
+                  Bilinmesi gereken üç fark var:
 
                   1. Yüzde, PARÇA ÜZERİNDE BİR YERDİR; hamlenin bir
                      ANI değil. %0 mandrelin yanı, %100 kolun uzak
@@ -2834,13 +2832,7 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                      ters pasta o nokta rulonun İLK değdiği yerdir,
                      dolayısıyla hızlı yaklaşma başka bir yere iner.
                      Çalıştırmadan önce kontrol edin.
-                  3. ÇIKIŞ MAKS. NOKTA ters pasta ÇALIŞMAZ. İleri
-                     pasta dar bir sınır bir kırılmayı sessizce
-                     düzleştirebilir (export'ta uyarı alırsınız).
-                     Ters pasta sınır hiçbir şey yapmaz: kırılmalar
-                     her zaman korunur ama reçete satırlarını da
-                     her zaman harcarlar.
-                  4. GERİ PAS YOK. Ters pas zaten dönüş hamlesidir;
+                  3. GERİ PAS YOK. Ters pas zaten dönüş hamlesidir;
                      ters operasyonda Geri Pas işareti bir şey
                      üretmez.
 

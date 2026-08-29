@@ -38,6 +38,14 @@ CHANGELOG = {
          "affected, by name. Reverse passes with no exit shape set are "
          "unchanged.",
          "Help ▸ Why is my pass odd?"),
+        ("Exit Max Points now works on reverse passes as well",
+         "The cap that limits how many recipe lines the exit leg may use was "
+         "silently doing nothing on a reverse pass — you set it and the line "
+         "count did not move. It now trims a reverse pass exactly as it trims "
+         "a forward one, including the warning you get before an SCL export "
+         "when a tight cap flattens a break you drew. The same applies to the "
+         "P2 Radius point cap.",
+         "Program List ▸ select an operation ▸ Path Shape ▸ Exit Max Points"),
         ("A reverse operation no longer builds a back pass",
          "A back pass is the return half of a forward pass, run without "
          "stopping — so a reverse pass already is one. The tick used to "

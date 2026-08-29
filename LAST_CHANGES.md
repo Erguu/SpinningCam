@@ -123,6 +123,28 @@ kişinin kararıdır.
   zaten kırık. `_test_tool_io` yerel veri (`tool_geometry/T006` yok), koda bağlı
   değil. Diğer her şey GEÇİYOR.
 
+### `exit_max_points` / `p2_radius_max_points` artık TERS PASLARDA da çalışıyor
+
+Ters pasın split indeksi düştüğü için `decimate_all_paths`'e yapısız geliyordu:
+tüm yol TEK RDP bölgesi ve `_cap_of` split yokken 0 döndüğü için HER İKİ nokta
+sınırı da ÖLÜ. Yani `exit_max_points` ters pasta hiçbir şey yapmıyordu.
+
+Artık `last_reverse_split_idx` ile dizi TERSTEN, İLERİ indekslerle seyreltilip
+sonuç geri çevriliyor. **Aynalanmış çifti doğrudan vermek YANLIŞ olurdu** —
+bölücü `pts[:approach_end+1]`'i kol, `pts[arc_end:]`'i çıkış sayar; ters dizide
+bu tam tersidir. RDP ve `_thin_evenly` simetrik (uçlar sabit, seçim sapma/yay
+uzunluğuna göre), o yüzden girdiyi ters çevirmek yalnızca çıktıyı ters çevirir.
+
+Ölçüm (3 kırılma, p2_radius=10): sınırsız 8 nokta; `exit_max_points=2` → 5
+(ileri de 5); + fileto sınırı 2 → 4 (ileri de 4). Seyreltilmiş ters yol,
+seyreltilmiş ileri yolun TERSİ (1e-12). Kırılma düzleşme uyarısı da artık ters
+pasta tetikleniyor. `generate_gcode` aynı fonksiyonu kullanır → reçeteye ulaşır.
+
+**⚠ Ters pasların PLC satır sayısı değişir** (sınır konmamış olsa bile): artık
+3 bölgeli RDP uygulanıyor — kol birebir 2 nokta, fileto ve çıkış kendi
+toleranslarıyla. İleri paslarla aynı davranış; eski tek bölgeli seyreltme
+fileto sapmalarını sulandırıyordu.
+
 ### 3D GÖRÜNÜM ters pası OLMAYAN bir bombeyle çiziyordu (SALT GÖRSEL)
 
 Kullanıcı: "SCL İnceleyici'de ters pas P2–P1 arası düz görünüyor ama 3D'de eğri
