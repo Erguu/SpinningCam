@@ -160,11 +160,12 @@ def test_exclusions():
     check("spline is excluded",
           eb.excluded_reason({"pass_shape": "spline"}) == "pass_shape")
     check("default shape (spline) is excluded", eb.excluded_reason({}) == "pass_shape")
-    check("reverse without the legacy flip is excluded",
-          eb.excluded_reason(dict(base, direction="reverse")) == "reverse")
-    check("reverse WITH the legacy flip is allowed",
-          eb.excluded_reason(dict(base, direction="reverse",
-                                  reverse_legacy_flip=True)) is None)
+    # Reverse USED to be excluded, because the #82 leg swap flattened the leg
+    # breaks bend. That swap is deleted (2026-08-30): a reverse pass is the
+    # forward pass driven backwards, so there is nothing left to exclude and
+    # direction is not consulted anywhere in the module.
+    check("reverse is allowed",
+          eb.excluded_reason(dict(base, direction="reverse")) is None)
     check("the curl wins", eb.excluded_reason(dict(base, exit_mid_radius=50.0)) == "curl")
     check("the end-radius alone also wins",
           eb.excluded_reason(dict(base, exit_mid_radius_end=50.0)) == "curl")
@@ -172,6 +173,16 @@ def test_exclusions():
           eb.excluded_reason(dict(base, exit_mid_radius="")) is None)
     check("a back pass is NOT excluded (its main pass still exits normally)",
           eb.excluded_reason(dict(base, back_pass_enabled=True)) is None)
+
+    print("\n[5b] direction is not a variable in this module any more")
+    rev = dict(base, direction="reverse")
+    check("get_breaks ignores direction",
+          eb.get_breaks(dict(rev, exit_mid_t=0.5, exit_mid_rotation=-12.0), 0)
+          == eb.get_breaks(dict(base, exit_mid_t=0.5, exit_mid_rotation=-12.0), 0))
+    check("the legacy break now resolves on a reverse op too",
+          eb.get_breaks(dict(rev, exit_mid_t=0.5, exit_mid_rotation=-12.0), 0)
+          == [{"t": 0.5, "angle": -12.0}])
+    check("swaps_legs is gone with the swap", not hasattr(eb, "swaps_legs"))
 
 
 # ── 6. degenerate input ─────────────────────────────────────────────────────

@@ -275,10 +275,6 @@ STRINGS = {
         "EN": "Break points need Pass Shape = linear_approach. A 'spline' pass is one curve P1→P2→P3 with no separate exit leg, and 'linear_full' builds its exit in a way that has never applied the mid-pass rotation.",
         "TR": "Kırılma noktaları için Pas Şekli = linear_approach olmalı. 'spline' pas P1→P2→P3'ü tek eğri çizer, ayrı bir çıkış kolu yoktur; 'linear_full' ise çıkışını rotasyonun HİÇ uygulanmadığı bir yoldan kurar.",
         "ES": "Los puntos de quiebre requieren Forma de Pasada = linear_approach. Una pasada 'spline' es una curva P1→P2→P3 sin tramo de salida, y 'linear_full' construye su salida sin aplicar nunca la rotación."},
-    "pt_breaks_excl_reverse": {
-        "EN": "A reverse pass swaps its legs, so the leg the breaks would bend is the one entering the mandrel. Enable 'reverse_legacy_flip' if you need the old behaviour.",
-        "TR": "Ters pas bacaklarını takas eder; kırılmaların bükeceği bacak mandrele GİREN bacaktır. Eski davranış gerekiyorsa 'reverse_legacy_flip' açın.",
-        "ES": "Una pasada inversa intercambia sus tramos, así que el tramo que doblarían los quiebres es el de entrada. Active 'reverse_legacy_flip' si necesita el comportamiento anterior."},
     "pt_breaks_excl_curl": {
         "EN": "The exit curl (Exit Mid Radius) already shapes this leg and takes priority. Clear the radius to use break points instead.",
         "TR": "Çıkış kıvrımı (Exit Mid Radius) bu kolu zaten şekillendiriyor ve önceliklidir. Kırılma noktalarını kullanmak için yarıçapı temizleyin.",
@@ -1380,6 +1376,12 @@ STRINGS = {
     "rx_f_legacy":        {"EN": "Old-style hidden override on this pass (open the pass table and use Unpin).",
                            "TR": "Bu pasta ESKİ tip gizli override var (pas tablosunu açıp Pin temizle).",
                            "ES": "Override antiguo oculto en esta pasada (use Quitar fijado)."},
+    "rx_f_rev_shape":     {"EN": "This REVERSE operation sets {fields}. Before v1.022 a reverse pass ignored every exit shape, so if this program was proven on the machine before then, it now cuts a shape it did not cut. Check it before running.",
+                           "TR": "Bu TERS operasyonda {fields} dolu. v1.022 öncesinde ters pas tüm çıkış şekillerini yok sayıyordu; bu program o tarihten önce makinede onaylandıysa artık ESKİDEN KESMEDİĞİ bir şekli kesiyor. Çalıştırmadan önce kontrol edin.",
+                           "ES": "Esta operación INVERSA define {fields}. Antes de v1.022 una pasada inversa ignoraba toda forma de salida, así que si este programa se validó en la máquina antes, ahora corta una forma que antes no cortaba. Revíselo antes de ejecutar."},
+    "rx_f_bp_reverse":    {"EN": "Back Pass is ticked on a REVERSE operation, so no back pass is built — a reverse pass already is the return stroke. Untick it, or set the operation to Forward.",
+                           "TR": "TERS operasyonda Geri Pas işaretli, ama geri pas ÜRETİLMİYOR — ters pas zaten dönüş hamlesidir. İşareti kaldırın veya operasyonu İleri yapın.",
+                           "ES": "Pasada de retorno está marcada en una operación INVERSA, así que no se crea ninguna — una pasada inversa ya es el retorno. Desmárquela o ponga la operación en Adelante."},
     "rx_f_inert":         {"EN": "{n} operation(s) carry leftover '{key}' data — the machine ignores it. Safe to ignore.",
                            "TR": "{n} operasyonda artık '{key}' verisi var — makine bunu kullanmıyor. Yok sayılabilir.",
                            "ES": "{n} operación(es) con datos '{key}' sobrantes — la máquina los ignora."},

@@ -5,6 +5,137 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-30 — SÜRÜM 1.022: TERS PAS = İLERİ PASIN TERSİ (tek kural); #82 SİLİNDİ, #49 kapandı
+
+**Sürüm:** `version.py` 1.021 → **1.022**, `changelog.py`'ye 4 maddelik
+operatör girdisi (ters pasta kırılma noktaları / tek kural + DEĞİŞEN davranış
+uyarısı / geri pas yok / 3D çizim düzeltmesi).
+
+**İstek:** "kırılma noktaları sadece ileri paslarda çalışıyor, aynısı ters paslarda
+da olabilir mi?" Cevap, tek bir kuralı geri getirmek oldu.
+
+### #82 BACAK TAKASI SİLİNDİ — ters pas artık ileri pasın tersten sürülmüş hâli
+
+Motorda `_swap_legs` ve iki dalı tamamen kaldırıldı. Artık **tek kural** var:
+çıkış yayı, çıkış bombesi, kıvrım, kırılma noktaları, eski `exit_mid` — hepsi
+iki yönde de aynı işi yapar. Seçilecek mod, açılacak bayrak YOK.
+
+**#82 ne yapıyordu:** ters pasta serbest sac üzerindeki bacağı DÜZ zorluyor,
+eğriyi çıkış koluna taşıyordu. Düzleştirme çalışıyordu; **taşıma HİÇ
+çalışmadı** — `:2514` kolu iki uç noktasına indiriyor, yani eğri kuruluyor sonra
+siliniyor (ölçüm: kol sapması `exit_arc_angle` 0° iken de 25° iken de 0.000 mm).
+Sonuç: ters pas HER ZAMAN düz girip düz çıkmış, tüm çıkış-şekli alanları orada
+sessizce hiçbir şey yapmamış.
+
+**Neden onarmak yerine silmek:** bombe, yay ve kırılma noktaları AYNI bacağı —
+serbest sacı — şekillendirmenin alternatif yollarıdır. #82'yi onarmak bombeyi
+konumlama koluna, kırılmaları saca koyardı; bu kimseye anlatılamaz. Ayrıca
+#82'nin koruması yalnızca operatör AÇIKÇA bir şekil yazdığında devreye giriyordu:
+şekil yoksa ileri geometrinin tersi zaten mandrele dümdüz girer — varsayılan bu
+ve DEĞİŞMEDİ.
+
+> **Ara adımlar (aynı gün, ikisi de yetersiz çıktı ve kaldırıldı):** önce
+> `reverse_legacy_flip` "Şekil Girişte" onay kutusu olarak açıldı — ama Kırılma
+> Noktaları düğmesi kapalı olduğu için operatör kırılmayı hiç çizemiyordu
+> (tavuk-yumurta). Sonra "kırılma çizmek takası kapatır" kuralı eklendi — bu
+> kırılmaları çözdü ama bombe/yay hâlâ sessizce ölüydü ve kutucuk kaldı.
+> Kullanıcı: *"kimse o kutucuğu kullanmaz, bana ters modda exit bow neden
+> çalışmıyor diye sorarlar ve ben sebebini çoktan unutmuş olurum. Programda başka
+> hiçbir özellikte böyle bir şey yok."* Haklı — kutucuk silindi.
+
+**⚠ METALİ DEĞİŞTİREN TEK YER:** v1.022 öncesinde kaydedilmiş, `exit_bow` /
+`exit_arc_angle` / `exit_mid_rotation` dolu bir TERS operasyon artık o şekli
+KESER (önceden yok sayılıyordu). Yeni denetim bulgusu **`rx_f_rev_shape`**
+(`warn`) etkilenen operasyonları adıyla listeler — "Pasım neden tuhaf?"
+penceresinde. Şekil girilmemiş ters paslar bit-aynı.
+
+- `path_generator.py` — `_swap_legs` + `elif _swap_legs:` dalı + kol bombesi dalı SİLİNDİ.
+- `exit_breaks.py` — `excluded_reason` artık `"reverse"` döndürmez (düğme AKTİF);
+  `swaps_legs` kaldırıldı; modül yönü hiç okumuyor.
+- `ui/tabs/program_tab.py` — "Şekil Girişte" kutucuğu + universe + label SİLİNDİ.
+- `i18n.py` — `lbl_reverse_legacy` ve `pt_breaks_excl_reverse` SİLİNDİ,
+  `rx_f_rev_shape` eklendi (EN/TR/ES).
+- `ui/dialogs/help_window.py` — EN + TR "Pas Yönü" yeniden yazıldı; Kırılma
+  Noktaları bölümüne ileri/ters FARKLARI (4 madde) eklendi.
+
+### Ters operasyonda GERİ PAS artık ÜRETİLMİYOR (#49 kapandı)
+
+Kullanıcı (2026-08-29): *"ters pasın geri pası diye bir şey olmamalı. Geri pas,
+bir ileri pasa DURMADAN bağlanan bir tür ters pastır. Yani ters pasın geri pasına
+ihtiyacımız yok."* Bu, **#49'un açık bıraktığı** soruyu kapatıyor ("Reverse ↔ back
+pass etkileşimi — kabul edilebilir mi yoksa kapatılsın mı").
+
+Sadece gereksiz değil, YANLIŞTI: split indeksi düştüğü için geri pas, spline
+şekiller için olan "tüm yolu aynala" dalına düşüyor ve P1→P2 **konumlama kolunu**
+de geri sürüyordu; konik mandrelde bu tüm dönüşü **15 mm dışarı** itiyordu — yani
+parçaya hiç değmeyen, iş yapmayan bir hamle. Ölçüm (varsayılan koni, filetosuz):
+
+| | ana pas | geri pas |
+|---|---|---|
+| ileri | X 70→100, Z −20→55 | X 100→70, Z 55→**30** (P2'de durur) |
+| ters | X 100→70, Z 55→−20 | X **85**→**115**, Z −20→**55** (kolu da sürer) |
+
+- `path_generator.py` — ters op'ta geri pas dalı ATLANIR; istek
+  `last_back_pass_ignored`'a yazılır + `logger.info`. Sessiz düşürme YOK.
+- `recipe_explain.py` — yeni bulgu `rx_f_bp_reverse` (`warn`): dosyada işaretli
+  kalan ama hiçbir şey üretmeyen kutucuk "Pasım neden tuhaf?" penceresinde görünür.
+- `i18n.py` — `rx_f_bp_reverse` EN/TR/ES.
+- Yan fayda: ters op'ta artık hiçbir şey dizileri yeniden kurmadığı için
+  `last_reverse_split_idx` geri-pas işaretliyken de güvenle kaydedilir
+  (önceki "geri pas varsa kaydetme" istisnası kalktı).
+
+**⚠ MEVCUT PROGRAMI DEĞİŞTİRİR:** ters + geri pas içeren eski bir dosya bir
+hamle KAYBEDER. O hamle zaten parçadan 15 mm uzaktaydı ve iş yapmıyordu, ama
+eski dosyayı tekrar çalıştıran kişiye söylenmeli.
+
+### Test süiti artık EKRANA PENCERE ATMIYOR
+
+`_test_changelog_window.py` gerçek "Yenilikler" diyaloğunu açıp `mainloop()`'ta
+kullanıcı kapatana kadar BEKLİYORDU. Yani test süitini çalıştırmak geliştiricinin
+ekranına pencere fırlatıyor ve orada bloke oluyordu — toplu koşuda "takıldı",
+zaman sınırlı koşuda "başarısız" olarak okunuyor (bu oturumda tam olarak öyle
+oldu: bir süpürmede 300 sn'de FAIL, diğerinde pencere kapatıldığı için PASS).
+
+**Varsayılan artık başsız:** kontroller çalışır, çıkar. Pencereyi görmek isteyen
+`--preview` verir; `--check` eski alışkanlık için kabul edilmeye devam eder.
+**Kural: hiçbir test bir insanı BEKLEYEMEZ.** Bakılıp bakılmayacağı terminaldeki
+kişinin kararıdır.
+
+> Not: uygulamanın KENDİ "Yenilikler" penceresi (`_maybe_show_changelog`)
+> dokunulmadı — sürüm yükseldiğinde bir kez açılması ve "bir daha gösterme"
+> denene kadar açılmaya devam etmesi bilinçli tasarımdır.
+
+### TESTLER
+- **YENİ `_test_break_points_reverse.py` — 32/32**: tek kural her şekil için
+  (bombe/yay/kıvrım/kırılma/legacy/fileto), varsayılanın kımıldamadığı, DEĞİŞEN
+  davranışın bilerek sabitlendiği, geri pas, render, editör kolu.
+- **YENİ `_test_break_points_reverse_gui.py` — 12/12** (gerçek Tk): `_current_leg`
+  ileri/ters aynı kolu bulur (geri pas işaretliyken de); **Kırılma Noktaları
+  düğmesi ters op'ta AKTİF** (şikâyetin ta kendisi), spline/kıvrımda kapalı.
+- `_test_exit_breaks.py` **49/49**.
+- **ESKİ SÖZLEŞMEYİ TUTAN İKİ TEST GÜNCELLENDİ:** `_test_reverse_linear.py`
+  baştan yazıldı (sahte geçen "outgoing arm bowed" kontrolü dâhil — bkz. #82),
+  `_test_exit_mid_curve.py`'de "reverse pass ignores the curl (Q6)" ve
+  "HEAD-identical: reverse pass + bow" artık DEĞİŞTİ olarak sabitleniyor.
+  İleri pasların HEAD-aynılığı bozulmadı.
+- **Regresyon:** tüm `_test_*.py` süpürüldü. `_test_pass_edits`,
+  `_test_program_tab_toolbar`, `_test_reach_follow`, `_test_real_end_z` HEAD'de
+  zaten kırık. `_test_tool_io` yerel veri (`tool_geometry/T006` yok), koda bağlı
+  değil. Diğer her şey GEÇİYOR.
+
+### 3D GÖRÜNÜM ters pası OLMAYAN bir bombeyle çiziyordu (SALT GÖRSEL)
+
+Kullanıcı: "SCL İnceleyici'de ters pas P2–P1 arası düz görünüyor ama 3D'de eğri
+var." **SCL İnceleyici HAKLIYDI.** Ters pasın split indeksi düştüğü için
+`main.py` köşe-tespiti fallback'ine düşüyor; o fallback yalnızca **90°'den
+KESKİN** dönüşte tetikleniyor, tipik pas P2'de ~50° dönüyor (`min cos = +0.640`)
+→ TÜM yol tek `pv.Spline` → düz kol bombeleniyor. Veri 0.000 mm iken ÇİZİLEN
+5.284 mm. Artık `last_reverse_split_idx` kullanılıp dizi TERSTEN, İLERİ
+indekslerle çiziliyor (aynalanmış çifti doğrudan vermek kol ile kuyruğun
+rollerini takas ederdi). Takım yolu/G-code/SCL/simülasyon DEĞİŞMEDİ.
+
+---
+
 ## 2026-08-28 — SÜRÜM 1.020 + "Kırılma Noktaları" tasarımı (kod YOK)
 
 **Sürüm:** `version.py` 1.019 → **1.020**, `changelog.py`'ye 4 maddelik operatör

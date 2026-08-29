@@ -1,10 +1,17 @@
-"""Changelog rendering — checks, then an on-screen preview of the real dialog.
+"""Changelog rendering — headless checks, and an OPT-IN preview of the dialog.
 
-    python _test_changelog_window.py           checks + open the window
-    python _test_changelog_window.py --check   checks only (no window)
+    python _test_changelog_window.py             checks only, exits (default)
+    python _test_changelog_window.py --preview   checks + open the window
 
-Previewing here does NOT touch settings.json or changelog_seen_version, so it is
-safe to run any time.
+THE DEFAULT IS HEADLESS ON PURPOSE (2026-08-30). This used to open the real
+dialog and sit in `mainloop()` until someone clicked it away — so running the
+test suite threw a window onto the developer's screen and blocked there, which
+in a batch run reads as a hang and in a timed run as a failure. A test may not
+wait on a human. Whether to look at the dialog is a decision for whoever is at
+the terminal, so it takes a flag.
+
+Previewing does NOT touch settings.json or changelog_seen_version, so it is safe
+to run any time.
 """
 import sys
 import tkinter as tk
@@ -46,11 +53,13 @@ print("  OK  field counts, non-empty titles, BMP-only text")
 assert changelog.entries_since(APP_VERSION, APP_VERSION) == []
 print("  OK  seen current version -> no dialog")
 
-if "--check" in sys.argv:
-    print("\nCHECKS PASS (window skipped)")
+# `--check` is still accepted so older notes and habits keep working; it is now
+# what happens anyway.
+if "--preview" not in sys.argv:
+    print("\nCHECKS PASS (window skipped — pass --preview to see the dialog)")
     sys.exit(0)
 
-# --- on-screen preview -----------------------------------------------------
+# --- on-screen preview (opt-in) --------------------------------------------
 
 from ui.dialogs.changelog_window import ChangelogWindow
 

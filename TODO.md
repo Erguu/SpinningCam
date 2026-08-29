@@ -1222,7 +1222,85 @@ the field to the op editor's Path Shape section (Customize/Advanced aware),
 keep the Process-tab spinbox as the default value. Gives the user free
 line-or-curve control between P2 and P3 per operation.
 
-### 82. ✅ IMPLEMENTED 2026-07-08 as NEW DEFAULT (user choice; reverse_legacy_flip = escape hatch; ⚠ PHYSICAL VALIDATION PENDING) — was: 🟠 corrected — REVERSE passes approach the mandrel along the exit CURVE (geometry roles don't swap)
+### 82. ✅ RESOLVED 2026-08-30 BY DELETION — the leg swap is gone; reverse = forward reversed
+
+**The swap never worked.** `_swap_legs` correctly forced a reverse pass's
+free-blank leg straight (`:2189`) and built the curve on the outgoing arm
+(`:2264-2274`) — then `:2514` collapsed the arm to its two end points and threw
+the curve away. Measured on the default cone: arm deviation **0.000 mm with
+`exit_arc_angle` at 0° AND at 25°**; with `:2514` disabled, 2 → 27 points and
+**5.540 mm**. So reverse passes have always run straight in / straight out, and
+every exit-shape field was silently dead on them.
+
+**Why it was invisible for a year:** `_test_reverse_linear.py:63` ("outgoing arm
+bowed") measured `rev[3*n//4:]`, a slice containing the P2 corner — it reported
+**5.6114 mm at 25° and 5.6114 mm at 0°**. It would have passed with the feature
+absent, which it effectively was. That file has been rewritten to measure the
+arm by geometry rather than by index fraction.
+
+**Resolved by deleting the swap, not by repairing the arm** (user, 2026-08-30:
+*"nobody uses that check box and they'll ask me why exit bow doesn't work in
+reverse mode and I'll have forgotten the reason. We don't have anything like
+this in any other feature."*). Two reasons it is the right way round:
+
+1. Bow, arc, curl and break points are alternative ways to shape the SAME leg —
+   the free blank. Repairing #82 would put the bow on the positioning arm while
+   break points stayed on the blank. Indefensible to explain.
+2. #82's protection only ever bit when the operator had explicitly typed a
+   shape. With no shape set, the forward geometry reversed already enters the
+   mandrel dead straight — that is the default and it is byte-identical.
+
+`reverse_legacy_flip` and its "Shape on Entry" checkbox are deleted with it.
+
+**⚠ THE ONE PLACE THIS CHANGES METAL:** a reverse op saved with `exit_bow` /
+`exit_arc_angle` / `exit_mid_rotation` set now CUTS that shape. Audit finding
+`rx_f_rev_shape` (warn) names those operations in "Why is my pass odd?".
+
+**If the original #82 intent is ever wanted back** — straight in, shaped on the
+way OUT along the arm — it is a new feature, not a revert: it needs the `:2514`
+collapse fixed AND `last_render_split_idx` restored for reverse passes (else the
+arm's extra points cannot be trimmed by `exit_max_points`, which is dead on
+reverse passes for the same reason — `_cap_of` returns 0 when the split is None,
+`:3538`).
+
+> **SIBLING FINDING — ✅ RESOLVED 2026-08-29 by removing the combination.**
+> User: *"there should not be such a thing as a back pass of a reverse pass. Back
+> passes are kinda reverse passes that are connected to a forward pass, without
+> stopping. So we don't need a back pass of a reverse pass."* That closes the
+> question **#49 left open** ("Reverse interaction with a mirror back pass on the
+> same op … confirm that's acceptable or gate it") — it is gated. A reverse op no
+> longer builds a back pass; the request is recorded in
+> `last_back_pass_ignored` and reported by the recipe audit
+> (`rx_f_bp_reverse`) so a ticked-but-dead checkbox cannot sit in a file
+> unnoticed. The broken behaviour it replaces is below, kept because it explains
+> what an existing reverse + back-pass program has been doing.
+> Same root cause, different victim. `:1021` pops the split index; twelve lines
+> later `:1033` reads it to find where the forming portion starts, gets `None`,
+> and falls into the whole-path-mirror branch meant for spline passes. So a
+> reverse op's back pass runs the P1→P2 arm as well — which `:1040` explicitly
+> says it must not: *"it is pure positioning, an ironing back-stroke should not
+> retrace it, and on tapered mandrels its lower end forced the whole pass
+> outward."* Measured on the default cone, no fillet:
+>
+> | | main pass | back pass |
+> |---|---|---|
+> | forward | X 70→100, Z −20→55 | X 100→70, Z 55→**30** (stops at P2) |
+> | reverse | X 100→70, Z 55→−20 | X **85**→**115**, Z −20→**55** (whole arm) |
+>
+> Note the X: the reverse back pass sits **15 mm further out for its whole
+> length** — it never touches the part, so the return stroke does no work. That
+> is exactly the "forced the whole pass outward" the comment warns about.
+> Present since reverse passes shipped (#49).
+>
+> **⚠ CHANGES THE CUT on an existing reverse + back-pass program:** it loses a
+> stroke. That stroke was 15 mm off the part and doing no work, so the program
+> was already not doing what its author thought — but anyone re-running an old
+> file should be told. **NOT the same thing as the 3D render bug**, which was
+> visual only and is also fixed — see LAST_CHANGES 2026-08-29.
+
+**Original entry (2026-07-08) below — the design is sound, the delivery is not.**
+
+### 82a. ✅ IMPLEMENTED 2026-07-08 as NEW DEFAULT (user choice; reverse_legacy_flip = escape hatch; ⚠ PHYSICAL VALIDATION PENDING) — was: 🟠 corrected — REVERSE passes approach the mandrel along the exit CURVE (geometry roles don't swap)
 
 **Symptom (user, clarified):** a reverse-direction pass is linear near the
 mandrel only on one side — there is an unwanted curve between the pass's end

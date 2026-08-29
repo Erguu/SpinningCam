@@ -413,6 +413,28 @@ def audit_operations(params, mgr=None, gui_overrides=None, tools=None):
         except (TypeError, ValueError):
             pass
 
+        # Until 2026-08-30 the #82 leg swap silently discarded every exit shape
+        # on a reverse pass — you could type a bow and the machine cut straight.
+        # With the swap deleted those values CUT. A program written while they
+        # were inert is the one case where this release changes the metal, so
+        # name the operations rather than leaving it to be discovered on a part.
+        if (enabled and op.get("direction", "forward") == "reverse"
+                and op.get("pass_shape", "spline") in ("linear_approach", "linear_full")):
+            _shapes = [k for k in ("exit_bow", "exit_arc_angle", "exit_mid_rotation")
+                       if op.get(k) not in (None, "", 0, 0.0)]
+            if _shapes:
+                findings.append(_finding("warn", "rx_f_rev_shape", i, name,
+                                         fields=", ".join(_shapes)))
+
+        # A back pass is the return half of a forward pass, run without
+        # stopping — so a reverse pass already IS one and the engine does not
+        # build a second (#49, user 2026-08-29). The checkbox stays ticked in
+        # the file, so without this the operator has a setting that reads as
+        # active and produces nothing.
+        if (enabled and op.get("back_pass_enabled", False)
+                and op.get("direction", "forward") == "reverse"):
+            findings.append(_finding("warn", "rx_f_bp_reverse", i, name))
+
         if not enabled:
             disabled_ops.append(i + 1)
         else:

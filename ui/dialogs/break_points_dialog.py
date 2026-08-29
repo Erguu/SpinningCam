@@ -264,7 +264,19 @@ class BreakPointsDialog(tk.Toplevel):
             return None
         path = np.asarray(paths[pi], dtype=float)
         split = (getattr(pg, "last_render_split_idx", {}) or {}).get(pi)
-        leg = path[(split[1] if split else 0):]
+        if split is not None:
+            leg = path[split[1]:]
+        else:
+            # A reverse pass is stored back-to-front and the engine drops its
+            # split index, so the exit leg is the array's HEAD, read backwards.
+            # `last_reverse_split_idx` carries the remapped pair for exactly this.
+            rev = (getattr(pg, "last_reverse_split_idx", {}) or {}).get(pi)
+            if rev is None:
+                # Not "assume the whole path is the leg" — that measured the
+                # advisory across the approach arm too AND re-applied breaks the
+                # array already contained. No leg means no advisory.
+                return None
+            leg = path[:rev[0] + 1][::-1]
         if len(leg) < 3:
             return None
         p = getattr(self.app, "params", {}) or {}

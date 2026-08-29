@@ -1109,6 +1109,34 @@ class SpinningApp:
                             # boundary indices for linear_approach/linear_full passes — use
                             # them directly instead of guessing where the corner is.
                             splits = self.path_gen.last_render_split_idx.get(i)
+                            if splits is None:
+                                # VISUAL ONLY (2026-08-29) — a reverse pass was
+                                # DRAWN with a bow its data does not have.
+                                #
+                                # Its split index is dropped when the pass is
+                                # flipped, so it fell into the corner-detection
+                                # fallback below, which only fires on turns SHARPER
+                                # than 90°. A normal pass turns ~50° at P2, so
+                                # nothing fired and the whole path was drawn as ONE
+                                # spline — bowing the straight P2→P1 arm by 5.28 mm
+                                # on a pass whose points are straight to 0.000 mm.
+                                # That is why the SCL inspector (which reads the
+                                # points) and the 3D view disagreed; the inspector
+                                # was right.
+                                #
+                                # Drawn REVERSED with the forward indices rather
+                                # than forward-drawn with remapped ones: the three
+                                # segments have roles (arm straight, fillet exact,
+                                # tail smoothed) and feeding the mirrored pair to
+                                # the code below would swap arm and tail — splining
+                                # the arm, which is the bug being fixed. Point order
+                                # does not change what a polyline or spline looks
+                                # like, so flipping back is free.
+                                _rev = getattr(self.path_gen,
+                                               "last_reverse_split_idx", {}).get(i)
+                                if _rev is not None:
+                                    p_arr = p_arr[::-1]
+                                    splits = (n_pts - 1 - _rev[1], n_pts - 1 - _rev[0])
                             if splits is not None:
                                 line_end = min(splits[0], n_pts - 1)
                                 arc_end  = min(max(splits[1], line_end), n_pts - 1)

@@ -677,16 +677,31 @@ PASS DIRECTION (FORWARD / REVERSE)
 ════════════════════════════════════════════════════════════════
 Each roughing or finishing operation has a Direction setting.
 Forward (default) cuts in the normal direction. Reverse makes the
-roller travel the inverse way (e.g. tip→root). For linear-shape
-passes the geometry now swaps its leg roles (2026-07-08 default):
-the leg ENTERING the mandrel-near contact point is always the
-STRAIGHT arm, and the exit-arc curve moves to the outgoing leg —
-previously the roller entered along the curve, which is not what
-a reverse pass should do. With Exit Arc Angle = 0 nothing
-changes at all. The old behavior is available per op via the
-advanced key reverse_legacy_flip. In a multi-pass operation the
-order the passes are laid down stays the same; just each pass's
-travel is reversed. Reverse and Back Pass can be combined.
+roller travel the inverse way (e.g. tip→root).
+
+A REVERSE PASS IS THE FORWARD PASS DRIVEN BACKWARDS. That is the
+whole rule. Every exit shape - exit arc, exit bow, the curl,
+break points - does exactly what it does on a forward pass, with
+nothing to switch on first. In a multi-pass operation the order
+the passes are laid down stays the same; only each pass's travel
+is reversed.
+
+Set no exit shape and a reverse pass runs straight into the
+mandrel and straight out again, which is what most reverse
+passes want and is the default.
+
+  CHANGED IN v1.022. Before this, a reverse pass IGNORED every
+  exit shape: you could type an Exit Bow or an Exit Arc Angle and
+  the machine still cut a straight leg. If you have a reverse
+  operation with one of those fields set, saved and proven before
+  v1.022, IT NOW CUTS THAT SHAPE. Open Help ▸ Why is my pass odd?
+  - it lists every operation this affects by name. Nothing became
+  unsafe (clearance is enforced as always), but the part changes.
+
+  NO BACK PASS on a reverse operation. A back pass is the return
+  half of a forward pass run without stopping, so a reverse pass
+  already is one. The tick does nothing there and the audit says
+  so.
 
 
 BACK PASS (RETURN STROKE)
@@ -1325,16 +1340,30 @@ PAS YÖNÜ (İLERİ / TERS)
 ════════════════════════════════════════════════════════════════
 Her kaba veya bitirme operasyonunun bir Yön ayarı vardır. İleri
 (varsayılan) normal yönde keser. Ters'te rulo ters yönde ilerler
-(örn. uç→kök). Lineer şekilli paslarda geometri artık bacak
-rollerini değiştirir (2026-07-08 varsayılanı): mandrele yakın
-temas noktasına GİREN bacak her zaman DÜZ koldur; çıkış yayı
-(Exit Arc) çıkan bacağa taşınır — eskiden rulo mandrele eğri
-üzerinden giriyordu, ters pasın istediği bu değildir. Exit Arc
-Angle = 0 ise hiçbir şey değişmez. Eski davranış op başına
-reverse_legacy_flip anahtarıyla geri gelir. Çok paslı
-operasyonda pasların oluşturulma sırası aynı kalır; sadece her
-pasın ilerleyişi ters döner. Ters yön ve Geri Pas birlikte
-kullanılabilir.
+(örn. uç→kök).
+
+TERS PAS, İLERİ PASIN TERSTEN SÜRÜLMÜŞ HÂLİDİR. Kural bundan
+ibarettir. Her çıkış şekli — çıkış yayı, çıkış bombesi, kıvrım,
+kırılma noktaları — ileri pastaki işini birebir yapar; önceden
+açılması gereken hiçbir şey yoktur. Çok paslı operasyonda
+pasların oluşturulma sırası aynı kalır; sadece her pasın
+ilerleyişi ters döner.
+
+Hiçbir çıkış şekli girmezseniz ters pas mandrele DÜZ girer ve
+DÜZ çıkar; çoğu ters pasın istediği budur ve varsayılandır.
+
+  v1.022'DE DEĞİŞTİ. Öncesinde ters pas TÜM çıkış şekillerini yok
+  sayıyordu: Çıkış Bombesi veya Çıkış Yayı yazsanız da makine düz
+  kol kesiyordu. Elinizde v1.022'den önce kaydedilmiş ve makinede
+  onaylanmış, bu alanlardan biri dolu bir TERS operasyon varsa
+  ARTIK O ŞEKLİ KESER. Yardım ▸ Pasım neden tuhaf? penceresini
+  açın — etkilenen operasyonları adıyla listeler. Güvenlik
+  bozulmadı (clearance her zamanki gibi zorlanıyor) ama parça
+  değişir.
+
+  TERS OPERASYONDA GERİ PAS YOKTUR. Geri pas, bir ileri pasa
+  durmadan bağlanan dönüş yarısıdır; ters pas zaten odur. İşaret
+  bir şey üretmez ve denetim bunu söyler.
 
 
 GERİ PAS (DÖNÜŞ HAMLESİ)
@@ -2311,6 +2340,36 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  push the whole pass outward to keep it clear,
                  which also moves where the roller touches.
 
+                 ON A REVERSE PASS they work the same way, with
+                 nothing to switch on first - a reverse pass is
+                 just the forward pass driven backwards. Four
+                 things differ, and they are worth knowing:
+
+                 1. The percentage is a PLACE ON THE PART, not a
+                    moment in the stroke. 0% is at the mandrel, 100%
+                    at the far end of the leg - the same in both
+                    directions. A reverse pass simply drives that
+                    leg the other way, so the roller reaches your
+                    40% break near the END of its travel, not near
+                    the beginning. The shape it cuts is identical.
+                 2. Adding breaks MOVES WHERE THE PASS STARTS. On a
+                    forward pass the breaks move the end point; on a
+                    reverse pass that same point is where the roller
+                    first touches down, so the rapid approach lands
+                    somewhere new. Check it before running.
+                 3. EXIT MAX POINTS DOES NOT APPLY to a reverse
+                    pass. On a forward pass a tight cap can quietly
+                    flatten a break (you get a warning at export).
+                    On a reverse pass the cap does nothing at all -
+                    your breaks always survive, but they also always
+                    cost their recipe lines.
+                 4. NO BACK PASS. A reverse pass already is the
+                    return stroke, so the Back Pass tick does
+                    nothing on a reverse operation.
+
+                 Angles mean the same thing in both directions: the
+                 same numbers produce the same shape on the metal.
+
                  EXIT MAX POINTS (Path Shape): the same idea for
                  the P2->P3 exit leg, and it applies whichever
                  shape made that leg - Exit Bow, Exit Arc Angle or
@@ -2759,6 +2818,34 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   UYARILIRSINIZ: güvenlik tabanı temizliği korumak
                   için tüm pası dışarı iter, bu da rulonun temas
                   ettiği yeri kaydırır.
+
+                  TERS PASTA da aynı şekilde çalışır; önceden
+                  açılması gereken bir şey YOKTUR — ters pas, ileri
+                  pasın tersten sürülmüş hâlidir. Bilinmesi gereken
+                  dört fark var:
+
+                  1. Yüzde, PARÇA ÜZERİNDE BİR YERDİR; hamlenin bir
+                     ANI değil. %0 mandrelin yanı, %100 kolun uzak
+                     ucu — iki yönde de aynı. Ters pas o kolu ters
+                     sürer, yani rulo %40 kırılmanıza yolun BAŞINDA
+                     değil SONUNA doğru varır. Kestiği şekil aynıdır.
+                  2. Kırılma eklemek PASIN BAŞLADIĞI YERİ OYNATIR.
+                     İleri pasta kırılmalar bitiş noktasını taşır;
+                     ters pasta o nokta rulonun İLK değdiği yerdir,
+                     dolayısıyla hızlı yaklaşma başka bir yere iner.
+                     Çalıştırmadan önce kontrol edin.
+                  3. ÇIKIŞ MAKS. NOKTA ters pasta ÇALIŞMAZ. İleri
+                     pasta dar bir sınır bir kırılmayı sessizce
+                     düzleştirebilir (export'ta uyarı alırsınız).
+                     Ters pasta sınır hiçbir şey yapmaz: kırılmalar
+                     her zaman korunur ama reçete satırlarını da
+                     her zaman harcarlar.
+                  4. GERİ PAS YOK. Ters pas zaten dönüş hamlesidir;
+                     ters operasyonda Geri Pas işareti bir şey
+                     üretmez.
+
+                  Açılar iki yönde de aynı anlama gelir: aynı
+                  sayılar metal üzerinde aynı şekli verir.
 
                   ÇIKIŞ MAKS. NOKTA (Yol Şekli): aynı fikrin
                   P2→P3 çıkış kolu için olanı; o kolu HANGİ şekil

@@ -147,6 +147,10 @@ def get_breaks(op, pass_index):
     operator deleted every row, and it correctly suppresses the legacy fallback
     only if the key is absent — so the editor removes the key entirely when the
     table is emptied (see the dialog's apply path).
+
+    Direction plays no part. Since the #82 leg swap was deleted (2026-08-30) a
+    reverse pass is the forward pass driven backwards, so the same list produces
+    the same shape on the metal either way.
     """
     own = stored(op, pass_index)
     return own if own else legacy_break(op)
@@ -182,11 +186,12 @@ def excluded_reason(op):
     * ``pass_shape``  — see SHAPES_WITH_BREAKS. A "spline" pass is one curve
       P1→P2→P3 with no separate exit leg to break; `linear_full` has one but
       builds it in a branch that never reaches the rotation.
-    * ``reverse``     — a reverse pass without `reverse_legacy_flip` swaps its
-      legs (#82), and the leg the breaks would bend is the one ENTERING the
-      mandrel. The legacy single break was skipped there for the same reason.
-      A reverse op that kept the legacy flip is fine and is NOT excluded.
     * ``curl``        — the #92 curl already shapes this leg and wins.
+
+    ``reverse`` USED TO BE HERE and is not any more (2026-08-30). It existed
+    because the #82 leg swap flattened the leg breaks bend; that swap has been
+    deleted, so a reverse pass is the forward pass driven backwards and there is
+    nothing left to exclude. Direction is not consulted anywhere in this module.
 
     A back pass is deliberately absent: `back_pass_enabled` adds an extra pass
     but the main pass still builds its exit leg normally, and the legacy break
@@ -201,9 +206,6 @@ def excluded_reason(op):
         return None
     if op.get("pass_shape", "spline") not in SHAPES_WITH_BREAKS:
         return "pass_shape"
-    if (op.get("direction", "forward") == "reverse"
-            and not op.get("reverse_legacy_flip", False)):
-        return "reverse"
     if curl_active(op):
         return "curl"
     return None

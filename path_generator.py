@@ -366,7 +366,12 @@ class PathGenerator:
         sequence = [] # Ordered execution list for simulation
         debug_lines = [] # Analysis Lines for Visualization
         self.last_back_pass_meta = {}  # {path_list_index: {"feed": ...}}
+        # Back passes asked for on a reverse op and deliberately not built (#49).
+        self.last_back_pass_ignored = []
         self.last_render_split_idx = {}  # {path_list_index: (line_end_idx, arc_end_idx)}
+        # Same pair remapped onto a REVERSED pass's array — advisory/UI only, see
+        # the reverse block below for why it is not merged into the dict above.
+        self.last_reverse_split_idx = {}
         self.last_waypoint_warnings = []  # #100: hand-drawn exit tails closer than the op clearance
         self.last_waypoint_ignored = []   # #100: tails that are stored but this op cannot use
         self.last_waypoint_shifted = []   # #100: tail passes the safety floor moved outward
@@ -1012,6 +1017,7 @@ class PathGenerator:
                         # detection (geometrically identical for a reversed point set).
                         if op.get("direction", "forward") == "reverse":
                             _rev_idx = len(toolpaths) - 1
+                            _fwd_split = self.last_render_split_idx.get(_rev_idx)
                             new_path = np.array(new_path, dtype=float)[::-1]
                             toolpaths[-1] = new_path
                             if len(projections[-1]) > 0:
@@ -1019,13 +1025,61 @@ class PathGenerator:
                             if len(deviations[-1]) > 0:
                                 deviations[-1] = np.array(deviations[-1])[::-1]
                             self.last_render_split_idx.pop(_rev_idx, None)
+                            # ADVISORY ONLY (#102 on reverse passes, 2026-08-29).
+                            # The dropped split is what tells a UI which slice of
+                            # the array is the exit leg; without it the break-point
+                            # editor measured its clearance advisory across the
+                            # WHOLE path and re-applied the breaks to a leg that
+                            # already had them. Remapped here (index i of an
+                            # n-point array becomes n-1-i, so the pair also swaps
+                            # ends) into a SEPARATE dict, deliberately not back
+                            # into `last_render_split_idx`: the decimator reads
+                            # that one, and handing it a split for reverse passes
+                            # would switch them to 3-region RDP and wake up the
+                            # #99/#101 point caps — a real change to what ships to
+                            # the machine, which is TODO #82's call to make, not
+                            # this one's.
+                            #
+                            # No back-pass caveat needed: a reverse op no longer
+                            # builds one at all (see the block below), so nothing
+                            # downstream rebuilds or swaps these arrays and the
+                            # mapping keeps describing `toolpaths[_rev_idx]`.
+                            if _fwd_split is not None:
+                                _n_rev = len(new_path)
+                                self.last_reverse_split_idx[_rev_idx] = (
+                                    _n_rev - 1 - _fwd_split[1],
+                                    _n_rev - 1 - _fwd_split[0],
+                                )
 
                         # ── Compute back pass path first (needed before sequence so swap can be applied) ──
                         _bp_path = None
                         _bp_feed = None
                         _bp_proj = None
                         _bp_devs = None
-                        if op.get("back_pass_enabled", False):
+                        # A back pass is a RETURN STROKE: the reverse half of a
+                        # forward pass, run continuously without stopping. So
+                        # "the back pass of a reverse pass" is not a thing —
+                        # a reverse pass IS the return (user, 2026-08-29, closing
+                        # the question TODO #49 left open: "confirm that's
+                        # acceptable or gate it").
+                        #
+                        # It was not merely redundant, it was wrong: the split
+                        # index is dropped above, so the branch below fell into
+                        # the whole-path mirror meant for spline shapes and the
+                        # stroke retraced the P1→P2 positioning arm — which on a
+                        # tapered mandrel pushed the whole return 15 mm off the
+                        # part, doing no work at all. Reported rather than
+                        # dropped in silence; see TODO #82's sibling finding.
+                        if (op.get("back_pass_enabled", False)
+                                and op.get("direction", "forward") == "reverse"):
+                            self.last_back_pass_ignored.append({
+                                "op_name": op.get("name") or op.get("type", "?"),
+                                "pass_name": pass_label,
+                            })
+                            logger.info(
+                                f"[#49] '{pass_label}' back pass NOT built: this is a "
+                                f"reverse pass, which already IS the return stroke")
+                        elif op.get("back_pass_enabled", False):
                             _bp_feed = float(op.get("back_pass_feed", float(op.get("feed", 100.0))))
                             bp_arc_x    = float(op.get("back_pass_arc_x", 0.0))
                             bp_arc_z    = float(op.get("back_pass_arc_z", 0.0))
@@ -2141,15 +2195,35 @@ class PathGenerator:
                     except (TypeError, ValueError):
                         _bow_bias = 0.5
 
-                    # #82 (user 2026-07-07, NEW DEFAULT): a reverse-direction linear
-                    # pass is traversed P3→P2→arm after the post-build flip. The leg
-                    # ENTERING the mandrel-near P2 must be the STRAIGHT one, and the
-                    # bow belongs on the outgoing arm — so swap which leg carries the
-                    # exit_arc curve. exit_mid is skipped in swap mode (it would curve
-                    # the entry leg). reverse_legacy_flip=True restores old behavior.
-                    _swap_legs = (pass_shape in ("linear_approach", "linear_full")
-                                  and (op or {}).get("direction", "forward") == "reverse"
-                                  and not (op or {}).get("reverse_legacy_flip", False))
+                    # THE #82 LEG SWAP IS GONE (2026-08-30). A reverse pass is now
+                    # simply the forward pass driven backwards — one rule, no mode,
+                    # no flag, and every exit shape (bow, arc, curl, break points)
+                    # behaves the same in both directions.
+                    #
+                    # What #82 did: on a reverse linear pass it forced the leg over
+                    # the free blank straight and moved the curve onto the outgoing
+                    # arm, so the roller entered the mandrel clean. The first half
+                    # worked. The SECOND HALF NEVER DID — `:2514` collapses the arm
+                    # to its two end points, so the curve was built and then deleted
+                    # (measured: arm bow 0.000 mm with exit_arc_angle at 0° AND at
+                    # 25°). Reverse passes have therefore always run straight in and
+                    # straight out, and every exit-shape field silently did nothing
+                    # on them. That is the bug this deletes, not a behaviour anyone
+                    # chose.
+                    #
+                    # Why deleting rather than repairing the arm: bow, arc and break
+                    # points are alternative ways to shape the SAME leg — the free
+                    # blank. Repairing #82 would land the bow on the positioning arm
+                    # while breaks stayed on the blank, which is not explicable to
+                    # anyone. And #82's protection only ever bit when the operator
+                    # had explicitly typed a shape: with no shape set, the forward
+                    # geometry reversed already enters the mandrel dead straight,
+                    # which is the default and is unchanged here.
+                    #
+                    # ⚠ A saved reverse op that carries exit_bow / exit_arc_angle /
+                    # exit_mid_rotation now CUTS IT. It was ignored before. See
+                    # TODO #82 and the `rx_f_rev_shape` audit finding, which lists
+                    # exactly those operations so they can be re-checked.
 
                     if exit_points:
                         # #100 highest priority: the operator drew this tail by
@@ -2186,11 +2260,6 @@ class PathGenerator:
                         else:
                             n_ex         = max(2, int(np.linalg.norm(p3_arr - T2) / check_res))
                             exit_portion = np.linspace(T2, p3_arr, n_ex)
-                    elif _swap_legs:
-                        # Entry leg after reversal: always straight (#82).
-                        exit_portion = np.linspace(
-                            T2, p3_arr,
-                            max(10, int(max(np.linalg.norm(p3_arr - T2), 0.1) / check_res)))
                     else:
                         # #92 EXIT CURL (exit_mid_radius, mm, signed) — highest
                         # priority exit shape. Straight T2→M (M at exit_mid_t along
@@ -2261,20 +2330,11 @@ class PathGenerator:
                         if not (abs(_curl_r) > 1e-4 or abs(_curl_re) > 1e-4):
                             exit_portion = exit_breaks.apply(exit_portion, breaks or [])
 
-                    if _swap_legs and pass_shape != "linear_full":
-                        # #82: the arm is the OUTGOING leg after reversal — it carries
-                        # the exit bow instead (both the bow and the tangent-chord arc
-                        # are symmetric at their ends, so building pre-flip is equivalent).
-                        if abs(_exit_bow) > 1e-4:
-                            approach = self._make_bow_leg(
-                                ap_start, T1, _exit_bow, check_res, mandrel_mgr,
-                                center_x, r_tool, blank_thick, shell_offset,
-                                _bow_clear, _bow_trim, pass_name, bias=_bow_bias)
-                        else:
-                            approach = self._tangent_chord_arc(ap_start, T1, _exit_arc_deg, check_res)
-                    else:
-                        n_ap     = max(2, int(np.linalg.norm(T1 - ap_start) / check_res))
-                        approach = np.linspace(ap_start, T1, n_ap)
+                    # The arm is ALWAYS the straight positioning leg now, in both
+                    # directions (#82's "put the bow here on a reverse pass" is
+                    # deleted — see above; it never survived the collapse below).
+                    n_ap     = max(2, int(np.linalg.norm(T1 - ap_start) / check_res))
+                    approach = np.linspace(ap_start, T1, n_ap)
                     _ap_split = len(approach) - 1   # straight arm reduces to 2 pts; fillet+exit stays dense
                     _exit_len = len(exit_portion)
                     if _fillet_len > 0:

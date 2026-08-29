@@ -17,6 +17,43 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.022": [
+        ("Break points now work on reverse passes too",
+         "They behave exactly as they do on a forward pass, with nothing to "
+         "switch on first. Two things are worth knowing. The percentage is a "
+         "PLACE ON THE PART, not a moment in the stroke: 0 % sits at the "
+         "mandrel and 100 % at the far end of the leg in both directions, so a "
+         "reverse pass simply reaches your 40 % bend near the END of its "
+         "travel and cuts the same shape. And because breaks move the free end "
+         "of the leg, on a reverse pass they move where the roller FIRST "
+         "touches down — check the approach before you run it.",
+         "Program List ▸ right-click an operation ▸ Passes ▦ ▸ Break points…"),
+        ("A reverse pass is now simply the forward pass driven backwards",
+         "Until now it ignored every exit shape: you could set an Exit Bow or "
+         "an Exit Arc Angle on a reverse operation and the machine still cut a "
+         "straight leg. That is fixed — exit arc, exit bow, the curl and break "
+         "points all do the same job in both directions. IF YOU HAVE A REVERSE "
+         "OPERATION WITH ONE OF THOSE FIELDS SET, SAVED BEFORE THIS VERSION, "
+         "IT NOW CUTS THAT SHAPE. \"Why is my pass odd?\" lists every operation "
+         "affected, by name. Reverse passes with no exit shape set are "
+         "unchanged.",
+         "Help ▸ Why is my pass odd?"),
+        ("A reverse operation no longer builds a back pass",
+         "A back pass is the return half of a forward pass, run without "
+         "stopping — so a reverse pass already is one. The tick used to "
+         "produce a second stroke that retraced the positioning arm and, on a "
+         "tapered mandrel, sat about 15 mm clear of the part doing no work. It "
+         "is not built any more, and the audit tells you where the tick is "
+         "still set.",
+         "Program List ▸ select an operation ▸ Back Pass"),
+        ("Reverse passes are drawn correctly in the 3D view",
+         "The straight arm between the contact point and the start of a "
+         "reverse pass was drawn with a bow of several millimetres that the "
+         "toolpath never had — which is why the 3D view and the SCL Inspector "
+         "disagreed. The Inspector was right. Only the picture changed; no "
+         "toolpath, G-code or recipe moves.",
+         "3D view"),
+    ],
     "1.021": [
         ("Break points: bend the exit where you want, as many times as you want",
          "The old \"Exit Mid Rotation\" allowed ONE bend and lived on the "

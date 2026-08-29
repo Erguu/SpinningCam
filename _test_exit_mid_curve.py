@@ -120,13 +120,29 @@ if pg_old is not None:
         ("exit_mid_rotation set",        {"exit_mid_rotation": 20.0, "exit_mid_t": 0.6}),
         ("bow + rotation (Q3 overlap)",  {"exit_bow": 12.0, "exit_mid_rotation": 20.0,
                                           "exit_mid_t": 0.6}),
-        ("reverse pass + bow",           {"direction": "reverse", "exit_bow": 12.0}),
         ("linear_full + bow",            {"pass_shape": "linear_full", "exit_bow": 12.0}),
     ]
     for label, over in BASELINES:
         a = build(gen=pg_old, **over)
         b = build(**over)
         check(np.allclose(a, b, atol=1e-12), f"HEAD-identical: {label}")
+
+    # "reverse pass + bow" WAS on that list and is deliberately off it now
+    # (2026-08-30). The #82 leg swap used to force a reverse pass's exit leg
+    # straight and move the bow onto the arm, where `:2514` then deleted it —
+    # so a bow on a reverse pass did nothing at all. The swap is gone: a reverse
+    # pass is the forward pass driven backwards and the bow cuts. Asserted both
+    # ways round so neither half can regress silently.
+    _rev_over = {"direction": "reverse", "exit_bow": 12.0}
+    _old = build(gen=pg_old, **_rev_over)
+    _new = build(**_rev_over)
+    check(not (_old.shape == _new.shape and np.allclose(_old, _new, atol=1e-9)),
+          "CHANGED ON PURPOSE: reverse + bow no longer matches HEAD")
+    check(np.allclose(_new, build(exit_bow=12.0)[::-1], atol=1e-12),
+          "...it is now exactly the forward pass with the same bow, reversed")
+    check(np.allclose(build(gen=pg_old, direction="reverse"),
+                      build(direction="reverse"), atol=1e-12),
+          "a reverse pass with NO exit shape is still HEAD-identical")
 
     for label, val in (("absent", None), ("empty string", ""), ("zero", 0)):
         over = {} if val is None else {"exit_mid_radius": val}
@@ -407,11 +423,25 @@ check(n_str <= 4, f"straight leg decimates to ≤4 pts (got {n_str})")
 check(n_curl < n_bow, f"curl cheaper than full-leg bow ({n_curl} < {n_bow} pts)")
 
 # ─────────────────────────────────────────────────────────────────────────
-# 8. Scope — reverse passes and linear_full are untouched (Q6/Q7).
+# 8. Scope — linear_full is untouched (Q7). Reverse NO LONGER IS (2026-08-30).
 # ─────────────────────────────────────────────────────────────────────────
-check(np.allclose(build(direction="reverse"),
-                  build(direction="reverse", exit_mid_radius=60.0), atol=1e-12),
-      "reverse pass ignores the curl (Q6)")
+# Q6 originally scoped the curl out of reverse passes, because the #82 leg swap
+# forced that leg straight and would have thrown the curl away. The swap is
+# deleted: a reverse pass is the forward pass driven backwards, so the curl
+# applies there like every other exit shape.
+def _same(a, b, atol=1e-12):
+    """allclose RAISES on mismatched shapes — and a curl changes the point
+    count, which is precisely one of the differences under test."""
+    a, b = np.asarray(a), np.asarray(b)
+    return a.shape == b.shape and np.allclose(a, b, atol=atol)
+
+
+check(not _same(build(direction="reverse"),
+                build(direction="reverse", exit_mid_radius=60.0), atol=1e-6),
+      "reverse pass now HONOURS the curl (was Q6: ignored)")
+check(_same(build(direction="reverse", exit_mid_radius=60.0),
+            build(exit_mid_radius=60.0)[::-1]),
+      "...as exactly the forward curl reversed")
 check(np.allclose(build(pass_shape="linear_full"),
                   build(pass_shape="linear_full", exit_mid_radius=60.0), atol=1e-12),
       "linear_full ignores the curl (Q7)")
