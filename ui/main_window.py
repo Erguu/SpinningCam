@@ -1255,6 +1255,55 @@ class SpinningCamWindow(tk.Tk):
         from ui.dialogs.scl_inspector import SclInspectorDialog
         SclInspectorDialog(self, self.app)
 
+    def _remember_scl_layout(self, chunk_size, capacity=None):
+        """Persist the recipe DB layout onto the machine profile.
+
+        It describes the PLC on the other end, not one program, so it belongs to
+        the machine and survives to the next export — which is the whole reason
+        the export no longer has to ask. `capacity=None` leaves the stored size
+        alone, which is what an auto-tuned export wants: its capacity came from
+        the line budget for that one run and is not a property of the machine.
+
+        `mode="none"` keeps on_param_change from routing a machine-profile edit
+        into gui_pass_overrides (see the calibration GOTCHA in CODE_NAVIGATION).
+        """
+        for key, val in (("scl_chunk_size", chunk_size), ("scl_capacity", capacity)):
+            if val is None:
+                continue
+            val = int(val)
+            if val == int(self.app.params.get(key, -1) or 0):
+                continue
+            self.app.params[key] = val
+            try:
+                self.app.on_param_change(key, val, "none")
+            except Exception:
+                logger.exception(f"could not persist {key}")
+
+    def open_scl_layout(self):
+        """Machine tab ▸ PLC ▸ Recipe DB layout… — edit the layout on its own.
+
+        Deliberately does NOT need a calculated program: the numbers describe the
+        PLC's data block, and an operator setting a machine up should be able to
+        enter them before drawing anything. With no recipe to measure the dialog
+        simply omits where the END marker would land.
+        """
+        if hasattr(self, 'ui_machine'):
+            self.ui_machine.sync_params()
+        from recipe_to_scl import DEFAULT_CHUNK_SIZE
+        from ui.dialogs.scl_layout import SclLayoutDialog
+        _p = self.app.params
+        dlg = SclLayoutDialog(
+            self,
+            line_count=None,
+            capacity=int(_p.get("scl_capacity", 1000) or 1000),
+            chunk_size=int(_p.get("scl_chunk_size", DEFAULT_CHUNK_SIZE) or 0),
+        )
+        if dlg.result is None:
+            return
+        self._remember_scl_layout(dlg.result["chunk_size"], dlg.result["capacity"])
+        if hasattr(self, 'ui_machine') and hasattr(self.ui_machine, "refresh_scl_layout"):
+            self.ui_machine.refresh_scl_layout()
+
     def export_pdf_action(self):
         from export_manager import ExportManager
 
@@ -1521,31 +1570,47 @@ class SpinningCamWindow(tk.Tk):
         # Recipe DB layout: total capacity + lines per chunk array (Lines1..LinesN).
         # The PLC reads the recipe one declared array at a time, so both numbers
         # must match its loader — see letter_spinningcam_chunked_recipes.md.
+        #
+        # THIS NO LONGER ASKS ON EVERY EXPORT (user, 2026-08-31). The layout
+        # describes the PLC on the other end, so the answer is the same every
+        # time; both halves are remembered on the machine profile and edited from
+        # Machine tab ▸ PLC ▸ Recipe DB layout…. What is still worth interrupting
+        # for is the case where the remembered answer cannot serve THIS recipe:
+        # chunk_geometry grows a too-small capacity automatically, and growing it
+        # adds arrays, and an array count the PLC loader does not name either
+        # fails to compile or silently drops the tail of the recipe.
         from recipe_to_scl import DEFAULT_CHUNK_SIZE
         chunk_size = int(_xp.get("scl_chunk_size", DEFAULT_CHUNK_SIZE) or 0)
+        _stored_cap = int(_xp.get("scl_capacity", 0) or 0)
+        if custom_array_size is None:
+            # Not auto-tuned, so the capacity is whatever the machine profile
+            # remembers. Auto-tune has already pinned it to its own target.
+            custom_array_size = _stored_cap or None
         if _layout_line_count is not None:
-            from ui.dialogs.scl_layout import SclLayoutDialog
-            _dlg = SclLayoutDialog(
-                self,
-                line_count=_layout_line_count,
-                capacity=(custom_array_size if custom_array_size is not None
-                          else max(_layout_line_count, 1000)),
-                chunk_size=chunk_size,
-                capacity_locked=auto,
-            )
-            if _dlg.result is None:
-                return
-            chunk_size = _dlg.result["chunk_size"]
-            if not auto:
-                custom_array_size = _dlg.result["capacity"]
-            # Remember the geometry: it is a property of the PLC on the other end,
-            # not of this one program, so the next export should not re-ask blind.
-            if chunk_size != int(_xp.get("scl_chunk_size", -1) or 0):
-                _xp["scl_chunk_size"] = chunk_size
-                try:
-                    self.app.on_param_change("scl_chunk_size", chunk_size, "none")
-                except Exception:
-                    pass
+            _why = None
+            if custom_array_size is None:
+                _why = t("dlg_layout_why_unset")
+            elif custom_array_size < _layout_line_count:
+                _why = t("dlg_layout_why_small").format(
+                    cap=custom_array_size, n=_layout_line_count)
+            if _why:
+                from ui.dialogs.scl_layout import SclLayoutDialog
+                _dlg = SclLayoutDialog(
+                    self,
+                    line_count=_layout_line_count,
+                    capacity=(custom_array_size if custom_array_size is not None
+                              else max(_layout_line_count, 1000)),
+                    chunk_size=chunk_size,
+                    capacity_locked=auto,
+                    reason=_why,
+                )
+                if _dlg.result is None:
+                    return
+                chunk_size = _dlg.result["chunk_size"]
+                if not auto:
+                    custom_array_size = _dlg.result["capacity"]
+                self._remember_scl_layout(chunk_size,
+                                          None if auto else custom_array_size)
 
         # #99: a refused fillet cap is reported BEFORE the save dialog — aborting
         # here costs the operator nothing, whereas after picking a filename it

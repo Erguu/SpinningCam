@@ -60,8 +60,12 @@ class BreakPointsDialog(tk.Toplevel):
         # Seeded, never blank — same rule as the waypoint editor. A pass with no
         # list of its own shows the op's legacy single break, which is what it is
         # ACTUALLY running right now; pressing OK is what converts it.
+        # `has_own_list`, not `stored()`: a pass that was emptied on purpose has a
+        # stored list that is empty, and asking the truthiness of that would call
+        # it legacy-seeded. It happens to come out right today only because
+        # `self.rows` is empty too — a coincidence, not a reason.
         self.rows = [dict(r, ramp=None) for r in eb.get_breaks(op, pass_index)]
-        self._seeded_legacy = bool(self.rows) and not eb.stored(op, pass_index)
+        self._seeded_legacy = bool(self.rows) and not eb.has_own_list(op, pass_index)
 
         # OK / Cancel is packed FIRST, to the bottom (#103). Tk hands out space
         # in packing order, so on a screen too small for the content it is

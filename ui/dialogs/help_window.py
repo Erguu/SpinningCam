@@ -2396,13 +2396,23 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  monitored online — that is expected; the PLC
                  copies it into DB_SelectedRecipe at cycle start.
 
-                 RECIPE DATABASE LAYOUT: asked on export. The lines
-                 are split into chunk arrays — Lines1..Lines10, each
+                 RECIPE DATABASE LAYOUT: set once, under
+                 Machine ▸ PLC ▸ "Recipe DB layout…". The current
+                 setting is shown next to the button. The lines are
+                 split into chunk arrays — Lines1..Lines10, each
                  100 lines by default — because the PLC copies the
                  recipe out of load memory one declared array at a
                  time. Global line g lands at
                  Lines[(g / 100) + 1][g mod 100]; the line count in
                  the header still counts globally.
+
+                 It describes the PLC on the other end, not the
+                 program, so it is saved with the MACHINE and the
+                 export does not ask about it. The export opens the
+                 window only when the saved layout cannot hold the
+                 recipe it is about to write — a size smaller than
+                 the line count gets grown automatically, and growing
+                 it adds arrays the PLC loader was not built for.
 
                  BOTH NUMBERS MUST MATCH THE PLC'S LOADER. Too few
                  arrays is a TIA compile error (harmless), but a
@@ -2868,13 +2878,22 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   izlenemez — bu normaldir; PLC çevrim başında
                   DB_SelectedRecipe'e kopyalar.
 
-                  REÇETE DATABASE DÜZENİ: dışa aktarımda sorulur.
-                  Satırlar parça dizilerine bölünür — Lines1..Lines10,
-                  varsayılan olarak her biri 100 satır — çünkü PLC
-                  reçeteyi yük belleğinden her seferinde bir dizi
-                  olarak kopyalar. Global g satırı
-                  Lines[(g / 100) + 1][g mod 100] konumuna düşer;
-                  başlıktaki satır sayısı yine GLOBAL sayar.
+                  REÇETE DATABASE DÜZENİ: bir kez ayarlanır —
+                  Makine ▸ PLC ▸ "Reçete DB düzeni…". Geçerli ayar
+                  düğmenin yanında yazar. Satırlar parça dizilerine
+                  bölünür — Lines1..Lines10, varsayılan olarak her
+                  biri 100 satır — çünkü PLC reçeteyi yük belleğinden
+                  her seferinde bir dizi olarak kopyalar. Global g
+                  satırı Lines[(g / 100) + 1][g mod 100] konumuna
+                  düşer; başlıktaki satır sayısı yine GLOBAL sayar.
+
+                  Bu düzen karşıdaki PLC'yi tarif eder, programı
+                  değil; bu yüzden MAKİNEYLE birlikte saklanır ve dışa
+                  aktarım artık sormaz. Pencere yalnızca kayıtlı düzen
+                  yazılacak reçeteyi alamayacaksa açılır — satır
+                  sayısından küçük bir boyut otomatik büyütülür,
+                  büyütmek de PLC yükleyicisinin tanımadığı yeni
+                  diziler ekler.
 
                   HER İKİ SAYI DA PLC YÜKLEYİCİSİYLE AYNI OLMALIDIR.
                   Dizi sayısı az olursa TIA derleme hatası verir

@@ -17,6 +17,54 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.023": [
+        ("Deleting every operation now really does empty the program",
+         "If you cleared the operation list, the program did not go with it: "
+         "the toolpath quietly rebuilt itself from an old setting that is not "
+         "shown anywhere in this version, and an export could still hand the "
+         "machine a full roughing program — on one real recipe, twelve passes "
+         "and over a thousand lines of motion. An empty operation list now "
+         "means exactly that: no passes, and nothing to export. Programs that "
+         "have operations are completely unaffected.",
+         "Program List ▸ select operations ▸ Delete"),
+        ("Reverse operations with the Back Pass tick show the right pass numbers",
+         "Since the last version a reverse operation no longer builds a back "
+         "pass, because it already is the return stroke — but the screen had "
+         "not been told. If the tick was still set, the 3D view counted a pass "
+         "that does not exist, so the colours, the pass navigator, the roller "
+         "size shown per pass and the operation sheet all pointed one pass "
+         "further along than the machine was actually running. They agree "
+         "again. WHAT THE MACHINE CUT WAS ALWAYS CORRECT — the G-code and the "
+         "recipe never used that count, so no exported program was ever wrong.",
+         "Program List ▸ select a reverse operation ▸ Back Pass"),
+        ("Break points can now be deleted on older operations",
+         "On an operation whose bend came from the older single break point, "
+         "opening the break-point editor, deleting every row and pressing OK "
+         "did nothing — the bend came straight back, however many times you "
+         "tried. Emptying the table now means what it says. Only the pass you "
+         "edit is affected; the other passes keep their bend, and removing that "
+         "pass's edit brings the old one back if you want it. Operations you "
+         "have not touched cut exactly as before.",
+         "Program List ▸ right-click an operation ▸ Passes ▦ ▸ Break points…"),
+        ("The recipe database layout no longer asks on every export",
+         "It describes your PLC's data block, not the program, so the answer "
+         "was the same every time. It is now set once from Machine ▸ PLC ▸ "
+         "\"Recipe DB layout…\", where the current setting is shown next to the "
+         "button, and it is saved with the machine. You can open it with no "
+         "program loaded, which is useful when setting a machine up. The export "
+         "still stops and asks in the one case that matters: when the saved "
+         "size is too small for the recipe being written, because growing it "
+         "adds arrays your PLC's loader was not built for.",
+         "Machine ▸ PLC ▸ Recipe DB layout…"),
+        ("The SCL export no longer looks like it has frozen",
+         "With Auto-tune ticked, exporting a recipe sat with the window "
+         "unresponsive while it searched for the right tolerance — long enough "
+         "on a big program to look like a crash. It now takes about a tenth of "
+         "the time. IT FINDS EXACTLY THE SAME ANSWER: the same tolerance, the "
+         "same line count, the same clearance. Nothing about the exported "
+         "recipe changes, it just stops making you wait for it.",
+         "Machine ▸ PLC ▸ Auto-tune tolerance, then File ▸ Export ▸ SCL"),
+    ],
     "1.022": [
         ("Break points now work on reverse passes too",
          "They behave exactly as they do on a forward pass, with nothing to "

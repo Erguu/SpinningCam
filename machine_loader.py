@@ -20,7 +20,11 @@ MACHINE_PROFILE_KEYS = [
     "cylinder_x_pos", "cylinder_z_base",
     "plc_mode", "plc_tolerance", "plc_exit_tolerance",
     "plc_auto_tune", "plc_target_lines",
-    "scl_chunk_size",   # recipe DB chunk geometry — belongs to the PLC, per machine
+    # Recipe DB layout — belongs to the PLC on the other end, not to one program,
+    # so both halves live on the machine profile. `scl_capacity` used to be
+    # re-derived (and re-asked) on every export; remembering it is what lets the
+    # layout dialog stop opening by itself.
+    "scl_chunk_size", "scl_capacity",
     "turret_slots", "turret_auto_angles",
     "gcode_resolution", "gcode_header", "gcode_footer",
     "max_spin_rpm",

@@ -5,6 +5,233 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-08-31b — Eski `exit_mid` kırılma noktası SİLİNEBİLİYOR (check-up #5)
+
+**Hata:** Kırılması eski `exit_mid_rotation`'dan gelen bir operasyonda kırılma
+düzenleyicisini aç, tüm satırları sil, Tamam'a bas → **kırılma geri geliyordu.**
+İstediğin kadar tekrarla, hiçbir şey olmuyordu.
+
+**Kök neden — iki yorum birbirinin tersini söylüyordu.** `exit_breaks.stored()`
+"anahtar yok" ile "anahtar var ama liste boş" durumlarını ayırt edemiyor (ikisi de
+`[]`). `get_breaks` de `own if own else legacy_break(op)` diyordu. Düzenleyici
+tabloyu boşaltınca anahtarı SİLİYOR, geri dönüş bunu "bu pas hiç düzenlenmemiş"
+sanıp eski kırılmayı geri veriyordu.
+
+- `exit_breaks.get_breaks` docstring'i "boş liste geri dönüşü BASTIRIR" diyordu.
+- `pass_table._apply` docstring'i tam tersini: "boş liste anahtarı SİLER, böylece
+  pas eski kırılmaya geri döner".
+
+İkisi de doğru olamazdı; kod ikincisini yapıyordu, kullanıcının beklediği
+birincisiydi.
+
+### Düzeltme
+
+- **`exit_breaks.has_own_list(op, i)`** (yeni): pasın kendi `exit_breaks`
+  anahtarı var mı — boş olsa bile. `get_breaks` artık geri dönüşe bunu soruyor.
+  `stored()` imzası DEĞİŞMEDİ (çağıranları var).
+- **Düzenleyici boş listeyi YAZIYOR** — ama sadece bastıracak bir şey varsa
+  (`legacy_break(op)` doluysa). Eski kırılması olmayan bir op'u boşaltmak yine
+  anahtarı siliyor → `.ssp`'de çöp kalmıyor (mevcut test bunu zaten koruyordu).
+- `break_points_dialog._seeded_legacy` artık `stored()` doğruluk değeri yerine
+  `has_own_list` kullanıyor — eskisi sadece tesadüfen doğru sonuç veriyordu.
+
+### Korunan davranışlar
+
+- **Hiç dokunulmamış eski program BİT-AYNI:** anahtar yok → eski kırılma. #102'nin
+  "göç ettirmeden değiştir" sözü bozulmadı.
+- Bir pası boşaltmak DİĞER pasları etkilemiyor; onlar eski kırılmayı almaya
+  devam ediyor (op'taki `exit_mid_rotation` bilerek silinmiyor).
+- **Geri alınabilir:** pasın `pass_edits` girdisini silmek eski kırılmayı geri
+  getiriyor.
+- `exit_mid_t`'ye DOKUNULMADI — #92 kıvrımı da onu okuyor.
+- Elle düzenlenmiş dosyalar: `exit_breaks: null` = "kırılma yok" sayılıyor;
+  `pass_edits`'te alakasız bir pin (`reach` vb.) kırılma listesi SAYILMIYOR.
+
+**Test:** `_test_break_points_ui.py` yeni `[4]` bölümü — **35/35** (önceden 21).
+Mevcut testlerin hiçbiri değişmedi; başsız ayna (`apply_to_op`) motorla senkron
+tutuldu.
+
+**Geri alma:** `get_breaks`'i `own if own else legacy_break(op)`'a döndür.
+
+---
+
+## 2026-08-31 — Reçete DB düzeni artık her export'ta SORMUYOR (Makine sekmesinden açılıyor)
+
+**İstek (kullanıcı):** "SCL export'ta reçete database düzeni çıkıyor; bunu başka
+bir yerden elle açalım, her seferinde otomatik açılmasın."
+
+Pencere karşıdaki **PLC'nin data block'unu** tarif ediyor, programı değil — yani
+cevabı her seferinde aynı. Buna rağmen her dışa aktarımda soruyordu.
+
+### Ne değişti
+
+- **Yeni giriş noktası:** `Makine ▸ PLC ▸ "Reçete DB düzeni…"` düğmesi. Yanında
+  geçerli düzen yazıyor (`Düzen: 10 x 100 = 1000`).
+- **Program GEREKTİRMEZ:** elle açıldığında `line_count=None` geçiliyor; makineyi
+  kuran operatör daha hiçbir şey çizmemiş olabilir. Reçete yoksa pencere dizi
+  bildirimlerini yine gösteriyor ama **END işaretinin yerini göstermiyor**
+  (olmayan bir reçetedeki konum olurdu).
+- **`scl_capacity` artık makine profilinde** (`MACHINE_PROFILE_KEYS`, varsayılan
+  1000). Önceden her export'ta yeniden türetiliyordu — sormasının yarısı buydu.
+  `scl_chunk_size` zaten oradaydı.
+- **Export sadece kayıtlı düzen BU reçeteyi alamazsa** açıyor; pencerede neden
+  açıldığı da yazıyor (`dlg_layout_why_small` / `dlg_layout_why_unset`).
+
+### Sessizliğin tehlikeli tarafı — kapı bu yüzden var
+
+`chunk_geometry` küçük kapasiteyi **otomatik büyütür**; büyütmek **dizi sayısını**
+değiştirir; PLC yükleyicisinin tanımadığı dizi sayısı ya TIA'da derlenmez ya da
+**reçetenin kuyruğunu sessizce düşürür**. Ölçüm: 1200 satır / kayıtlı 1000 →
+kapasite 1200'e büyür, dizi sayısı **10 → 12**. Kullanıcı kararı (2026-08-31):
+*"kayıtlı düzen yetmiyorsa sor, yoksa sorma."* Yanlış parça BOYUTU sorunsuz
+derlenip reçeteyi karışık birleştirdiği için bu kapı korunuyor.
+
+| Durum | Davranış |
+|---|---|
+| kayıtlı 1000, reçete 299 | sessiz |
+| kayıtlı 1000, reçete tam 1000 | sessiz |
+| kayıtlı 1000, reçete 1200 | **SORAR** (küçük) |
+| hiç ayarlanmamış | **SORAR** (ayarsız) |
+| oto-ayar kendi hedefini sabitliyor | sessiz |
+
+### Dosyalar
+
+- `machine_loader.py` — `scl_capacity` eklendi; `main.py` — varsayılan 1000.
+- `ui/dialogs/scl_layout.py` — `line_count=None` modu + `reason` satırı.
+- `ui/main_window.py` — `open_scl_layout()`, ortak `_remember_scl_layout()`
+  (export ve Makine sekmesi AYNI yazma yolunu kullanıyor), export'ta `_why` kapısı.
+- `ui/tabs/machine_tab.py` — PLC bölümüne düğme + canlı etiket
+  (`refresh_scl_layout`, yerinde günceller; `refresh_ui` scroll'u kaybederdi).
+- `i18n.py` — 8 yeni anahtar, EN/TR/ES üçü de.
+- `ui/dialogs/help_window.py` — EN ve TR bölümleri güncellendi.
+
+**Test:** yeni `_test_scl_layout_manual.py` — **37/37** (profil anahtarları,
+sor/sorma kapısı tablosu, `line_count=0` geometrisi, i18n bütünlüğü, gerçek Tk ile
+Makine sekmesinin kurulup düzeni yazması).
+
+**Geri alma:** `export_scl_action`'daki `if _why:` koşulunu kaldır — pencere yine
+her export'ta açılır.
+
+---
+
+## 2026-08-30b — SÜRÜM 1.023: CHECK-UP düzeltmeleri (boş op listesi, ters pas sayımı, export donması)
+
+**Sürüm:** `version.py` 1.022 → **1.023**, `changelog.py`'ye 3 maddelik operatör
+girdisi (silinen program artık gerçekten boş / ters op'ta pas numaraları düzeldi,
+üretilen G-code'un HER ZAMAN doğru olduğu vurgusuyla / SCL export donması bitti).
+
+> Dört madde de AYNI sürüme girdi: 1.023 henüz commit edilmedi, tek bir yayın.
+> Ayrı bir 1.024 açmak aynı oturumun işini yapay olarak ikiye bölerdi.
+
+Kullanıcı isteğiyle yapılan **salt-okunur sağlık taraması** iki sessiz hata
+buldu; ikisi de aynı kalıptan: motorun sahibi olduğu bir kuralı motor DIŞINDA
+bir yerde yeniden yazmak, sonra motorun değişmesi.
+
+### 1. `operations: []` → motor bir kesme programı UYDURUYORDU
+
+`path_generator.py` `_ensure_ops_dict` boş listeyi "eski dosya, göç ettir" diye
+okuyordu. Değil: **operatör tüm operasyonları sildi** demek. Göç, bugünün
+arayüzünde gösterilmeyen `num_sweeping_passes`'ten bir kaba operasyon kuruyordu.
+
+**Ölçüm (düzeltme öncesi, gerçek reçete):** `operations = []` → **12 pas,
+1036 satır hareket**. `del_op`'ta son-operasyon koruması yok → bir Delete tuşu
+uzaklıkta.
+
+- **Düzeltme:** anahtar YOKSA (eski dosya, headless çağıranlar) göç DEVAM ediyor;
+  anahtar VARSA ve listeyse — boş olsa bile — aynen kullanılıyor. Liste olmayan
+  bozuk değer yine göç eder.
+- `test_path_generator.py::test_empty_operations_list` en az 2026-08-03'ten beri
+  bunu yakalıyordu ve "bayat test" diye kayda geçmişti. **Bayat değildi**, hatanın
+  ta kendisiydi. Artık geçiyor.
+
+### 2. Ters pas + "geri pas" kutusu → arayüzün pas indeksi kayıyordu
+
+v1.022'de ters pas geri pas üretmeyi bıraktı (#49 — zaten dönüş stroku). Altı yer
+bunu hâlâ **sadece** `back_pass_enabled`'dan sayıyordu: 3D çizim, pas renkleri,
+pas başına takım yarıçapı, aktif-pas eşlemesi ve PDF.
+
+**Ölçüm:** motor **4** yol üretiyor, arayüz **6** sanıyor → ilk pastan sonraki her
+girdi YANLIŞ pası gösteriyor (2. ters pas "geri pas" diye, finishing pasları
+"roughing" diye).
+
+- **G-code / SCL ETKİLENMEDİ** — emisyon `last_back_pass_meta` + `_path_op_map`
+  üzerinden gider, ikisi de motor gerçeği. Hatanın fark edilmemesinin sebebi de bu.
+- **Düzeltme:** `path_generator.py`'ye **TEK doğruluk kaynağı** iki fonksiyon:
+  `op_builds_back_pass(op)` ve `op_toolpath_entries(op)`. Motorun kendi dalı da
+  bunu çağırıyor, yani artık ayna değil paylaşılan kural.
+- Güncellenen çağıranlar: `main.py` (`_rtool_for_pass`, `update_scene` op_types,
+  `recolor_paths`, `pass_index_from_toolpath_index`), `export_manager.py` (PDF pas
+  sayıları + yol renkleri), `ui/tabs/program_tab.py` (`_op_toolpath_stride`).
+- **Yan fayda:** `_rtool_for_pass` kesme/kıvırma op'larında `count`'u da fazla
+  sayıyordu (motor her zaman 1 yol üretir); `op_toolpath_entries` bunu da düzeltti.
+- **Yan fayda 2:** ters op'ta pas navigatörü artık 5 pas için 10 girdi göstermiyor.
+
+**Test:** yeni `_test_toolpath_layout.py` — **27/27**. Boş/eksik/bozuk operasyon
+listesi, kural doğruluk tablosu, kuralın motorun ürettiğiyle birebir tutması ve
+Program sekmesinin aynı sayıya inmesi.
+
+**Geri alma:** `_ensure_ops_dict` eski koşuluna dönmek 1'i, `op_builds_back_pass`
+içindeki `direction == "reverse"` satırını silmek 2'yi geri getirir.
+
+### 3+4. SCL export'undaki donma: 4.88 s → 0.47 s (10.4×), SONUÇ AYNI
+
+Aynı taramanın performans maddeleri. `auto_fit_plc_tolerance` **Tk ana iş
+parçacığında**, iki modal pencere arasında, ilerleme çubuğu olmadan koşuyor —
+yani her gereksiz hesap doğrudan donma demek.
+
+**#4 — `_rdp_decimate` vektörleştirildi.** Programın en sıcak fonksiyonuydu: bir
+uydurma değil, ölçüm — otomatik ayar başına **409.217** skaler `np.linalg.norm`
+çağrısı, toplam sürenin **%87**'si. Segment başına tek bir numpy ifadesi oldu.
+
+- **BİT-AYNI DEĞİL, ve bu ölçüldü.** Satır-bazlı `@` ve `norm(axis=1)`, nokta
+  başına `np.dot`/`norm`'dan farklı sırada toplar → mesafeler son bitlerde ~1e-14
+  mm oynar. Bu SADECE iki nokta "en uzak" için TAM eşitken görünür ve o zaman
+  hangisinin kaldığı değişir. **294 gerçek yol/tolerans kombinasyonunda:**
+  indeks listesi 9 kez (%3.1) farklı, **NOKTA SAYISI 0 kez farklı**, sadeleştirme
+  hatası farkı **0.000e+00 mm**. Yani PLC satır bütçesi ve otomatik ayar bu farkı
+  GÖREMEZ; sadece birbirinin yerine geçebilen bir noktanın kimliği değişir.
+- Eski skaler sürüm `_rdp_decimate_scalar` olarak **modülde duruyor** — silinmedi,
+  çünkü testin karşılaştırdığı referans o.
+- Ölçüm: 3000 noktalı tek yol **225 ms → 20 ms (11.3×)**, çıktı aynı 118 nokta.
+
+**#3 — otomatik ayar okumadığı cevaplara para ödemeyi bıraktı.**
+
+- Klerens artık her sondada değil, **sadece sonuçta** ölçülüyor (21 → 3). Zaten
+  docstring 2026-07-11'den beri "sonuçta bir kez" diyordu; kod uymuyordu, döngü
+  `_cl`'i atıyordu.
+- Bütçe TAM dolduğunda (`n_hi == target_lines`) arama duruyor — tanım gereği
+  optimal, aranacak bir şey kalmıyor.
+- **DENENDİ VE GERİ ALINDI:** "braket 1 µm'nin altına inince bırak" kısayolu.
+  Yanlış çıktı — cevap 0.067 mm civarındayken 1 µm braket toleransın %1.5'i ve fit
+  **115 yerine 109 satır** döndürdü. Bütçeyi doldurmak bu fonksiyonun tüm vaadi;
+  kalan yarılamalar DURUYOR. (Testi bu yüzden önce kırmızı yandı.)
+
+**Ölçüm (gerçek reçete, 15 pas / 5269 nokta, hedef 300 satır):**
+
+| | önce | sonra |
+|---|---|---|
+| süre | **4.88 s** | **0.47 s** |
+| `_rdp_decimate` tottime | 2.35 s | 0.13 s |
+| `np.linalg.norm` çağrısı | 409.217 | 13.804 |
+| klerens ölçümü | 21 | 3 |
+
+**Sonuç birebir aynı:** tolerance `0.009757450103759766`, lines `299`,
+min_clearance `1.4830381876342358` — düzeltme öncesiyle aynı sayılar.
+
+**Test:** yeni `_test_decimation.py` — **56/56**. RDP'yi skaler sürüme karşı
+(nokta sayısı + sadeleştirme hatası + eşitlik durumları), otomatik ayarı ise
+BURADA uzun uzun yazılmış ESKİ arama algoritmasına karşı pinliyor (status,
+tolerance, lines, clearance dördü de birebir).
+
+**Geri alma:** `_rdp_decimate` gövdesini `_rdp_decimate_scalar` ile değiştir;
+`_eval`'i her zaman `with_clearance=True` çağır ve `n_hi == target_lines`
+kırılmasını sil.
+
+> **Tarama notu — DÜZELTİLMEDİ, bilinsin diye:** `.git` 1.5 GB — geçmişe girmiş
+> exe/rar/Miniconda yüzünden (çalışma ağacı temiz, `.gitignore` doğru).
+
+---
+
 ## 2026-08-30 — SÜRÜM 1.022: TERS PAS = İLERİ PASIN TERSİ (tek kural); #82 SİLİNDİ, #49 kapandı
 
 **Sürüm:** `version.py` 1.021 → **1.022**, `changelog.py`'ye 4 maddelik

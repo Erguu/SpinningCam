@@ -133,27 +133,52 @@ def legacy_break(op):
 
 
 def stored(op, pass_index):
-    """This pass's OWN break list (no legacy fallback). [] when it has none."""
+    """This pass's OWN break list (no legacy fallback). [] when it has none.
+
+    Cannot distinguish "no key" from "key present but empty" — both normalise to
+    []. Ask `has_own_list` when that difference matters; `get_breaks` does.
+    """
     edits = (op or {}).get("pass_edits") or {}
     pe = edits.get(str(pass_index)) or edits.get(pass_index) or {}
     return normalize(pe.get("exit_breaks"))
 
 
+def has_own_list(op, pass_index):
+    """True when this pass carries an `exit_breaks` key of its own, empty or not.
+
+    THE POINT OF THE DISTINCTION: `exit_breaks: []` means the operator opened the
+    editor and deleted every row, which must suppress the op's legacy break.
+    A MISSING key means the pass was simply never edited, which must fall back to
+    it so that programs saved before break points existed still cut identically.
+
+    Until 2026-08-31 nothing asked this, so the two were the same thing and
+    "delete every row" was impossible on an op whose break came from the legacy
+    `exit_mid_rotation`: the editor removed the key, the fallback saw an empty
+    list, and put the break straight back.
+
+    An explicit ``null`` counts as present — a hand-edited file that wrote the
+    key meant something by it, and "no breaks" is the safer reading of the two.
+    """
+    edits = (op or {}).get("pass_edits") or {}
+    pe = edits.get(str(pass_index))
+    if not isinstance(pe, dict):
+        pe = edits.get(pass_index)
+    return isinstance(pe, dict) and "exit_breaks" in pe
+
+
 def get_breaks(op, pass_index):
     """The breaks the engine should apply to this pass.
 
-    Its own list when it has one, otherwise the op's legacy single break. An
-    empty list stored on the pass is NOT the same as no list: it means the
-    operator deleted every row, and it correctly suppresses the legacy fallback
-    only if the key is absent — so the editor removes the key entirely when the
-    table is emptied (see the dialog's apply path).
+    Its own list when it HAS one — including an empty one, see `has_own_list` —
+    otherwise the op's legacy single break.
 
     Direction plays no part. Since the #82 leg swap was deleted (2026-08-30) a
     reverse pass is the forward pass driven backwards, so the same list produces
     the same shape on the metal either way.
     """
-    own = stored(op, pass_index)
-    return own if own else legacy_break(op)
+    if has_own_list(op, pass_index):
+        return stored(op, pass_index)
+    return legacy_break(op)
 
 
 def curl_active(op):

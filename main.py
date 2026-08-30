@@ -11,7 +11,8 @@ import threading
 import queue
 import copy
 from mandrel_analyzer import MandrelManager
-from path_generator import PathGenerator, effective_clamp_length
+from path_generator import (PathGenerator, effective_clamp_length,
+                            op_builds_back_pass, op_toolpath_entries)
 from simulation_controller import SimulationController
 from tool_step_loader import ToolStepLoader
 from logger_config import logger
@@ -143,6 +144,12 @@ class SpinningApp:
             # time (READ_DBL silently truncates a 12 KB block), so this must match
             # its loader. 0 = legacy single Lines array.
             "scl_chunk_size": 100,
+            # Total recipe elements the DB declares. Remembered rather than
+            # re-derived so the layout dialog does not have to open on every
+            # export just to be told the same two numbers again; the export still
+            # opens it when this will not hold the recipe. 1000 = the PLC's hard
+            # ceiling and the reference 10 x 100 geometry.
+            "scl_capacity": 1000,
 
             # Recipe-carried turret / tool table (CAM_TOOL_TABLE_HANDOVER.md).
             # 4 physical slots; code 0 = empty. Emitted into every SCL recipe header
@@ -610,7 +617,7 @@ class SpinningApp:
         for op in ops:
             if not op.get("enabled", True):
                 continue
-            span = int(op.get("count", 1)) * (2 if op.get("back_pass_enabled") else 1)
+            span = op_toolpath_entries(op)
             if k < total + span:
                 return float(op.get("r_tool", 25.0) or 25.0)
             total += span
@@ -1048,8 +1055,10 @@ class SpinningApp:
                 self.check_angled_clearance()   # advisory only, never alters paths
 
                 # Build per-path type list. Must mirror calculate_paths' toolpath
-                # order exactly: skip disabled ops, cutting/bending = 1 path,
-                # back_pass_enabled inserts a back entry after each forward pass.
+                # order exactly: skip disabled ops, cutting/bending = 1 path, and
+                # a back entry after each forward pass only when the engine
+                # actually builds one — op_builds_back_pass is that same rule,
+                # shared rather than restated (a reverse pass builds none).
                 ops = self.params.get("operations", [])
                 op_types = []   # one entry per toolpath, in render order
                 for op in ops:
@@ -1057,7 +1066,7 @@ class SpinningApp:
                         continue
                     op_type = op.get("type", "roughing")
                     count = 1 if op_type in ("cutting", "bending") else int(op.get("count", 1))
-                    has_back = op_type not in ("cutting", "bending") and op.get("back_pass_enabled", False)
+                    has_back = op_builds_back_pass(op)
                     for _ in range(count):
                         op_types.append(op_type)
                         if has_back:
@@ -1616,7 +1625,8 @@ class SpinningApp:
         to its parent forward pass, so an override edited while a back pass is
         selected applies to the forward pass it mirrors. Mirrors the layout in
         calculate_paths: one global_pass_idx per forward pass / cutting / bending,
-        and a stride-2 toolpath layout (forward, back) when back_pass_enabled.
+        and a stride-2 toolpath layout (forward, back) when the engine actually
+        builds a back pass — op_builds_back_pass, not the checkbox alone.
         """
         tp_idx = self.active_editing_pass_idx
         fwd = 0
@@ -1626,7 +1636,7 @@ class SpinningApp:
                 continue
             is_cb  = op.get("type", "roughing") in ("cutting", "bending")
             count  = 1 if is_cb else int(op.get("count", 1))
-            stride = 1 if is_cb else (2 if op.get("back_pass_enabled", False) else 1)
+            stride = 2 if op_builds_back_pass(op) else 1
             for _ in range(count):
                 if entry == tp_idx:
                     return fwd
@@ -1918,7 +1928,7 @@ class SpinningApp:
             op_type = op.get("type", "roughing")
             is_cb   = op_type in ("cutting", "bending")
             count   = 1 if is_cb else int(op.get("count", 1))
-            has_back = not is_cb and op.get("back_pass_enabled", False)
+            has_back = op_builds_back_pass(op)
             for _ in range(count):
                 op_types.append(op_type)
                 if has_back:

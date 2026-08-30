@@ -19,6 +19,19 @@ wrong is caught by the TIA compiler; getting the SIZE wrong is not, and
 reassembles the recipe scrambled. Hence the warning line, not just the numbers.
 
 ``result`` is ``{'capacity': int, 'chunk_size': int}`` or None if cancelled.
+
+TWO WAYS IN (2026-08-31). It used to open on every SCL export, which is a
+question with the same answer every time — the layout describes the PLC on the
+other end, not this program. Now:
+
+* **Machine tab ▸ PLC ▸ Recipe DB layout…** — opened by hand, `line_count=None`.
+  There is no measured recipe, so the declarations are still shown but the END
+  marker position is not (it would be a position in a recipe that does not
+  exist).
+* **the SCL export** — only when the remembered layout cannot serve this recipe
+  (nothing set yet, or the capacity is smaller than the line count). `reason`
+  then says which, because a window that normally stays shut needs to explain
+  why it did not.
 """
 import tkinter as tk
 from tkinter import ttk
@@ -35,18 +48,31 @@ PLC_REFERENCE_GEOMETRY = (10, DEFAULT_CHUNK_SIZE)   # arrays x lines
 class SclLayoutDialog(tk.Toplevel):
 
     def __init__(self, parent, line_count, capacity, chunk_size,
-                 capacity_locked=False):
+                 capacity_locked=False, reason=None):
         super().__init__(parent)
         self.result = None
-        self._line_count = int(line_count)
+        # None = opened from the Machine tab with no export running. Everything
+        # downstream treats it as 0 lines (chunk_geometry already copes); only
+        # the two places that would report a POSITION IN THE RECIPE change.
+        self._has_recipe = line_count is not None
+        self._line_count = int(line_count or 0)
         self._locked = bool(capacity_locked)
 
         self.title(t("dlg_layout_title"))
         self.transient(parent)
         self.resizable(False, False)
 
-        ttk.Label(self, text=t("dlg_layout_lines").format(n=self._line_count),
-                  font=("Arial", 9, "bold")).pack(anchor="w", padx=12, pady=(12, 2))
+        ttk.Label(self,
+                  text=(t("dlg_layout_lines").format(n=self._line_count)
+                        if self._has_recipe else t("dlg_layout_no_recipe")),
+                  font=("Arial", 9, "bold"), wraplength=430,
+                  justify="left").pack(anchor="w", padx=12, pady=(12, 2))
+        if reason:
+            # Only the export sets this, and only when it had to break its own
+            # rule about not asking.
+            tk.Label(self, text=reason, wraplength=430, justify="left",
+                     fg="#a33", font=("Arial", 8)).pack(anchor="w", padx=12,
+                                                        pady=(0, 4))
         ttk.Label(self, text=t("dlg_layout_info"), wraplength=430, justify="left",
                   foreground="#555").pack(fill="x", padx=12, pady=(0, 8))
 
@@ -132,18 +158,20 @@ class SclLayoutDialog(tk.Toplevel):
         geo = chunk_geometry(self._line_count, cap, chunk)
 
         if geo["chunked"]:
-            preview = t("dlg_layout_preview").format(
+            preview = (t("dlg_layout_preview") if self._has_recipe
+                       else t("dlg_layout_preview_nolines")).format(
                 n=geo["chunk_count"], m=geo["chunk_size"],
                 hi=geo["chunk_size"] - 1,
                 last=geo["chunk_count"], cap=geo["capacity"],
                 ea=geo["end_array"], ei=geo["end_index"])
         else:
-            preview = t("dlg_layout_preview_legacy").format(hi=geo["capacity"] - 1,
-                                                            end=self._line_count - 1)
+            preview = (t("dlg_layout_preview_legacy") if self._has_recipe
+                       else t("dlg_layout_preview_legacy_nolines")).format(
+                hi=geo["capacity"] - 1, end=self._line_count - 1)
         self.lbl_preview.config(text=preview)
 
         warn = []
-        if cap < self._line_count:
+        if self._has_recipe and cap < self._line_count:
             warn.append(t("dlg_layout_warn_small").format(n=self._line_count))
         if geo["chunked"]:
             if geo["capacity"] != cap:

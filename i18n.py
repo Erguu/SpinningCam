@@ -572,6 +572,28 @@ STRINGS = {
     "dlg_layout_preview_legacy": {"EN": "Lines : Array[0..{hi}] (single array)\nEND marker  -> Lines[{end}]",
                                   "TR": "Lines : Array[0..{hi}] (tek dizi)\nEND işareti -> Lines[{end}]",
                                   "ES": "Lines : Array[0..{hi}] (arreglo único)\nMarca END   -> Lines[{end}]"},
+    # Opened by hand from the Machine tab, with no export in progress: there is no
+    # measured recipe, so the declarations are shown but not where a recipe ends.
+    "dlg_layout_no_recipe":     {"EN": "Editing the layout only — no recipe measured, so the END marker position is not shown.",
+                                 "TR": "Yalnızca düzen düzenleniyor — ölçülmüş reçete yok, bu yüzden END işareti konumu gösterilmiyor.",
+                                 "ES": "Solo edición del diseño — no hay receta medida, por eso no se muestra la posición de la marca END."},
+    "dlg_layout_preview_nolines": {"EN": "Lines1..Lines{last} : Array[0..{hi}] — {n} x {m} = {cap} elements",
+                                   "TR": "Lines1..Lines{last} : Array[0..{hi}] — {n} x {m} = {cap} eleman",
+                                   "ES": "Lines1..Lines{last} : Array[0..{hi}] — {n} x {m} = {cap} elementos"},
+    "dlg_layout_preview_legacy_nolines": {"EN": "Lines : Array[0..{hi}] (single array)",
+                                          "TR": "Lines : Array[0..{hi}] (tek dizi)",
+                                          "ES": "Lines : Array[0..{hi}] (arreglo único)"},
+    # Why the export opened this window even though it normally does not any more.
+    "dlg_layout_why_small":     {"EN": "Opened because the saved size ({cap}) is smaller than the {n} lines this recipe needs.",
+                                 "TR": "Açılma nedeni: kayıtlı boyut ({cap}), bu reçetenin ihtiyaç duyduğu {n} satırdan küçük.",
+                                 "ES": "Se abrió porque el tamaño guardado ({cap}) es menor que las {n} líneas que necesita esta receta."},
+    "dlg_layout_why_unset":     {"EN": "Opened because no recipe database layout has been set for this machine yet.",
+                                 "TR": "Açılma nedeni: bu makine için henüz reçete database düzeni ayarlanmamış.",
+                                 "ES": "Se abrió porque aún no se ha definido el diseño de base de datos de receta para esta máquina."},
+    # Machine tab entry point.
+    "btn_scl_layout":           {"EN": "Recipe DB layout…",           "TR": "Reçete DB düzeni…",          "ES": "Diseño de BD de receta…"},
+    "lbl_scl_layout_current":   {"EN": "Layout: {n} x {m} = {cap}",   "TR": "Düzen: {n} x {m} = {cap}",   "ES": "Diseño: {n} x {m} = {cap}"},
+    "lbl_scl_layout_legacy":    {"EN": "Layout: single array of {cap}", "TR": "Düzen: {cap} elemanlı tek dizi", "ES": "Diseño: arreglo único de {cap}"},
     "dlg_layout_bad":           {"EN": "Enter a whole number in each field.",
                                  "TR": "Her alana bir tam sayı girin.",
                                  "ES": "Ingrese un número entero en cada campo."},

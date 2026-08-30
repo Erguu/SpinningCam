@@ -11,6 +11,7 @@ import pyvista as pv
 from fpdf import FPDF
 from gcode_to_recipe import GCodeToRecipeConverter
 from recipe_to_scl import GCodeToSCLConverter
+from path_generator import op_builds_back_pass
 
 
 class ExportManager:
@@ -96,7 +97,7 @@ class ExportManager:
                 count = op.get("count", 1)
                 tool_id = op.get("tool_id", "T0101")
                 r_tool = op.get("r_tool", 25.0)
-                has_back = not is_cb and op.get("back_pass_enabled", False)
+                has_back = op_builds_back_pass(op)
 
                 label = f"{i+1}. {op_type}"
                 if not enabled:
@@ -129,7 +130,7 @@ class ExportManager:
                 is_cb = op.get("type", "roughing") in ("cutting", "bending")
                 c = 1 if is_cb else int(op.get("count", 1))
                 total_fwd += c
-                if not is_cb and op.get("back_pass_enabled", False):
+                if op_builds_back_pass(op):
                     total_back += c
             actual_total = len(paths)
             if total_back > 0:
@@ -354,13 +355,42 @@ class ExportManager:
           status : 'no_reduction_needed' | 'ok' | 'clearance_limited' | 'infeasible_budget'
           tolerance, lines, min_clearance, floor
         Pure/read-only w.r.t. persistent state (operates on a params copy).
+
+        RUNS ON THE UI THREAD (`export_scl_action`, between two modal dialogs and
+        with no progress bar), so every avoidable evaluation is a visible freeze.
+        Two things it therefore no longer does:
+
+        * measure the clearance on every probe. The bisection threw it away — the
+          paragraph above always said "check clearance once at the result", and
+          now the code agrees with it. Up to 21 measurements became 1.
+        * keep splitting after the budget is EXACTLY filled. `n_hi ==
+          target_lines` is optimal by definition, so there is nothing left to
+          find; on a recipe that lands exactly this ends the search early, and
+          otherwise it costs one comparison.
+
+        WHAT IT DELIBERATELY STILL DOES: the full `iters` halvings when the count
+        does not land exactly. A coarser stop was tried — give up once the
+        bracket is under a micrometre, on the grounds that no operator can mean a
+        finer tolerance — and it was WRONG: with the answer near 0.067 mm a
+        1 µm bracket is 1.5% of the tolerance, and the fit came back with 109
+        lines where the full search finds 115. Filling the budget is the whole
+        promise of this function, so the extra halvings stay.
+        `_test_decimation.py` compares against a longhand copy of the old search
+        and would have caught it either way.
         """
         from recipe_to_scl import GCodeToSCLConverter
         base = dict(params)
         base["plc_mode"] = True
         eps = 1e-6
 
-        def _eval(tol):
+        def _eval(tol, with_clearance=False):
+            """Recipe line count at `tol`, and its clearance only when asked.
+
+            measure_min_clearance reads `last_plc_paths`, which the emission has
+            just filled with the exact chords this tolerance would ship — so the
+            two must stay in this order, and the clearance cannot be deferred to
+            a later call without re-emitting.
+            """
             p = dict(base)
             p["plc_tolerance"] = tol
             p["plc_exit_tolerance"] = tol
@@ -370,36 +400,45 @@ class ExportManager:
             gcode = path_gen.generate_gcode(params=p, for_recipe=True)
             conv = GCodeToSCLConverter()
             conv.parse_gcode(gcode)
-            cl = path_gen.measure_min_clearance(
+            if not with_clearance:
+                return len(conv.lines), None
+            return len(conv.lines), path_gen.measure_min_clearance(
                 getattr(path_gen, "last_plc_paths", None) or [], p)
-            return len(conv.lines), cl
 
         # Full-resolution (near-zero tolerance) path already within budget →
-        # nothing to coarsen; the geometry simply can't produce more lines.
-        n_fine, cl_fine = _eval(tol_min)
+        # nothing to coarsen; the geometry simply can't produce more lines. Both
+        # early exits report a clearance, so they ask for it on their ONE probe
+        # rather than emitting a second time to fetch it.
+        n_fine, cl_fine = _eval(tol_min, with_clearance=True)
         if n_fine <= target_lines:
             return {"status": "no_reduction_needed", "tolerance": tol_min,
                     "lines": n_fine, "min_clearance": cl_fine, "floor": floor_clearance}
 
         # Even the coarsest tolerance cannot reach the budget.
-        n_coarse, cl_coarse = _eval(tol_max)
+        n_coarse, cl_coarse = _eval(tol_max, with_clearance=True)
         if n_coarse > target_lines:
             return {"status": "infeasible_budget", "tolerance": tol_max,
                     "lines": n_coarse, "min_clearance": cl_coarse, "floor": floor_clearance}
 
         # Bisect for the smallest tolerance that fits the budget.
         lo, hi = tol_min, tol_max      # count(lo) > target, count(hi) <= target
+        n_hi = n_coarse                # the line count that goes with `hi`
         for _ in range(iters):
+            if n_hi == target_lines:
+                break                  # budget exactly filled — cannot do better
             mid = 0.5 * (lo + hi)
-            n, _cl = _eval(mid)
+            n, _ = _eval(mid)
             if n <= target_lines:
-                hi = mid               # fits → try finer (smaller tol = more fidelity)
+                hi, n_hi = mid, n      # fits → try finer (smaller tol = more fidelity)
             else:
                 lo = mid               # too many lines → need coarser
-        tol_star = hi
-        n_star, cl_star = _eval(tol_star)
+        # One last emission, for the clearance the loop never needed. Its line
+        # count must equal n_hi; if it ever does not, the emission is not
+        # deterministic in the tolerance and this whole search is unsound, so
+        # take the fresh number rather than the remembered one.
+        n_star, cl_star = _eval(hi, with_clearance=True)
         status = "ok" if cl_star >= floor_clearance - eps else "clearance_limited"
-        return {"status": status, "tolerance": tol_star, "lines": n_star,
+        return {"status": status, "tolerance": hi, "lines": n_star,
                 "min_clearance": cl_star, "floor": floor_clearance}
 
 
@@ -600,7 +639,7 @@ class SpinningCamPDF(FPDF):
                 continue
             is_cb = op.get("type", "roughing") in ("cutting", "bending")
             count = 1 if is_cb else int(op.get("count", 1))
-            has_back = not is_cb and op.get("back_pass_enabled", False)
+            has_back = op_builds_back_pass(op)
             for _ in range(count):
                 path_colors.append(op_color_idx)
                 if has_back:

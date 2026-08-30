@@ -18,6 +18,59 @@ import exit_breaks
 TAIL_SHIFT_REPORT_MM = 1.0
 
 
+def op_builds_back_pass(op):
+    """True when each of this op's forward passes is followed by a back pass.
+
+    THE SINGLE SOURCE OF TRUTH for that question. `calculate_paths` branches on
+    it, and so must every consumer that maps a toolpath index back to a pass —
+    the 3D renderer, the pass colouring, the per-pass tool radius, the PDF. They
+    are indexing arrays the engine built; a different rule means different
+    indices, and the arrays do not complain.
+
+    `back_pass_enabled` on its own is NOT that rule:
+
+    * a cutting/bending op emits one feed line and never a back pass;
+    * a REVERSE pass already IS the return stroke, so the engine builds no
+      second one even with the box ticked (#49, user 2026-08-29).
+
+    The reverse case is why this function exists rather than staying inline. It
+    WAS inline, in six places, as "back_pass_enabled and not cutting/bending".
+    When reverse stopped building a back pass (2026-08-30) the engine changed
+    and those six did not, so a reverse op with the box still ticked left every
+    consumer counting one phantom path per pass: measured 4 paths emitted
+    against 6 expected, which slid the colours, the tool radius and the
+    active-pass highlight one entry further out of phase with each pass.
+    """
+    if not (op or {}).get("back_pass_enabled", False):
+        return False
+    if op.get("type", "roughing") in ("cutting", "bending"):
+        return False
+    if op.get("direction", "forward") == "reverse":
+        return False
+    return True
+
+
+def op_toolpath_entries(op):
+    """How many toolpath-list entries this op contributes.
+
+    The layout `calculate_paths` produces: a cutting/bending op is always ONE
+    feed line (its `count` is ignored), any other type emits `count` forward
+    passes, and each forward pass is followed by a back pass exactly when
+    `op_builds_back_pass` says so.
+
+    Disabled ops emit nothing; skipping them is the caller's job, because every
+    caller already has to do it before this point.
+    """
+    op = op or {}
+    if op.get("type", "roughing") in ("cutting", "bending"):
+        return 1
+    try:
+        n = int(op.get("count", 1) or 1)
+    except (TypeError, ValueError):
+        n = 1
+    return max(n, 0) * (2 if op_builds_back_pass(op) else 1)
+
+
 def representative_feed_mm_min(op, path, params, center_x=0.0):
     """Resolve an operation's cutting feed to mm/min, for SIMULATION pacing.
 
@@ -313,9 +366,28 @@ class PathGenerator:
         return dest_gap, min(mins)
 
     def _ensure_ops_dict(self, params):
-        if "operations" in params and isinstance(params["operations"], list) and len(params["operations"]) > 0:
-            return params["operations"]
-        
+        """The operation list to run: the caller's, or a legacy migration.
+
+        AN EMPTY LIST IS AN ANSWER, NOT A MISSING ONE. A pre-ops file (and the
+        headless callers that still drive the engine through
+        `num_sweeping_passes`) has no "operations" key at all, and that is what
+        the migration below is for. `operations: []` means something else
+        entirely: the operator deleted every operation.
+
+        Until 2026-08-30 both went down the migration, so clearing the program
+        did not clear the toolpath — it built a full roughing op out of
+        `num_sweeping_passes`, a parameter today's UI does not even show.
+        Measured on a real recipe: 12 passes and 1036 lines of motion out of an
+        empty list, with nothing on screen to explain where they came from.
+        `del_op` has no last-op guard, so it was one Delete key away.
+
+        A non-list value still migrates — that is a malformed file, not an
+        instruction.
+        """
+        ops = params.get("operations", None)
+        if isinstance(ops, list):
+            return ops
+
         # Legacy Migration
         ops = []
         
@@ -1079,7 +1151,7 @@ class PathGenerator:
                             logger.info(
                                 f"[#49] '{pass_label}' back pass NOT built: this is a "
                                 f"reverse pass, which already IS the return stroke")
-                        elif op.get("back_pass_enabled", False):
+                        elif op_builds_back_pass(op):
                             _bp_feed = float(op.get("back_pass_feed", float(op.get("feed", 100.0))))
                             bp_arc_x    = float(op.get("back_pass_arc_x", 0.0))
                             bp_arc_z    = float(op.get("back_pass_arc_z", 0.0))
@@ -3339,7 +3411,69 @@ class PathGenerator:
         Ramer-Douglas-Peucker (RDP) path decimation.
         Returns the indices of the points to keep from `points` (numpy Nx3 array).
         `tolerance` is the maximum allowed perpendicular deviation in mm.
+
+        The distances for one segment are ONE numpy expression rather than a
+        Python loop over its points, and `np.argmax` picks the first maximum
+        exactly as `d > max_dist` did.
+
+        NOT BIT-IDENTICAL TO THE SCALAR VERSION, and the difference is worth
+        knowing before you chase it. A row-wise `@` and `norm(..., axis=1)`
+        accumulate in a different order from per-point `np.dot` / `norm`, so the
+        distances differ in the last bit or two (~1e-14 mm). That only ever shows
+        when two candidate points are EXACTLY tied for furthest — which happens
+        on the densely sampled, near-straight approach arm, where consecutive
+        samples sit symmetrically about the chord — and then the two versions
+        keep different members of the tie.
+
+        Measured over 294 real path/tolerance combinations (2026-08-30):
+
+            index lists differ  :  9  (3.1%)
+            POINT COUNT differs :  0     <- the PLC line budget is unaffected
+            max-deviation gap   :  0.000e+00 mm
+
+        So the simplified path is equally accurate to the bit, and the auto-tune
+        (which steers on line count) cannot see the change at all. Only the
+        identity of one interchangeable point moves. `_test_decimation.py` pins
+        exactly that against `_rdp_decimate_scalar` below.
+
+        WHY: this is the hottest function in the program. It ran ~409k scalar
+        `np.linalg.norm` calls per PLC auto-tune fit, which was 87% of a 4.9 s
+        freeze on the Tk main thread (measured 2026-08-30, 15-pass recipe).
         """
+        pts = np.asarray(points, dtype=float)
+        n = len(pts)
+        if n <= 2:
+            return list(range(n))
+
+        kept = {0, n - 1}
+        stack = [(0, n - 1)]
+        while stack:
+            start, end = stack.pop()
+            if end - start <= 1:
+                continue
+            seg_vec = pts[end] - pts[start]
+            seg_len = np.linalg.norm(seg_vec)
+            inner = pts[start + 1:end]
+            if seg_len < 1e-9:
+                # Degenerate segment — distance from the start point, as before.
+                d = np.linalg.norm(inner - pts[start], axis=1)
+            else:
+                t = (inner - pts[start]) @ seg_vec / (seg_len * seg_len)
+                proj = pts[start] + t[:, None] * seg_vec
+                d = np.linalg.norm(inner - proj, axis=1)
+            k = int(np.argmax(d))          # first maximum, like `d > max_dist`
+            if d[k] > tolerance:
+                max_idx = start + 1 + k
+                kept.add(max_idx)
+                stack.append((start, max_idx))
+                stack.append((max_idx, end))
+        return sorted(kept)
+
+    def _rdp_decimate_scalar(self, points, tolerance):
+        """The pre-2026-08-30 point-at-a-time RDP, kept ONLY as the reference the
+        vectorised one is tested against. Not called in normal operation — if you
+        are optimising `_rdp_decimate`, `_test_decimation.py` compares the two on
+        real paths, which is cheaper than arguing about floating point."""
         if len(points) <= 2:
             return list(range(len(points)))
 

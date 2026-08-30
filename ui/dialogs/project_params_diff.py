@@ -38,7 +38,7 @@ _LABELS = {
     "plc_mode": "cb_plc_enable",
     "plc_tolerance": "lbl_plc_tol",         "plc_exit_tolerance": "lbl_plc_exit_tol",
     "plc_auto_tune": "cb_plc_autotune",     "plc_target_lines": "lbl_plc_target",
-    "scl_chunk_size": "dlg_layout_chunk",
+    "scl_chunk_size": "dlg_layout_chunk",   "scl_capacity": "dlg_layout_capacity",
     "clamp_zone_baseline": "lbl_clamp_baseline",
     "turret_slots": "frm_turret",
 }

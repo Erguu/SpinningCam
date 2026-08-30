@@ -1029,21 +1029,32 @@ class PassTableDialog(tk.Toplevel):
         pass_index = rows[idx]["i"]
 
         def _apply(per_pass):
-            """per_pass: {pass index -> list of breaks}. An empty list REMOVES
-            the key, which is what lets a pass fall back to the op's legacy
-            single break instead of being pinned to 'no breaks' forever."""
+            """per_pass: {pass index -> list of breaks}.
+
+            An empty list means the operator deleted every row, and that has to
+            STICK. Where the op still carries a legacy `exit_mid_rotation` the
+            empty list is written out, because only a present-but-empty key
+            suppresses the fallback (exit_breaks.has_own_list). Where there is no
+            legacy break to suppress the key is removed instead, so clearing an
+            op that never had breaks leaves no debris in the .ssp.
+            """
             # BEFORE the mutation — `_push_undo` snapshots the current ops list,
             # so pushing afterwards would record the already-changed state.
             try:
                 self.ptab._push_undo(t("pt_btn_breaks"))
             except Exception:
                 pass
+            # Read BEFORE the exit_mid_rotation pop below, which is what an
+            # emptied pass would otherwise fall back to.
+            _suppressible = bool(eb.legacy_break(op))
             edits = op.setdefault("pass_edits", {})
             for i, brk in per_pass.items():
                 key = str(i)
                 slot = edits.setdefault(key, {})
                 if brk:
                     slot["exit_breaks"] = brk
+                elif _suppressible:
+                    slot["exit_breaks"] = []      # "none, and I mean it"
                 else:
                     slot.pop("exit_breaks", None)
                 if not slot:

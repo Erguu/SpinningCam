@@ -593,6 +593,20 @@ class MachineTab(ScrollableTabBase):
 
         _sync_plc_states()
 
+        # Recipe DB layout (capacity + Lines1..LinesN chunking). This used to be
+        # asked on every SCL export, which is a question with the same answer
+        # every time — it describes the PLC's data block, not the program. It
+        # lives here with the other PLC settings, and the export only interrupts
+        # when the saved layout cannot hold the recipe it is about to write.
+        f_layout = ttk.Frame(f_plc)
+        f_layout.pack(fill="x", padx=5, pady=(4, 2))
+        self.lbl_scl_layout = tk.Label(f_layout, text="", font=("Arial", 8),
+                                       fg="#0b5a2b", anchor="w")
+        self.lbl_scl_layout.pack(side="left")
+        ttk.Button(f_layout, text=t("btn_scl_layout"), width=20,
+                   command=self._open_scl_layout).pack(side="right")
+        self.refresh_scl_layout()
+
         tk.Label(f_plc, text=t("lbl_plc_hint"), font=("Arial", 8), fg="#555555").pack(anchor="w", padx=5, pady=(2, 6))
 
         # Turret / Tool Table (recipe-carried tool config → SCL recipe header).
@@ -1125,6 +1139,37 @@ class MachineTab(ScrollableTabBase):
                 lbl.config(text=txt)
             except tk.TclError:      # label belonged to a destroyed rebuild
                 self._cal_notes.remove(lbl)
+
+    def _open_scl_layout(self):
+        """Hand the Recipe DB layout window to the main window, which owns both
+        the dialog and the persist step (the export uses the very same pair)."""
+        win = self.content.winfo_toplevel()
+        if hasattr(win, "open_scl_layout"):
+            win.open_scl_layout()
+
+    def refresh_scl_layout(self):
+        """Restate the saved layout next to the button, in the same sentence the
+        dialog and the post-export summary use ("10 x 100 = 1000").
+
+        Updated in place rather than through refresh_ui(), which would rebuild the
+        tab and lose the scroll position — same reason as _refresh_cal_notes.
+        """
+        lbl = getattr(self, "lbl_scl_layout", None)
+        if lbl is None:
+            return
+        from recipe_to_scl import chunk_geometry, DEFAULT_CHUNK_SIZE
+        cap = int(self.app.params.get("scl_capacity", 1000) or 1000)
+        chunk = int(self.app.params.get("scl_chunk_size", DEFAULT_CHUNK_SIZE) or 0)
+        # line_count 0: this is the DECLARED shape, with no recipe in hand.
+        geo = chunk_geometry(0, cap, chunk)
+        txt = (t("lbl_scl_layout_current").format(
+                   n=geo["chunk_count"], m=geo["chunk_size"], cap=geo["capacity"])
+               if geo["chunked"]
+               else t("lbl_scl_layout_legacy").format(cap=geo["capacity"]))
+        try:
+            lbl.config(text=txt)
+        except tk.TclError:                  # label belonged to a destroyed rebuild
+            self.lbl_scl_layout = None
 
     def sync_params(self):
         if hasattr(self, 'txt_header'):

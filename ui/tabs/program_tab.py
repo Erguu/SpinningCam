@@ -6,6 +6,7 @@ from ui.dialogs.tool_manager import ToolManager
 from ui.helpers_ui import _fmt_num, scroll_not_edit
 from i18n import t
 from ui import dialog_sizing
+from path_generator import op_builds_back_pass
 
 # Accurate default each op-parameter field falls back to when left empty.
 # Sourced from the op.get(key, DEFAULT) fallbacks in path_generator.py so the
@@ -389,16 +390,22 @@ class ProgramTab:
         return int(op.get("count", 1))
 
     def _op_toolpath_stride(self, op):
-        """Toolpath-list entries per forward pass: 2 when back_pass_enabled
-        doubles the path count (forward + its back pass), else 1."""
+        """Toolpath-list entries per forward pass: 2 when the engine really does
+        add a back pass after each one, else 1.
+
+        Delegates to the engine's own rule instead of re-deriving it from
+        `back_pass_enabled` — a reverse pass IS the return stroke and gets no
+        back pass, so the checkbox alone counted a path that is never built.
+        """
         if op.get("type", "roughing") in ("cutting", "bending"):
             return 1
-        return 2 if op.get("back_pass_enabled", False) else 1
+        return 2 if op_builds_back_pass(op) else 1
 
     def _get_pass_type_list(self):
         """Returns one (op_type, tool_id, is_back, r_tool, op_idx) tuple per actual entry in
-        the calculated toolpaths list — accounting for back_pass_enabled,
-        which inserts an extra back-pass entry after each forward pass."""
+        the calculated toolpaths list — accounting for the back pass, which
+        inserts an extra entry after each forward pass when (and only when) the
+        engine builds one. See _op_toolpath_stride."""
         result = []
         for op_i, op in enumerate(self.app.params.get("operations", [])):
             if not op.get("enabled", True):
@@ -1899,9 +1906,9 @@ class ProgramTab:
         except: return
 
         # Seçili operasyonun global pas indeksini hesapla (toolpaths list
-        # index space — back_pass_enabled doubles an op's entry count, so
-        # each prior op contributes logical_count * stride entries, not
-        # just its logical pass count).
+        # index space — a back pass doubles an op's entry count, so each prior
+        # op contributes logical_count * stride entries, not just its logical
+        # pass count. _op_toolpath_stride knows when a back pass is real.)
         cumulative = 0
         for i, o in enumerate(self.app.params.get("operations", [])):
             if i == idx: break
@@ -1966,7 +1973,7 @@ class ProgramTab:
                                      "ETKİLEMEZ. Sağ-tık menüsünden de değiştirilebilir.")
 
         # Paso navigatörü — birden fazla toolpath girdisi olan operasyonlar için.
-        # back_pass_enabled olduğunda her ileri pasın ardından bir geri pas gelir
+        # Geri pas GERÇEKTEN üretildiğinde her ileri pasın ardından bir tane gelir
         # (stride 2), bu yüzden navigatör ileri+geri tüm girdiler arasında gezinir:
         # ör. 5 pas + geri pas = 10 girdi.
         count  = self._op_logical_count(op)
