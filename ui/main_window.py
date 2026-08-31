@@ -16,6 +16,7 @@ from ui.dialogs.tool_manager import ToolManager
 import i18n
 from i18n import t, set_language, get_language, LANGUAGES, LANGUAGE_NAMES
 from version import APP_VERSION
+from path_generator import resolve_speed_mode, zero_spindle_ops
 
 logger = logging.getLogger("SpinningCam")
 
@@ -631,6 +632,31 @@ class SpinningCamWindow(tk.Tk):
         except Exception:
             return True     # never block an export on a reporting bug
 
+    def _confirm_zero_spindle(self):
+        """Warn when an operation would command the spindle to zero RPM.
+
+        Returns True to carry on with the export, False to abort. A WARNING, not
+        a block (user decision 2026-08-31) — the operator is told which
+        operations and decides.
+
+        Fired at export because that is when it reaches the machine, and shown
+        BEFORE the file is written: a warning after the fact is just a receipt.
+        """
+        try:
+            bad = zero_spindle_ops(self.app.params)
+            if not bad:
+                return True
+            lines = ["  • " + t("msg_zero_rpm_row").format(
+                        n=b["index"] + 1, name=b["name"], rpm=f"{b['rpm']:g}")
+                     for b in bad]
+            return messagebox.askyesno(
+                t("msg_zero_rpm_title"),
+                t("msg_zero_rpm_body").format(n=len(bad), items="\n".join(lines)),
+                icon='warning')
+        except Exception as e:
+            logger.error(f"Zero-spindle check failed, exporting unchanged: {e}")
+            return True     # never block an export on a reporting bug
+
     def _show_tool_change_popup(self, body):
         """Modal tool-change swing warning; Confirm (may reappear next calc) /
         Don't-show-again (suppress for the session). Mirrors _show_clamp_popup."""
@@ -1005,7 +1031,7 @@ class SpinningCamWindow(tk.Tk):
                      if min(sz, ez) <= z_curr <= max(sz, ez):
                           txt_s = str(int(float(zdata.get("speed", def_s))))
                           txt_f = f"{float(zdata.get('feed', def_f)):.1f}"
-                          mode_s = op.get("speed_mode", "CSS")
+                          mode_s = resolve_speed_mode(op)
                           mode_f = op.get("feed_mode", "mm_min")
                           matched = True
                           break
@@ -1224,6 +1250,11 @@ class SpinningCamWindow(tk.Tk):
         # geometry is the same file, the PLC route just happens to be where the
         # #99 cap warning lives.
         if not self._confirm_waypoint_warnings():
+            return
+
+        # An op at zero RPM runs with the part stationary — same fault in the
+        # .nc as in the recipe, so it is asked here too.
+        if not self._confirm_zero_spindle():
             return
 
         path = filedialog.asksaveasfilename(
@@ -1620,6 +1651,11 @@ class SpinningCamWindow(tk.Tk):
         if not self._confirm_break_flatten_warnings():      # #102
             return
         if not self._confirm_waypoint_warnings():
+            return
+        # An op at zero RPM becomes CMD=20 Param=0 — the spindle is commanded to
+        # STOP and stays stopped for that whole operation. Found in the field in
+        # DB_RecipeProgram2.scl (two cuts, a roughing and a bend).
+        if not self._confirm_zero_spindle():
             return
 
         default_name = db_name + ".scl"

@@ -13,6 +13,7 @@ import copy
 from mandrel_analyzer import MandrelManager
 from path_generator import (PathGenerator, effective_clamp_length,
                             op_builds_back_pass, op_toolpath_entries)
+import pass_colors
 from simulation_controller import SimulationController
 from tool_step_loader import ToolStepLoader
 from logger_config import logger
@@ -107,6 +108,9 @@ class SpinningApp:
             "machine_gcode_offset_z": 0.0,
             "gcode_header": "G21 G90 G18\nG54",
             "gcode_footer": "M5\nM30",
+            # Pass colour overrides, category -> "#rrggbb". Empty = all defaults
+            # (pass_colors.DEFAULT_COLORS). Visual only; never reaches a file.
+            "pass_colors": {},
             # Program End park point. None = follow Program Start, which is what the
             # final move always did — see path_generator.resolve_program_end.
             "end_use_home": True,
@@ -1054,50 +1058,37 @@ class SpinningApp:
                 self._last_render_tuple = (paths, projs, cps, devs, rapids, debug_lines)
                 self.check_angled_clearance()   # advisory only, never alters paths
 
-                # Build per-path type list. Must mirror calculate_paths' toolpath
-                # order exactly: skip disabled ops, cutting/bending = 1 path, and
-                # a back entry after each forward pass only when the engine
-                # actually builds one — op_builds_back_pass is that same rule,
-                # shared rather than restated (a reverse pass builds none).
+                # One colour category per toolpath, in render order. The rule
+                # (and the mirroring of calculate_paths' order) lives in
+                # pass_colors.path_categories so the operation list colours
+                # itself from the SAME function — if these two ever diverge the
+                # list and the picture disagree about the same pass.
                 ops = self.params.get("operations", [])
-                op_types = []   # one entry per toolpath, in render order
-                for op in ops:
-                    if not op.get("enabled", True):
-                        continue
-                    op_type = op.get("type", "roughing")
-                    count = 1 if op_type in ("cutting", "bending") else int(op.get("count", 1))
-                    has_back = op_builds_back_pass(op)
-                    for _ in range(count):
-                        op_types.append(op_type)
-                        if has_back:
-                            op_types.append("back")
+                op_types = pass_colors.path_categories(ops)
+                palette = pass_colors.resolve_palette(self.params)
 
                 logger.info(f"Rendering {len(paths)} paths.")
                 for i, (p, pr, dev) in enumerate(zip(paths, projs, devs)):
-                    if len(p) == 0: 
+                    if len(p) == 0:
                         logger.warning(f"Path {i} has 0 points.")
                         continue
-                    
+
                     is_active = (i == self.active_editing_pass_idx)
                     _ptype = op_types[i] if i < len(op_types) else "roughing"
-                    is_finish_pass = (_ptype == "finishing")
-                    is_back_pass   = (_ptype == "back")
 
-                    # Colors: roughing=blue, finishing=orange, back=teal, active=magenta
-                    col = 'blue' # default for roughing
-                    lw = 5
-                    
+                    # Category colour, operator-editable (Process tab). The
+                    # active-editing pass keeps its fixed magenta and always
+                    # wins — it marks the selection, not a kind of operation.
+                    #
                     # Velocity Colors mode no longer recolors the passes themselves
                     # (that flat per-pass coloring ignored zones/contact feed and was
                     # misleading). Instead a translucent contact-zone band is drawn as
                     # an overlay (see section 2.5). Passes keep their type colors.
+                    col = palette.get(_ptype, palette["roughing"])
+                    lw = 5
                     if is_active:
-                        col = 'magenta'
+                        col = pass_colors.ACTIVE_COLOR
                         lw = 7
-                    elif is_finish_pass:
-                        col = 'orange'
-                    elif is_back_pass:
-                        col = 'teal'
                     
                     if len(p) > 1:
                         try:
@@ -1917,42 +1908,33 @@ class SpinningApp:
             logger.debug(f"tool-change cue: {e}")
 
     def recolor_paths(self):
-        """Mevcut pas aktörlerinin rengini yeniden boyar — hesaplama yapmaz, anlık."""
+        """Repaint the existing pass actors in place — no recalculation, instant.
+
+        This is the path taken when the operator clicks through the operation
+        list, so it MUST reach the same colours as the full render in
+        update_scene. It used to carry its own copy of the category rule and its
+        own hardcoded RGB table, which is why a reverse pass went back to blue
+        the moment you selected a row after Calculate: the full render knew
+        about reverse and this did not.
+
+        Both now read pass_colors. If a new category is ever added, neither
+        place needs touching.
+        """
         if not self.actors.get("paths"):
             return
 
-        ops = self.params.get("operations", [])
-        op_types = []
-        for op in ops:
-            if not op.get("enabled", True): continue
-            op_type = op.get("type", "roughing")
-            is_cb   = op_type in ("cutting", "bending")
-            count   = 1 if is_cb else int(op.get("count", 1))
-            has_back = op_builds_back_pass(op)
-            for _ in range(count):
-                op_types.append(op_type)
-                if has_back:
-                    op_types.append("back")
+        op_types = pass_colors.path_categories(self.params.get("operations", []))
+        palette = pass_colors.resolve_palette(self.params)
 
         for i, actor in enumerate(self.actors["paths"]):
-            is_active  = (i == self.active_editing_pass_idx)
-            _ptype     = op_types[i] if i < len(op_types) else "roughing"
-            is_finish  = (_ptype == "finishing")
-            is_back    = (_ptype == "back")
-
-            prop = actor.GetProperty()
-            if is_active:
-                prop.SetColor(1.0, 0.0, 1.0)   # magenta
-                prop.SetLineWidth(7)
-            elif is_finish:
-                prop.SetColor(1.0, 0.65, 0.0)  # orange
-                prop.SetLineWidth(5)
-            elif is_back:
-                prop.SetColor(0.0, 0.5, 0.5)   # teal
-                prop.SetLineWidth(5)
+            _ptype = op_types[i] if i < len(op_types) else "roughing"
+            if i == self.active_editing_pass_idx:
+                colour, width = pass_colors.ACTIVE_COLOR, 7
             else:
-                prop.SetColor(0.0, 0.0, 1.0)   # blue
-                prop.SetLineWidth(5)
+                colour, width = palette.get(_ptype, palette["roughing"]), 5
+            prop = actor.GetProperty()
+            prop.SetColor(*pass_colors.rgb_floats(colour))
+            prop.SetLineWidth(width)
         try:
             self.plotter.render()
         except: pass
@@ -2052,6 +2034,14 @@ class SpinningApp:
                     # The Basic/Advanced view switch is a global app preference,
                     # not a per-program setting — preserve it across a load.
                     _show_adv = self.params.get("op_view_show_advanced", False)
+                    # Same reasoning for the pass colour palette: it is how THIS
+                    # operator likes to look at the screen, not a property of the
+                    # part. save_project writes the whole params dict, so without
+                    # this an old .ssp would silently repaint the 3D view and the
+                    # operation list to whatever colours were set the day it was
+                    # saved — the small cousin of the 2026-08-14 machine-settings
+                    # incident.
+                    _pass_colors = copy.deepcopy(self.params.get("pass_colors", {}))
                     loaded_params = d.get("params", {})
 
                     from machine_loader import diff_machine_params, strip_machine_params
@@ -2072,6 +2062,7 @@ class SpinningApp:
                         logger.info("Project load: took %d machine setting(s) from the file: %s",
                                     len(_accepted), ", ".join(sorted(_accepted)))
                     self.params["op_view_show_advanced"] = _show_adv
+                    self.params["pass_colors"] = _pass_colors
                     # Customize-View column/tag config IS per program: if the
                     # loaded file has none, drop any stale in-memory config so
                     # the resolver falls back to sensible defaults.

@@ -17,6 +17,85 @@ import exit_breaks
 # no longer where it was drawn and the pass may be doing less work than intended.
 TAIL_SHIFT_REPORT_MM = 1.0
 
+# CSS (constant surface speed, G96) is DISABLED — user decision 2026-08-31,
+# "we don't use it".
+#
+# The PLC recipe protocol has no CSS mode: CMD=20 carries a fixed RPM target
+# (Param = RPM / 10, CAM_INTERFACE_SPEC §5). recipe_to_scl reads the S word and
+# nothing else, so a CSS operation's surface speed was being shipped to the
+# machine AS IF it were RPM — "200 m/min" ran as 200 RPM, silently. Until a real
+# CSS→RPM conversion exists, every operation is read as RPM.
+#
+# Legacy ops that still carry speed_mode="CSS" keep their stored number and are
+# read as RPM. That is exactly what the machine has been doing all along, so no
+# recipe changes value; what changes is that the UI, the .nc and the time
+# estimate now say the same thing the PLC does.
+#
+# To re-enable: flip this to True and CSS reappears in the Program-tab combo.
+# Nothing else needs touching — every read goes through resolve_speed_mode().
+CSS_SPEED_MODE_ENABLED = False
+
+
+def speed_mode_choices():
+    """Speed modes offered in the UI. Mirrors CSS_SPEED_MODE_ENABLED."""
+    return ["CSS", "RPM"] if CSS_SPEED_MODE_ENABLED else ["RPM"]
+
+
+def zero_spindle_ops(params):
+    """Enabled operations that would command the spindle to STOP.
+
+    ``CMD=20`` sets the speed TARGET, and ``Param = rpm // 10``. So a recipe
+    line with ``Param=0`` does not mean "no speed given" — it means "run at zero
+    RPM", and the spindle stays stopped for that whole operation. A cut-off or
+    bending pass on a spinning machine needs the part turning, so this is a
+    broken program rather than an unusual one.
+
+    Caught in the field: DB_RecipeProgram2.scl shipped four of them (two cutting
+    ops, a roughing op and a bending op), and nothing anywhere said so.
+
+    The threshold is ``< 10``, not ``== 0``: integer division means 9 RPM also
+    encodes to Param 0, so testing for zero alone would miss the sneakier half
+    of the same fault.
+
+    Note none of the CAM's own defaults can produce this — clearing the Speed
+    box REMOVES the key and falls back to the global speed, a new operation
+    starts at 300 RPM, and the suggester clamps to 60. A zero is always a value
+    someone entered or a preset carried in, which is exactly why the program
+    cannot tell it apart from a mistake and has to ask.
+
+    Returns ``[{'index', 'name', 'type', 'rpm'}, ...]``, empty when all is well.
+    Read-only; never alters params.
+    """
+    out = []
+    for i, op in enumerate((params or {}).get("operations", []) or []):
+        if not op.get("enabled", True):
+            continue
+        try:
+            rpm = float(op.get("speed", params.get("surface_speed_m_min", 200)))
+        except (TypeError, ValueError):
+            continue        # not a number: a different problem, not this one
+        if rpm < 10.0:
+            op_type = str(op.get("type", "roughing") or "roughing")
+            out.append({"index": i,
+                        "name": op.get("name") or op_type.upper(),
+                        "type": op_type,
+                        "rpm": rpm})
+    return out
+
+
+def resolve_speed_mode(op):
+    """An operation's spindle speed mode — THE SINGLE SOURCE OF TRUTH.
+
+    Every consumer (emitter, simulator, time estimate, live monitor, SCL header,
+    the editor combo) must call this instead of reading ``op["speed_mode"]``, or
+    the kill switch above would be honoured in some places and not others: the
+    file would say G96 while the recipe ran a fixed RPM.
+    """
+    mode = str((op or {}).get("speed_mode", "RPM") or "RPM").upper()
+    if mode == "CSS" and not CSS_SPEED_MODE_ENABLED:
+        return "RPM"
+    return mode
+
 
 def op_builds_back_pass(op):
     """True when each of this op's forward passes is followed by a back pass.
@@ -97,7 +176,7 @@ def representative_feed_mm_min(op, path, params, center_x=0.0):
         spd = float(op.get("speed", params.get("surface_speed_m_min", 200.0)))
     except (TypeError, ValueError):
         spd = 200.0
-    if str(op.get("speed_mode", "CSS")) == "RPM":
+    if resolve_speed_mode(op) == "RPM":
         rpm = spd
     else:
         # CSS (m/min) → rpm using the pass's mean diameter as a stand-in.
@@ -2945,7 +3024,25 @@ class PathGenerator:
                 if desc:
                     return f"{cmd_str} ({desc})"
             return cmd_str
-        
+
+        def _emit_custom(cmd_str):
+            """Emit a user-defined M-code, and forget the tracked spindle state
+            if it touches the spindle.
+
+            Custom commands are free text: nothing stops an operator typing
+            "M5" or "M3 S900" as a program-start / pass / Z-triggered command.
+            Either one changes the spindle behind the emitter's back, and a
+            stale ``_last_spindle`` would then make the next operation SKIP a
+            command it genuinely needs — a spindle left off, or left at the
+            wrong speed. Forgetting is always safe; the next op re-commands.
+
+            M30 / M35 / M53 must NOT match, hence the word boundary.
+            """
+            nonlocal _last_spindle
+            gcode.append(_annotate_mcode(cmd_str))
+            if re.search(r'\bM0*[35]\b', cmd_str, re.IGNORECASE):
+                _last_spindle = None
+
         # Split line by line
         plc_label = " [PLC MODE]" if plc_mode else ""
         gcode = ["%", f"O1001 (METAL SIVAMA - {len(paths_to_use)} PASO{plc_label})"]
@@ -3018,7 +3115,7 @@ class PathGenerator:
             op_count = op.get("count", 1)
             op_tool = op.get("tool_id", "T0101")
             op_speed = op.get("speed", 0)
-            op_s_mode = op.get("speed_mode", "CSS")
+            op_s_mode = resolve_speed_mode(op)
             op_feed = op.get("feed", 0)
             op_f_mode = op.get("feed_mode", "mm_min")
             op_r = op.get("r_tool", 0)
@@ -3053,6 +3150,22 @@ class PathGenerator:
         # kept firing. Existing setups are converted by
         # config_schema.migrate_cylinder_mcode, so nobody loses their extend.
 
+        # The spindle command actually WRITTEN last, as (speed code, integer rpm),
+        # or None when unknown. Declared HERE, above the first _emit_custom call
+        # below — that helper writes it, and a future edit that also READS it
+        # would raise UnboundLocalError if this line sat further down.
+        #
+        # An operation re-commanding a speed the spindle already holds is a no-op
+        # on the PLC (CMD=20 writes the target and does not block — confirmed by
+        # the PLC side 2026-08-31) but still costs one of the 1000 recipe lines.
+        # DB_RecipeProgram1.scl spent 25 of its 205 lines that way; recipe3 spent
+        # 15 while sitting at 999 against the cap.
+        #
+        # The pair, not the number: G96 S200 and G97 S200 are different commands
+        # if CSS is ever re-enabled. The INTEGER, not the float: 800.0 and 800.4
+        # both write "S800", and comparing floats would emit twice for no change.
+        _last_spindle = None
+
         # Program-start custom commands — here, and NOT in the pass loop,
         # because this is the only point that is still before the tool change
         # and before the spindle starts. An actuator that has to be set while
@@ -3061,7 +3174,7 @@ class PathGenerator:
         if start_cmds:
             gcode.append("(--- PROGRAM START ---)")
             for scmd in start_cmds:
-                gcode.append(_annotate_mcode(scmd))
+                _emit_custom(scmd)
             gcode.append("")
 
         safe_x_machine = home_x_machine  # Use transformed safe X
@@ -3078,7 +3191,7 @@ class PathGenerator:
             op_type = op.get("type", "Process").upper()
             
             # Velocity Params
-            s_mode = op.get("speed_mode", "CSS") # CSS or RPM
+            s_mode = resolve_speed_mode(op)  # CSS or RPM (CSS currently disabled)
             f_mode = op.get("feed_mode", "mm_min") # mm_min or mm_rev
             
             def_speed = params.get("surface_speed_m_min", 200)
@@ -3113,17 +3226,58 @@ class PathGenerator:
                  else:
                      gcode.append(f"G0 Z{_tc_z_m:.3f} (Tool Change Z, {_tc_mode})")
                      gcode.append(f"G0 X{_tc_x_m:.3f} (Tool Change X, {_tc_mode})")
-                 gcode.extend(["M5", "M1"])
+                 # No M5/M1: the spindle runs through the turret index (user
+                 # decision 2026-08-31 — the turret is automatic, and the G0
+                 # above is the clearance that matters).
+                 # M1 also had to go: the recipe has no such command, so it came
+                 # out as CMD=1 (LINEAR) with F=0 — see LAST_CHANGES 2026-08-31d.
+                 # Revert for a hand-changed turret: gcode.extend(["M5"]).
+                 #
+                 # The INCOMING op's speed is commanded HERE, before M6, not
+                 # after it. What follows the tool change is a rapid into the
+                 # work and then the first cut, so a speed set after M6 can
+                 # still be ramping when the cut starts — recipe1's Op17 drops
+                 # 800 → 500 for a cutting pass at 5 mm/min. Setting it first
+                 # gives the spindle the whole turret index plus the approach to
+                 # settle, and the turret indexes at the speed the new tool
+                 # wants rather than the speed the old one was using.
+                 #
+                 # A tool change ALWAYS re-commands the speed, even when the
+                 # number is unchanged (so this one is exempt from the
+                 # redundancy skip below). Whether CMD=10 disturbs spindle state
+                 # on the PLC is not documented — unlike CMD=20, which the PLC
+                 # side confirmed is a plain setpoint write. The insurance costs
+                 # one line per change: two in all of DB_RecipeProgram1.scl.
+                 gcode.append(f"{code_speed} S{int(val_speed)} M3")
+                 _last_spindle = (code_speed, int(val_speed))
+                 _speed_already_set = True
+            else:
+                 _speed_already_set = False
 
             if tool_differs or current_tool is None:
                  gcode.append(f"M6 {op_tool} ({op_type})")
-                 gcode.append(f"{code_speed} S{int(val_speed)} M3")
+                 if not _speed_already_set:
+                     # First op of the program: no tool-change block ran, so the
+                     # spindle has not been started yet.
+                     gcode.append(f"{code_speed} S{int(val_speed)} M3")
+                     _last_spindle = (code_speed, int(val_speed))
                  gcode.append(f"{code_feed} (Feed: {f_mode})")
                  gcode.append("")
                  current_tool = op_tool
             elif current_tool == op_tool:
                  gcode.append(f"(Update Params: {val_speed} {s_mode}, {val_feed} {f_mode})")
-                 gcode.append(f"{code_speed} S{int(val_speed)} M3")
+                 # Same tool, so the spindle has not been touched since the last
+                 # op: command it only if the number actually moved. The comment
+                 # in the else branch is deliberate — it costs nothing in the
+                 # recipe (comments are skipped by the parser) and stops the
+                 # missing M3 from reading as an omission to whoever opens
+                 # the .nc next.
+                 _spindle_cmd = (code_speed, int(val_speed))
+                 if _spindle_cmd != _last_spindle:
+                     gcode.append(f"{code_speed} S{int(val_speed)} M3")
+                     _last_spindle = _spindle_cmd
+                 else:
+                     gcode.append(f"(Spindle already at {code_speed} S{int(val_speed)})")
                  gcode.append(f"{code_feed}")
 
             # calculate_paths emits exactly ONE path for a cutting/bending op and
@@ -3169,7 +3323,7 @@ class PathGenerator:
                 pass_num = global_path_idx + 1
                 for (pn, pcmd) in pass_cmds:
                     if pn == pass_num:
-                        gcode.append(_annotate_mcode(pcmd))
+                        _emit_custom(pcmd)
 
                 def transform_pt(p_arr):
                     """
@@ -3209,7 +3363,7 @@ class PathGenerator:
                         for zi, (z_thresh, z_cmd) in enumerate(z_cmds):
                             if zi not in fired_z_indices:
                                 if (prev_raw_z <= z_thresh < raw_z) or (prev_raw_z >= z_thresh > raw_z):
-                                    gcode.append(_annotate_mcode(z_cmd))
+                                    _emit_custom(z_cmd)
                                     fired_z_indices.add(zi)
                     prev_raw_z = raw_z
 
@@ -3946,7 +4100,7 @@ class PathGenerator:
             if not op.get("enabled", True): continue
             count = int(op.get("count", 1))
             
-            s_mode = op.get("speed_mode", "CSS")
+            s_mode = resolve_speed_mode(op)
             f_mode = op.get("feed_mode", "mm_min")
             def_speed = params.get("surface_speed_m_min", 200)
             def_feed = params.get("feed_rate_mm_min", 300)

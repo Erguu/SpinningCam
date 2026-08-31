@@ -6,7 +6,8 @@ from ui.dialogs.tool_manager import ToolManager
 from ui.helpers_ui import _fmt_num, scroll_not_edit
 from i18n import t
 from ui import dialog_sizing
-from path_generator import op_builds_back_pass
+from path_generator import op_builds_back_pass, resolve_speed_mode, speed_mode_choices
+import pass_colors
 
 # Accurate default each op-parameter field falls back to when left empty.
 # Sourced from the op.get(key, DEFAULT) fallbacks in path_generator.py so the
@@ -838,6 +839,13 @@ class ProgramTab:
         not apply to this op type."""
         if key not in self._universe_for(op_type):
             return "—"
+        if key == "speed_mode":
+            # Resolved, never raw. A legacy op can still hold "CSS" on disk while
+            # the engine runs it as RPM (path_generator.CSS_SPEED_MODE_ENABLED),
+            # and the editor combo shows the resolved mode — so this column has
+            # to agree with it, or the table and the field one inch away from it
+            # would name different modes for the same operation.
+            return resolve_speed_mode(op)
         if key not in op:
             dv = OP_PARAM_DEFAULTS.get(key)
             return _fmt_num(dv) if isinstance(dv, (int, float)) and not isinstance(dv, bool) else ""
@@ -1228,6 +1236,24 @@ class ProgramTab:
     def open_tool_manager(self):
         ToolManager(self.frame.winfo_toplevel(), self.ui_root)
 
+    def _op_color_tag(self, op):
+        """Treeview tag tinting a row with its operation's category colour.
+
+        Tags are (re)configured on every call rather than once at build time:
+        the palette is editable while the window is open, and a stale tag would
+        leave the list showing a colour the 3D view no longer uses. Configuring
+        an existing tag is cheap and idempotent.
+
+        Category comes from pass_colors.op_category — the SAME function the 3D
+        renderer uses — so a reverse pass is violet in both places or neither.
+        """
+        category = pass_colors.op_category(op)
+        palette = pass_colors.resolve_palette(self.app.params)
+        tag = f"opcol_{category}"
+        self.tree_ops.tag_configure(
+            tag, background=pass_colors.tint(palette.get(category, "#ffffff")))
+        return tag
+
     def refresh_ops_tree(self):
         # During a bulk flush, coalesce: remember that a refresh is needed and do
         # it ONCE at the end instead of once per field saver.
@@ -1263,7 +1289,14 @@ class ProgramTab:
             for k in extra_cols:
                 vals.append(self._cell_value(op, k, _ot))
             vals = tuple(vals)
+            # Category tint (2026-08-31). Disabled ops are deliberately NOT
+            # tinted: they contribute no toolpath, so there is no coloured pass
+            # in the 3D view for the row to match — the grey styling is the
+            # honest signal. Background only, so it never fights op_disabled's
+            # foreground if the two are ever combined.
             tags = () if _on else ("op_disabled",)
+            if _on:
+                tags = (self._op_color_tag(op),)
             if i < len(existing_items):
                 self.tree_ops.item(existing_items[i], values=vals, tags=tags)
             else:
@@ -2024,13 +2057,24 @@ class ProgramTab:
         # --- Speed & Feed ---
         self._add_section_header("speed_feed", t("lbl_speed_feed"), separator=False)
         # Speed
-        self._add_prop_combo(idx, "speed_mode", t("lbl_speed_mode"), ["CSS", "RPM"], op,
-                             "CSS (G96): Sabit yüzey hızı — mil devri çapa göre otomatik ayarlanır, yüzey kalitesi daha düzgün. "
-                             "RPM (G97): Sabit devir — mil hızı sabit kalır.")
-        s_lbl = t("lbl_speed_mmin") if op.get("speed_mode", "CSS") == "CSS" else t("lbl_speed_rpm")
+        # CSS is off (path_generator.CSS_SPEED_MODE_ENABLED) — the PLC has no
+        # constant-surface-speed mode. `current=` matters: an old op may still
+        # carry "CSS" on disk, and the box must show the mode that will actually
+        # run, not the stale word.
+        _s_mode = resolve_speed_mode(op)
+        _s_modes = speed_mode_choices()
+        self._add_prop_combo(idx, "speed_mode", t("lbl_speed_mode"), _s_modes, op,
+                             ("RPM (G97): Sabit devir — mil hızı sabit kalır.\n"
+                              "CSS (G96) kapalı: PLC reçetesinde sabit yüzey hızı yok, "
+                              "girilen sayı devir olarak çalışır."
+                              if len(_s_modes) == 1 else
+                              "CSS (G96): Sabit yüzey hızı — mil devri çapa göre otomatik ayarlanır, yüzey kalitesi daha düzgün. "
+                              "RPM (G97): Sabit devir — mil hızı sabit kalır."),
+                             current=_s_mode)
+        s_lbl = t("lbl_speed_mmin") if _s_mode == "CSS" else t("lbl_speed_rpm")
         s_tooltip = ("Yüzey hızı değeri (m/dak). CSS modunda kullanılır. "
                      "Metal sıvama için tipik değer: 100–400 m/dak."
-                     if op.get("speed_mode", "CSS") == "CSS" else
+                     if _s_mode == "CSS" else
                      "Mil devri (RPM). Sabit RPM modunda kullanılır. "
                      "Tipik değer: 300–2000 RPM, malzeme ve çapa göre değişir.")
         self._add_prop_entry(idx, "speed", s_lbl, op, is_float=True, tooltip=s_tooltip)
@@ -2918,13 +2962,16 @@ class ProgramTab:
         self._apply_field_visibility(op_type)
         self._apply_label_highlights(op_type)   # #84
 
-    def _add_prop_combo(self, op_idx, key, label, values, op_dict, tooltip=""):
+    def _add_prop_combo(self, op_idx, key, label, values, op_dict, tooltip="", current=None):
         f = ttk.Frame(self.f_prop_editor)
         f._pkey = key
         f.pack(fill="x", padx=2, pady=1)
         ttk.Label(f, text=label, width=15).pack(side="left")
 
-        curr = op_dict.get(key, values[0])
+        # `current` overrides the stored value for fields whose effective value
+        # is resolved elsewhere (speed_mode: a disabled CSS op runs as RPM).
+        # Without it the box would display a mode the engine will not use.
+        curr = current if current is not None else op_dict.get(key, values[0])
         cb = ttk.Combobox(f, values=values, state="readonly")
         cb.set(curr)
         cb.pack(side="right", fill="x", expand=True)

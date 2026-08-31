@@ -147,12 +147,28 @@ Grey mesh          The mandrel — the form your part is shaped over.
 
 Flat disc          The blank — the starting sheet before forming.
 
-Coloured lines     Toolpaths. Colour = operation type:
-                     Blue   = roughing
-                     Orange = finishing
-                     Green  = cutting
-                     Purple = bending
-                     Teal   = back pass (return stroke)
+Coloured lines     Toolpaths. Colour = operation category:
+                     Blue    = roughing
+                     Orange  = finishing
+                     Violet  = REVERSE pass
+                     Teal    = back pass (return stroke)
+                     Green   = cutting
+                     Maroon  = bending
+                     Magenta = the pass you are editing
+
+                   A reverse pass takes its own colour instead of
+                   its operation's — telling forward from reverse
+                   at a glance is the point. The pass being
+                   edited is always magenta; that marks your
+                   selection, not a kind of operation.
+
+                   You can change any of these in Process tab →
+                   Pass Colors, and the same colours tint the
+                   rows of the operation list so the list and the
+                   3D view always agree. Colours are yours, not
+                   the part's: opening someone else's program
+                   will not repaint your screen, and a colour can
+                   never change a toolpath or an exported file.
 
 Roller shape       The roller at its current position.
                    A small green dot marks the exact tip point.
@@ -259,12 +275,29 @@ Gri mesh            Mandrel — parçanın şekillendirildiği form.
 
 Düz disk            Blank — şekillendirmeden önceki başlangıç sacı.
 
-Renkli çizgiler     Takım yolları. Renk = operasyon türü:
+Renkli çizgiler     Takım yolları. Renk = operasyon kategorisi:
                       Mavi        = kaba
                       Turuncu     = bitirme
-                      Yeşil       = kesme
-                      Mor         = bükme
+                      Menekşe     = TERS pas
                       Camgöbeği   = geri pas (dönüş hamlesi)
+                      Yeşil       = kesme
+                      Bordo       = kıvırma
+                      Macenta     = düzenlediğin pas
+
+                    Ters pas, operasyonunun rengi yerine kendi
+                    rengini alır — ileri ile tersi bir bakışta
+                    ayırmak bu özelliğin amacıdır. Düzenlenen pas
+                    her zaman macentadır; o bir operasyon türünü
+                    değil, seçimini gösterir.
+
+                    Bunların hepsini Proses sekmesi → Pas
+                    Renkleri'nden değiştirebilirsin; aynı renkler
+                    operasyon listesindeki satırları da boyar,
+                    böylece liste ile 3B görünüm asla çelişmez.
+                    Renkler senindir, parçanın değil: başkasının
+                    programını açmak ekranını yeniden boyamaz ve
+                    bir renk asla takım yolunu veya dışa
+                    aktarılan bir dosyayı değiştiremez.
 
 Rulo şekli          Rulonun mevcut konumu.
                     Küçük yeşil nokta tam uç noktasını gösterir.
@@ -944,6 +977,65 @@ about what you see, not what the machine does. A cell that shows
 operation type. New programs start from sensible defaults.
 
 
+TOOL CHANGES DO NOT STOP THE SPINDLE
+════════════════════════════════════════════════════════════════
+The turret indexes with the part still turning. The roller is
+retracted to the tool-change point first — that is the clearance
+that matters, and it is unchanged.
+
+The new operation's speed is commanded just BEFORE the turret
+moves, so the spindle has the whole tool change plus the
+approach to reach it and is at speed when the first cut starts.
+Before, the program stopped the spindle and restarted it at
+every tool change, costing a spin-down and a spin-up each time
+for no benefit on an automatic turret.
+
+If a machine ever ships with a turret changed by hand, this must
+go back to stopping the spindle.
+
+
+A SPINDLE SPEED OF ZERO IS WARNED ABOUT
+════════════════════════════════════════════════════════════════
+If an operation's Speed is 0 (or below 10 RPM), the recipe tells
+the machine to run that operation at zero RPM — the part stands
+still for the whole pass. On a cut or a bend that is almost
+never what you want.
+
+Exporting now lists those operations and asks whether to carry
+on. It is a warning, not a block: if you really do want it, say
+yes. Note that clearing the Speed box does NOT give you zero —
+it falls back to the general speed setting. A zero is a number
+someone typed.
+
+
+THE SPINDLE IS ONLY COMMANDED WHEN THE SPEED CHANGES
+════════════════════════════════════════════════════════════════
+Operations that run at the same speed as the one before them no
+longer repeat the command — the spindle is already turning at
+that speed, so the line did nothing except use up part of the
+recipe's 1000-line budget. One real program spent 25 of its 205
+lines that way; another spent 15 while sitting at 999 lines.
+
+Every genuine speed change is still commanded, and a tool change
+always re-commands the speed even if the number is unchanged.
+In the .nc file a skipped line leaves a "(Spindle already at
+S800)" comment, so you can see it was deliberate.
+
+
+SPINDLE SPEED — RPM ONLY
+════════════════════════════════════════════════════════════════
+Speed Mode offers RPM only. CSS (constant surface speed, G96) is
+switched off: the PLC recipe has no CSS mode — a recipe line
+carries a fixed RPM target — so a surface speed in m/min was
+being sent to the machine as if it were RPM. 200 m/min ran as
+200 RPM, with nothing on screen saying so.
+
+Nothing about your machine changed. Older operations saved with
+CSS keep their number and now show it as RPM, which is what they
+have always run. Enter the spindle speed you want in RPM
+(typically 300–2000). The recipe caps at 2550 RPM.
+
+
 OPERATION SUGGESTER (✨Suggest BUTTON)
 ════════════════════════════════════════════════════════════════
 The Suggest button proposes a roughing + finishing sequence from
@@ -1598,6 +1690,64 @@ yalnızca ne gördüğünüzle ilgilidir, makinenin ne yaptığıyla değil.
 Tabloda "—" gösteren bir hücre, o parametrenin o operasyon tipine
 uygulanmadığı anlamına gelir. Yeni programlar makul varsayılanlarla
 başlar.
+
+
+TAKIM DEĞİŞİMİ MİLİ DURDURMAZ
+════════════════════════════════════════════════════════════════
+Taret, parça dönmeye devam ederken döner. Rulo önce takım değişim
+noktasına geri çekilir — asıl güvenlik mesafesi budur ve
+değişmedi.
+
+Yeni operasyonun hızı, taret dönmeden HEMEN ÖNCE komutlanır;
+böylece mil, tüm takım değişimi ve yaklaşma boyunca o hıza
+ulaşır ve ilk kesme başladığında hız hazırdır. Önceden program
+her takım değişiminde mili durdurup yeniden başlatıyordu;
+otomatik tarette bu, hiçbir fayda sağlamadan her seferinde bir
+yavaşlama + hızlanma demekti.
+
+Elle takım değiştirilen bir taretli makine gelirse bu davranış
+mili durdurmaya geri döndürülmelidir.
+
+
+SIFIR MİL HIZI İÇİN UYARI VERİLİR
+════════════════════════════════════════════════════════════════
+Bir operasyonun Hız değeri 0 ise (veya 10 RPM'in altındaysa),
+reçete makineye o operasyonu sıfır devirde çalıştırmasını söyler
+— parça pas boyunca durur. Kesme veya kıvırmada bu neredeyse
+hiçbir zaman istenen şey değildir.
+
+Dışa aktarma artık bu operasyonları listeler ve devam edilip
+edilmeyeceğini sorar. Bu bir uyarıdır, engel değil: gerçekten
+istiyorsanız evet deyin. Hız kutusunu BOŞALTMAK sıfır vermez —
+genel hız ayarına düşer. Sıfır, birinin yazdığı bir sayıdır.
+
+
+MİL SADECE HIZ DEĞİŞTİĞİNDE KOMUTLANIR
+════════════════════════════════════════════════════════════════
+Bir öncekiyle aynı hızda çalışan operasyonlar artık komutu
+tekrarlamıyor — mil zaten o hızda dönüyor, dolayısıyla o satır
+reçetenin 1000 satırlık bütçesinden yer kaplamaktan başka bir şey
+yapmıyordu. Gerçek bir programda 205 satırın 25'i buydu; bir
+diğeri 999 satırdayken 15 satırını böyle harcıyordu.
+
+Her gerçek hız değişimi komutlanmaya devam eder ve takım değişimi
+sayı aynı olsa bile hızı yeniden komutlar. `.nc` dosyasında
+atlanan satırın yerine "(Spindle already at S800)" yorumu kalır,
+böylece bunun bilinçli olduğu görülür.
+
+
+MİL HIZI — SADECE RPM
+════════════════════════════════════════════════════════════════
+Hız Modu artık yalnızca RPM sunuyor. CSS (sabit yüzey hızı, G96)
+kapatıldı: PLC reçetesinde CSS modu yok — reçete satırı sabit bir
+devir hedefi taşır — bu yüzden m/dak cinsinden yüzey hızı makineye
+devirmiş gibi gönderiliyordu. 200 m/dak, 200 RPM olarak çalışıyor
+ve ekranda bunu söyleyen hiçbir şey yoktu.
+
+Makinenizde değişen bir şey yok. CSS ile kaydedilmiş eski
+operasyonlar sayısını korur ve artık onu RPM olarak gösterir —
+zaten hep öyle çalışıyorlardı. Mil hızını RPM olarak girin
+(tipik 300–2000). Reçete 2550 RPM'de sınırlanır.
 
 
 OPERASYON ÖNERİCİ (✨ÖNER DÜĞMESİ)

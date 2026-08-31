@@ -73,6 +73,7 @@ CRITICAL_MODULES = [
     "process_planner",
     "tool_step_loader",
     "path_generator",
+    "pass_colors",                    # pass colour palette; main + both tabs import it
     "recipe_to_scl",
     "export_manager",
     "gui_manager",

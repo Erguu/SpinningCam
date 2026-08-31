@@ -215,7 +215,13 @@ pg_s, gc_s = gcode_for(op("T0202", tool_change_mode="absolute",
 _lines = gc_s.splitlines()
 _i = _lines.index("(--- TOOL CHANGE SAFETY ---)")
 assert _lines[_i + 1] == "G0 X250.000 Z120.000 (Tool Change XZ, absolute)", _lines[_i + 1]
-assert _lines[_i + 2] == "M5", _lines[_i + 2]   # only ONE move line, then M5
+# Only ONE move line: the next line must not be another G0 (a Z-then-X split).
+# Anchor ONLY on that. This assertion has now been broken twice by naming
+# whatever happened to follow the move — first "== M5" (until the tool change
+# stopped stopping the spindle), then "M6" (until the speed command moved ahead
+# of M6). What this test is about is the single diagonal; the rest is not its
+# business.
+assert not _lines[_i + 2].startswith("G0 "), _lines[_i + 2]
 print("simultaneous XZ emits one combined diagonal G0: OK")
 
 # ── 5. warn-only swing guard ──────────────────────────────────────────────

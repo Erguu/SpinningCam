@@ -33,6 +33,20 @@ from typing import List, Tuple, Optional
 from dataclasses import dataclass, field
 
 
+def resolve_speed_mode(op):
+    """Speed mode for the SCL header comment — the one that will actually run.
+
+    CSS is disabled (path_generator.CSS_SPEED_MODE_ENABLED), so an old op still
+    carrying "CSS" runs as RPM; the header must not claim otherwise. Imported
+    lazily: this module doubles as a standalone CLI and must not drag in OCC.
+    """
+    try:
+        from path_generator import resolve_speed_mode as _resolve
+    except Exception:  # pragma: no cover - standalone CLI use
+        return str((op or {}).get("speed_mode", "RPM") or "RPM").upper()
+    return _resolve(op)
+
+
 # CMD Constants (matching PLC spec)
 CMD_RAPID = 0           # G0 - Rapid positioning
 CMD_LINEAR = 1          # G1 - Linear interpolation with feedrate
@@ -802,7 +816,7 @@ class GCodeToSCLConverter:
                     op_count = op.get("count", 1)
                     op_tool = op.get("tool_id", "T0101")
                     op_speed = op.get("speed", 0)
-                    op_s_mode = op.get("speed_mode", "CSS")
+                    op_s_mode = resolve_speed_mode(op)
                     op_feed = op.get("feed", 0)
                     op_f_mode = op.get("feed_mode", "mm_min")
                     op_r = op.get("r_tool", 0)

@@ -5,6 +5,335 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## v1.024 — 2026-08-31 sürümü
+
+`version.py` **1.023 → 1.024**, `changelog.py`'ye operatöre dönük 5 madde
+eklendi. Bu sürümdeki işler (detaylar aşağıdaki bloklarda):
+
+| # | Ne | Blok |
+|---|----|------|
+| 1 | CSS (G96) kapatıldı — Hız Modu sadece RPM | 2026-08-31c |
+| 2 | Takım değişimi mili durdurmuyor; `M1` çöp satırı gitti | 2026-08-31d |
+| 3 | Hız komutu `M6`'dan ÖNCE | 2026-08-31d |
+| 4 | Aynı mil hızı tekrar komutlanmıyor (recipe1: 28 → 3 ON) | 2026-08-31e |
+| 5 | Pas renkleri: ters pas ayrı renkte + operatör seçiyor + listede | 2026-08-31f |
+| 6 | Sıfır mil hızı uyarısı (export) | 2026-08-31g |
+
+Oturum sonu test durumu: **69 geçti, 6 kaldı** — altısı da HEAD'de zaten kırık
+(bkz. `project_known_failing_tests`). Devir handover'ı:
+`backup/HANDOVER_2026-08-31.md`.
+
+**AÇIK KALAN** (handover §3): özel M-kodlarının CMD opcode'larıyla çakışması,
+program sonundaki çift `SPINDLE_OFF`, `_encode_spindle_speed`'in yuvarlama
+yerine kırpması (1595 → 1590) ve 100 RPM altını sessiz geçirmesi.
+
+---
+
+## 2026-08-31g — SIFIR mil hızı UYARISI (export'ta)
+
+**Saha bulgusu:** `DB_RecipeProgram2.scl` başlığında **dört** operasyon
+`RPM=0.0` taşıyordu (iki KESME, bir kaba, bir KIVIRMA). Reçetede karşılığı
+`CMD=20 Param=0`. `CMD=20` hız HEDEFİNİ yazar ve `Param = rpm // 10` — yani
+`Param=0` "hız verilmemiş" DEĞİL, **"0 devirde çalış"** demektir: mil durur ve o
+operasyon boyunca durmuş kalır. Sıvama makinesinde kesme/kıvırma parça DÖNERKEN
+yapılır; bu bozuk bir program.
+
+Hiçbir yerde bunu söyleyen bir şey yoktu — kullanıcı bunu "kesme bir şekilde mili
+kapatıyor" diye fark etmişti; gözlem DOĞRUYDU, mekanizma farklıydı.
+
+**Karar (kullanıcı): UYARI, engel DEĞİL.** Operatöre hangi operasyonlar olduğu
+söylenir, kararı o verir.
+
+### Uygulama
+
+- `path_generator.zero_spindle_ops(params)` — saf, salt-okunur. Aktif op'lardan
+  devri **< 10** olanları döndürür.
+  **Eşik neden 0 değil 10:** tam sayı bölmesi yüzünden 9 RPM de `Param=0` üretir;
+  sadece sıfırı aramak aynı hatanın sinsi yarısını kaçırırdı. Test, eşiği
+  dönüştürücünün `_encode_spindle_speed`'i ile çapraz doğruluyor.
+- `main_window._confirm_zero_spindle()` — Evet/Hayır uyarısı, **dosya
+  YAZILMADAN ÖNCE** (sonradan gelen uyarı sadece bir makbuzdur).
+  Hem `.nc` hem `.scl` yolunda; `_confirm_waypoint_warnings` kalıbının aynısı.
+  Raporlama hatası export'u ASLA engellemez (`except` → devam).
+- i18n: `msg_zero_rpm_title/row/body` (EN/TR/ES).
+
+### Sıfır NEREDEN geliyor — CAM'in kendi varsayılanlarından DEĞİL
+
+Üçü de kontrol edildi: **hız kutusunu boşaltmak anahtarı SİLER** (global 200'e
+düşer, 0 değil), yeni op **300 RPM** ile başlar, Öneri motoru **60**'a kırpar.
+Yani 0 her zaman elle girilmiş ya da bir preset'le gelmiş bir değerdir — program
+onu "kasıtlı" ile "unutulmuş" arasında ayıramaz, bu yüzden SORMASI gerekir.
+
+### İlgili: 2026-08-31d'nin yan etkisi
+
+Hız komutu artık `M6`'dan ÖNCE geldiği için (bkz. 2026-08-31d), sıfır hızlı bir
+op'ta `CMD=20 Param=0` **takım değişiminden önce** görünür. Sıfırı o değişiklik
+YARATMADI — sadece öne aldı ve görünür kıldı. Kullanıcı zaten böyle fark etti.
+
+Test: `_test_zero_spindle_warning.py` (28 kontrol; §6 gerçek recipe2 senaryosunu
+yeniden üretiyor).
+
+---
+
+## 2026-08-31f — Pas renkleri: TERS pas artık ayrı renkte + operatör seçebiliyor
+
+**İstek (kullanıcı):** farklı operasyonlar farklı renkte olsun; örneğin ters pas
+ileri paslardan farklı görünsün. Operatör rengi kendisi atayabilsin. Renkler
+operasyon listesinde de görünsün.
+
+**Karar:** SADECE KATEGORİ renkleri (op başına renk YOK) + listede **soluk satır
+arka planı, siyah yazı**.
+
+### Neden gerekliydi
+
+Ters bir op hâlâ tip olarak "roughing"/"finishing" — ve `main.py` rengi tipe
+bakarak seçiyordu, yani **ters pas ileri pasla BİREBİR aynı renkte çiziliyordu.**
+3B görünümde en çok görülmesi gereken şey görünmüyordu. Ayrıca kesme ve kıvırma
+varsayılan maviye düşüyordu: yardım dosyası "yeşil=kesme, mor=kıvırma" diyordu
+ama kod öyle yapmıyordu — **yardım YALAN SÖYLÜYORDU**, artık doğru.
+
+### `pass_colors.py` (yeni) — TEK doğruluk kaynağı
+
+İki tüketici (3B görünüm + operasyon listesi) aynı fonksiyonları okur; ayrılırsa
+liste ile resim aynı pas hakkında farklı şey söyler.
+
+- `op_category(op)` — öncelik: **kesme/kıvırma → TERS → op tipi.** Ters, tipi
+  EZER; özelliğin varlık sebebi bu.
+- `path_categories(ops)` — toolpath başına kategori, `calculate_paths` sırasını
+  aynalar (pasif op yok, kesme/kıvırma 1 yol, geri pas `op_builds_back_pass`
+  kuralıyla). Bu mantık `main.py`'den BURAYA taşındı → artık test edilebilir.
+- `resolve_palette(params)` — varsayılanlar + operatör seçimleri. Bozuk hex ve
+  bilinmeyen kategori **sessizce düşer**: bu her yeniden çizimde koşuyor, bir
+  yazım hatası 3B görünümü patlatmamalı.
+- `tint(hex)` — beyaza doğru %82 karıştırma; satır arka planı için. Yazı SİYAH
+  kalır (doygun yol renkleri yazının altında okunmuyor).
+- `ACTIVE_COLOR` = macenta; kategori DEĞİL, seçim göstergesi, her zaman kazanır.
+
+### Varsayılanlar
+
+kaba `#1f6fd0` · bitirme `#e08000` · **ters `#7b52d3`** · geri `#00968f` ·
+kesme `#2e9e4f` · kıvırma `#b03060` — hepsi birbirinden VE macentadan farklı
+(test bunu doğruluyor).
+
+### UI
+
+- **Proses ▸ Pas Renkleri**: kategori başına bir kare düğme → renk seçici,
+  + "Renkleri sıfırla". `tk.Button` kullanıldı, `ttk` DEĞİL: ttk arka planı
+  temadan alır ve `bg=`'yi yok sayar → bütün kareler aynı görünürdü.
+- Renk değişince `redraw_paths_cached()` — **yeniden HESAP YOK.**
+- Operasyon listesi: `_op_color_tag()` satır arka planını boyar. **Pasif op
+  boyanmaz** (3B'de karşılığı olan renkli bir pas yok; gri dürüst sinyal).
+
+### `pass_colors` .ssp'den UYGULANMAZ
+
+`save_project` tüm params'ı yazar. Süzülmeseydi eski bir program açmak ekranı o
+günün renklerine boyardı — 2026-08-14 makine-ayarı olayının küçük kuzeni.
+`op_view_show_advanced` ile aynı şekilde korunuyor (`load_project`).
+
+### İKİNCİ ÇİZİM YOLU — saha hatası, aynı gün düzeltildi
+
+İlk sürümde **`main.recolor_paths()` atlanmıştı.** O fonksiyon, operatör
+listede gezerken aktörleri yerinde yeniden boyar (hesap yapmadan, anlık) ve
+kategori kuralının + renk tablosunun KENDİ KOPYASINI taşıyordu — sabit
+kodlanmış RGB, fallback mavi. Sonuç: Hesapla'dan sonra renkler doğru, ama
+listede bir satıra tıklayınca ters paslar **tekrar maviye dönüyordu.**
+
+`pass_colors.py`'nin varlık sebebi tam olarak buydu ve tüketicilerden biri
+gözden kaçtı. `recolor_paths` artık `path_categories` + `resolve_palette`
+okuyor; VTK float istediği için `rgb_floats()` eklendi ve `ACTIVE_COLOR`
+`"magenta"` yerine `"#ff00ff"` oldu.
+
+**Regresyon testi:** `_test_pass_colors.py` §7 GERÇEK `recolor_paths`'i sahte
+VTK aktörleriyle sürüyor (tautolojik "aynı fonksiyonu kendisiyle karşılaştır"
+testi DEĞİL): her kategori doğru renge boyanıyor mu, ters ≠ kaba, override
+uygulanıyor mu, seçili pas macentaya geçip kategoriyi eziyor mu, fazla aktör
+patlatmıyor mu.
+
+### Garanti
+
+Renk hiçbir şeyi etkilemez: aynı programın G-code'u paletli ve paletsiz
+**BİT-AYNI** (`_test_pass_colors.py` §8 bunu doğruluyor).
+
+Testler: `_test_pass_colors.py` (40 kontrol), `_test_pass_colors_gui.py`
+(gerçek Tk, 15 kontrol). `packaging_manifest.CRITICAL_MODULES`'e eklendi.
+
+---
+
+## 2026-08-31e — Aynı mil hızını tekrar komutlamak YOK
+
+**Hata:** her operasyon başında koşulsuz bir `S..M3` yayılıyordu — hız değişmese
+bile. `CMD=20` hız HEDEFİNİ yazar (CAM_INTERFACE_SPEC §5), yani zaten 800 dönen
+mile "800" demek PLC'de hiçbir şey yapmaz; ama **1000 satırlık bütçeden bir satır
+yer.** Sahadaki ölçüm: `DB_RecipeProgram1.scl` 205 satırın **25'ini**,
+`DB_RecipeProgram3.scl` ise **15'ini** böyle harcıyordu — üstelik recipe3
+**999/1000** ile tavanın bir satır altında.
+
+### Kural
+
+`_last_spindle` = en son YAZILAN `(hız kodu, tam sayı devir)`. Aynı çiftse satır
+yazılmaz.
+
+- **Çift, sadece sayı değil:** CSS geri açılırsa `G96 S200` ile `G97 S200` farklı
+  komutlardır.
+- **Tam sayı, float değil:** `800.0` ve `800.4` ikisi de `S800` yazar; float
+  karşılaştırmak hiçbir değişiklik olmadan iki satır üretirdi.
+
+### İki muafiyet (güvenliğin tamamı bunlar)
+
+1. **Takım değişimi HER ZAMAN yeniden komutlar**, sayı aynı olsa bile.
+   `CMD=10`'un PLC'de mil durumunu bozup bozmadığı belgelenmemiş; sigortanın
+   bedeli değişim başına bir satır (recipe1'in tamamında iki).
+2. **Özel `M3`/`M5` komutu izlemeyi SIFIRLAR.** Özel komutlar serbest metin —
+   operatör `M5` ya da `M3 S900` yazabilir. Bayat bir `_last_spindle` sonraki
+   op'un GERÇEKTEN gereken komutu atlamasına yol açardı. Tüm özel komutlar artık
+   `_emit_custom()` üzerinden geçiyor. `M30`/`M35`/`M53` eşleşmez (kelime sınırı).
+
+### Sonuç (gerçek programlar, ölçüldü)
+
+| Program | SPINDLE_ON önce | sonra | satır |
+|---|---|---|---|
+| `13.07.26.ssp` (14 op, tek takım) | 14 | **3** | 307 → 296 |
+| `ProjectReviewForAgent.ssp` | 3 | 3 (hepsi gerçekti) | 291 → 287 |
+| `DB_RecipeProgram1.scl` (tahmin) | 28 | **3** | 205 → 176 |
+
+`13.07.26`'da kalan 3: başlangıç 600, op7'nin 1000'i, op8'in 600'e dönüşü —
+yani GERÇEK olan her değişiklik korunuyor.
+
+### Bilinen ve DEĞİŞMEYEN davranış
+
+Operatörün kendi op'unun pasına koyduğu `M5`, o op'un başlığından SONRA ateşlenir
+→ op mil durmuşken çalışır. Bu ÖNCEDEN DE BÖYLEYDİ (eskiden `M3` yazılıyor, aynı
+`M5` onu hemen iptal ediyordu). Dedup bunu ne yaratır ne düzeltir; teste
+yazıldı ki makinede keşfedilmesin.
+
+### AÇIK RİSK — PLC'ye sorulmalı
+
+Bu optimizasyon `CMD=20`'nin **saf setpoint yazımı** olmasına dayanıyor. PLC onu
+aynı zamanda bir senkron noktası olarak kullanıyorsa (hıza ulaşana kadar bekleme,
+sürücü yeniden yetkilendirme), tekrarları silmek op'lar arası zamanlamayı
+değiştirir. Metal üzerinde çalıştırmadan önce PLC tarafına sorulmalı.
+
+Test: `_test_spindle_dedup.py` (20 kontrol).
+
+---
+
+## 2026-08-31d — Takım değişimi mili ARTIK DURDURMUYOR (+ `M1` çöp satırı gitti)
+
+**Karar (kullanıcı, 2026-08-31): "Takım değişirken mili durdurmak istemiyorum."**
+Taret TAM OTOMATİK — kimse makineye elini sokmuyor.
+
+**Ne vardı:** takım değişim bloğu `M5` + `M1` yayıyordu. İkisi de **ilk commit'ten**
+(`0591568`, 2026-03-16) gelen genel torna kalıbıydı: "mili durdur, isteğe bağlı
+duraklama, ucu değiştir". Sıvama makinesi o makine değil — parça mandrel üzerinde
+dönen bir sactır; taret zaten geri çekilmiş rulo ile dönerken mili durdurmak
+boşuna bir yavaşlama + hızlanma demek. Asıl güvenlik olan geri çekilme hareketi
+(`G0`) DEĞİŞMEDİ.
+
+**`M1` ayrıca ZARARLIYDI:** reçete protokolünde M1 diye bir komut yok, bu yüzden
+`recipe_to_scl`'in genel geçiş yolu onu **`CMD = 1`** (yani LINEAR opcode'u) olarak
+yazıyordu — `F=0`'lı sıfır uzunlukta bir besleme satırı. Sahadaki
+`DB_RecipeProgram1.scl` dosyasında bunlardan **İKİ TANE** var (`Lines2[5]`,
+`Lines2[15]`). Amaçlanan operatör duraklaması PLC'de HİÇ VAR OLMADI.
+
+### Değişiklik
+
+- `path_generator.py` takım değişim bloğundan `gcode.extend(["M5", "M1"])` SİLİNDİ.
+  Altındaki blok `M6` + yeni op'un `S..M3`'ünü yaymaya devam ediyor → mil, taret
+  dönerken ÖNCEKİ op'un hızını korur, rulo yerine oturunca yeni hıza geçer
+  (kullanıcı tercihi: "mevcut hız devam etsin").
+- `_test_tool_change_position.py:218` — `== "M5"` iddiası `M5`'i "hareket bloğu
+  bitti" nişanı olarak kullanıyordu. Test edilen asıl değişmez "TEK birleşik
+  diyagonal G0" olduğu için iddia doğrudan ona bağlandı (`G0 ile başlamamalı`).
+  Test ZAYIFLATILMADI, doğru şeye demirlendi.
+
+### Hız komutu artık takım değişiminden ÖNCE
+
+`M6`'dan SONRA değil. Takım değişiminden sonra gelen şey işe dalış rapid'i ve
+ardından ilk kesme — hız `M6`'dan sonra komutlanırsa mil HÂLÂ rampada iken
+kesme başlayabilir. recipe1'in Op17'si tam bu durum: 800 → 500'e düşen bir
+KESME pası, besleme 5 mm/dak. Hızı önce vermek, mile tüm taret dönüşü + yaklaşma
+süresini kazandırır; taret de eski takımın hızıyla değil, yeni takımın istediği
+hızla döner.
+
+İlk operasyon istisna: takım değişim bloğu çalışmaz (mil zaten duruyor), bu
+yüzden `S..M3` orada hâlâ `M6`'dan sonra gelir.
+
+### Sahadaki etki (`DB_RecipeProgram1.scl`, 205 satır)
+
+| | Önce | Sonra |
+|---|---|---|
+| `CMD=21` SPINDLE_OFF | 4 (2 takım değişimi + 2 program sonu) | **2** (sadece program sonu) |
+| `CMD=1` `F=0` çöp satırı | 2 | **0** |
+| Toplam satır | 205 | **201** |
+
+Silinen tam satırlar: `Lines2[4]`, `Lines2[5]`, `Lines2[14]`, `Lines2[15]`.
+
+### Geri alma
+
+Tek satır: takım değişim bloğunun sonuna `gcode.extend(["M5"])` geri koy.
+**Elle takım değiştirilen bir taretli makine çıkarsa bunu YAP** — bu değişikliğin
+tek dayanağı taretin otomatik olması.
+
+### DOKUNULMADI
+
+- Gereksiz `SPINDLE_ON` tekrarları (recipe1'de 28'in 25'i aynı 800 RPM'i yeniden
+  komutluyor) — ayrı iş, PLC tarafına `CMD=20`'nin saf setpoint yazımı mı yoksa
+  senkron noktası mı olduğu sorulmadan yapılmamalı.
+- Program sonundaki çift `SPINDLE_OFF`.
+- Hız=0 olan op'ların `CMD=20 Param=0` yayması (`DB_RecipeProgram2.scl`'de 4 kez —
+  bükme ve iki kesme op'u DURMUŞ mille çalışıyor). Bkz. `REPORT_spindle_commands.md`.
+
+---
+
+## 2026-08-31c — CSS (G96) KAPATILDI: mil hızı artık sadece RPM
+
+**Hata:** PLC reçetesinde sabit yüzey hızı diye bir şey YOK — `CMD=20` sabit bir
+devir hedefi taşır (`Param = RPM / 10`, CAM_INTERFACE_SPEC §5). `recipe_to_scl`
+satırdaki sadece `S` kelimesini okur, `G96`/`G97`'ye HİÇ bakmaz. Sonuç: CSS
+modundaki bir operasyonun **m/dak cinsinden yüzey hızı, devirmiş gibi** makineye
+gidiyordu. `G96 S200 M3` → `Param=20` → **200 RPM**. Operatör 200 m/dak istemişti
+ve ekranda bunu söyleyen hiçbir şey yoktu. `speed_mode` varsayılanı "CSS" olduğu
+için bu VARSAYILAN yoldu; `spinning_output.nc` tam olarak bunu yapıyor.
+
+**Karar (kullanıcı, 2026-08-31): "CSS'i şimdilik kapatalım, kullanmıyoruz."**
+
+### Değişiklik
+
+- **`path_generator.CSS_SPEED_MODE_ENABLED = False`** — TEK anahtar. `True`
+  yapmak CSS'i olduğu gibi geri getirir; başka hiçbir yere dokunmak gerekmez.
+- **`path_generator.resolve_speed_mode(op)`** — TEK DOĞRULUK KAYNAĞI. Artık
+  `op["speed_mode"]`'u doğrudan okuyan kod KALMADI: emitter, simülasyon
+  (`representative_feed_mm_min`), süre tahmini (`calculate_estimated_time`),
+  canlı monitör, SCL başlığı ve editör kutusu hepsi bunu çağırıyor. Aksi hâlde
+  anahtar bazı yerlerde uygulanır bazılarında uygulanmaz — dosya `G96` derken
+  reçete sabit devir koşardı.
+- **`speed_mode_choices()`** → Program sekmesindeki kutu artık sadece `["RPM"]`.
+- **`_add_prop_combo(..., current=)`** (yeni, opsiyonel): kutuda gösterilecek
+  değeri çağıran belirleyebiliyor. Şart, çünkü diskteki eski bir op hâlâ "CSS"
+  taşıyor olabilir ve kutu ÇALIŞACAK modu göstermeli, bayat kelimeyi değil.
+
+### Korunan davranışlar (kritik)
+
+- **REÇETEDE HİÇBİR SAYI DEĞİŞMEDİ.** CSS=200 olan eski bir op, zaten 200 RPM
+  koşuyordu; şimdi de 200 RPM koşuyor (`Param=20`). Değişen tek şey: arayüz,
+  `.nc` (`G96`→`G97`) ve süre tahmini artık makinenin yaptığını söylüyor.
+- Eski `.ssp` dosyalarına YAZILMIYOR — `speed_mode:"CSS"` diskte kalır, her
+  okumada normalize edilir. Göç (migration) yok, geri dönüş kaybı yok.
+- Diğer combobox'lar (`feed_mode`, `direction`, …) etkilenmedi — `current=`
+  verilmediğinde `_add_prop_combo` eskisi gibi davranıyor.
+
+### Bilinmesi gereken
+
+- CSS'i gerçekten desteklemek isteniyorsa iş, anahtarı açmak DEĞİL: emitter'ın
+  CSS'i temsilî bir devre çevirmesi gerekir (çap gerekir — `path_generator.py:100-111`
+  ve `process_planner.py:327` aynı ilişkiyi zaten kuruyor). Anahtarı öylece
+  açmak hatayı geri getirir.
+- Test: `_test_speed_mode_css_off.py` (17 kontrol; gerçek Tk kutusu dâhil).
+- Aynı incelemenin diğer bulguları (`M1` → `CMD=1` LINEAR, sessiz devir
+  kırpması, çift `SPINDLE_OFF`) `REPORT_spindle_commands.md`'de — DOKUNULMADI.
+
+---
+
 ## 2026-08-31b — Eski `exit_mid` kırılma noktası SİLİNEBİLİYOR (check-up #5)
 
 **Hata:** Kırılması eski `exit_mid_rotation`'dan gelen bir operasyonda kırılma

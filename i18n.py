@@ -1221,6 +1221,35 @@ STRINGS = {
                              "ES": "Aplicar también establecerá el espesor global del disco en {val:g} mm."},
     "btn_save_default":     {"EN": "Save as Default",               "TR": "Varsayılan Olarak Kaydet",   "ES": "Guardar como Predeterminado"},
     "btn_saved":            {"EN": "Saved!",                        "TR": "Kaydedildi!",                "ES": "¡Guardado!"},
+    # Zero spindle speed warning (2026-08-31). Warn-and-continue, not a block.
+    "msg_zero_rpm_title":   {"EN": "Spindle speed is zero",
+                             "TR": "Mil hızı sıfır",
+                             "ES": "Velocidad del husillo es cero"},
+    "msg_zero_rpm_row":     {"EN": "Op {n} ({name}) — {rpm} RPM",
+                             "TR": "Op {n} ({name}) — {rpm} RPM",
+                             "ES": "Op {n} ({name}) — {rpm} RPM"},
+    "msg_zero_rpm_body":    {"EN": "{n} operation(s) have zero spindle speed:\n\n{items}\n\n"
+                                   "These will run with the part STOPPED — the recipe "
+                                   "commands the spindle to 0 RPM and it stays there for "
+                                   "the whole operation.\n\nExport anyway?",
+                             "TR": "{n} operasyonun mil hızı sıfır:\n\n{items}\n\n"
+                                   "Bunlar parça DURURKEN çalışacak — reçete mile 0 RPM "
+                                   "komutu verir ve mil o operasyon boyunca durur.\n\n"
+                                   "Yine de dışa aktarılsın mı?",
+                             "ES": "{n} operación(es) tienen velocidad de husillo cero:\n\n{items}\n\n"
+                                   "Se ejecutarán con la pieza DETENIDA — la receta ordena "
+                                   "0 RPM y el husillo permanece parado durante toda la "
+                                   "operación.\n\n¿Exportar de todos modos?"},
+    # Pass colour palette (2026-08-31) — visual only.
+    "section_pass_colors":  {"EN": "Pass Colors",                   "TR": "Pas Renkleri",               "ES": "Colores de Pasada"},
+    "col_cat_roughing":     {"EN": "Roughing",                      "TR": "Kaba",                       "ES": "Desbaste"},
+    "col_cat_finishing":    {"EN": "Finishing",                     "TR": "Bitirme",                    "ES": "Acabado"},
+    "col_cat_reverse":      {"EN": "Reverse pass",                  "TR": "Ters pas",                   "ES": "Pasada inversa"},
+    "col_cat_back":         {"EN": "Back pass",                     "TR": "Geri pas",                   "ES": "Pasada de retorno"},
+    "col_cat_cutting":      {"EN": "Cutting",                       "TR": "Kesme",                      "ES": "Corte"},
+    "col_cat_bending":      {"EN": "Bending",                       "TR": "Kıvırma",                    "ES": "Doblado"},
+    "col_pick_title":       {"EN": "Pick a pass color",             "TR": "Pas rengi seç",              "ES": "Elegir color de pasada"},
+    "btn_colors_reset":     {"EN": "Reset colors",                  "TR": "Renkleri sıfırla",           "ES": "Restablecer colores"},
     "lbl_speed_feed":       {"EN": "Speed & Feed",                  "TR": "Hız & Besleme",              "ES": "Velocidad & Avance"},
     "lbl_speed_mode":       {"EN": "Speed Mode",                    "TR": "Hız Modu",                   "ES": "Modo de Velocidad"},
     "lbl_feed_mode":        {"EN": "Feed Mode",                     "TR": "Besleme Modu",               "ES": "Modo de Avance"},

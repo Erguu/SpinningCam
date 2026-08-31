@@ -55,6 +55,9 @@ i18n.py                                  ← Çok dilli metin (EN/TR/ES), t(key)
 | Ne | Dosya | Satır/Fonksiyon |
 |----|-------|-----------------|
 | G-code string üretimi | `path_generator.py` | `generate_gcode()` satır 513 |
+| **Mil hızı tekrarları elenir (2026-08-31)** | `path_generator.py` | `_last_spindle` = son YAZILAN `(hız kodu, int devir)`; aynıysa `S..M3` yazılmaz. İKİ MUAFİYET: takım değişimi hep yeniden komutlar; özel `M3`/`M5` komutu `_emit_custom()` ile izlemeyi sıfırlar. recipe1: 28 → 3 ON. **AÇIK RİSK:** `CMD=20` saf setpoint mi, senkron noktası mı — PLC'ye sorulmadı. Test: `_test_spindle_dedup.py` |
+| **Takım değişimi mili DURDURMAZ (2026-08-31)** | `path_generator.py` | Takım değişim bloğu (`tool_differs and current_tool is not None`) — eski `M5`+`M1` SİLİNDİ; taret otomatik, geri çekilme `G0`'ı asıl güvenlik. `M1` reçetede `CMD=1 F=0` oluyordu. Geri alma: `gcode.extend(["M5"])`. Test: `_test_toolchange_no_spindle_stop.py` |
+| **Mil hızı modu (CSS KAPALI, 2026-08-31)** | `path_generator.py` | `CSS_SPEED_MODE_ENABLED` + `resolve_speed_mode(op)` — TEK doğruluk kaynağı. `op["speed_mode"]`'u DOĞRUDAN OKUMA: PLC'de CSS yok (`CMD=20` sabit devir), CSS m/dak'ı devirmiş gibi gidiyordu. Eski op'lar diskte "CSS" kalır, okurken RPM'e normalize edilir → reçetede sayı DEĞİŞMEZ. Test: `_test_speed_mode_css_off.py` |
 | G-code kaydetme (UI) | `ui/main_window.py` | `save_gcode_logic()` satır 374 |
 | Başlık/footer template parametreleri | `main.py` `load_settings()` | `gcode_header`, `gcode_footer` |
 
@@ -246,6 +249,7 @@ diyaloğuyla sessizce çelişebilecek ikinci bir dönüşüm yolu doğardı.
 ### 13. Görsel / kamera ayarları
 | Ne | Dosya | Satır/Fonksiyon |
 |----|-------|-----------------|
+| **Pas renkleri (2026-08-31)** | `pass_colors.py` | `op_category()` (öncelik: kesme/kıvırma → **TERS** → tip), `path_categories()` (toolpath sırası, `calculate_paths` aynası), `resolve_palette()`, `tint()`, `ACTIVE_COLOR`. 3B (`main.py update_scene`) ve op listesi (`program_tab._op_color_tag`) AYNI fonksiyonları okur — ayrılırlarsa liste ile resim çelişir. Palet `params["pass_colors"]`, .ssp'den UYGULANMAZ (`load_project` korur). UI: `process_tab._add_pass_colors()`. Test: `_test_pass_colors.py`, `_test_pass_colors_gui.py` |
 | Camera preset butonlar | `ui/tabs/process_tab.py` | satır 66–114 |
 | Camera save/reset | `ui/tabs/process_tab.py` | satır 38–64 |
 | Velocity color mode | `ui/tabs/process_tab.py` | satır 24 |

@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk
 from ui.tabs.scrollable_tab_base import ScrollableTabBase
 from i18n import t
+import pass_colors
 
 
 class ProcessTab(ScrollableTabBase):
@@ -17,6 +18,79 @@ class ProcessTab(ScrollableTabBase):
         for widget in self.content.winfo_children():
             widget.destroy()
         self._create_widgets()
+
+    def _add_pass_colors(self):
+        """Pass colour palette — one editable colour per operation category.
+
+        VISUAL ONLY. Changing a colour redraws from the CACHED toolpaths
+        (``redraw_paths_cached``) so nothing is recalculated and no path, feed
+        or exported file can be affected by a colour.
+
+        The swatch is a tk.Button rather than a ttk one on purpose: ttk widgets
+        take their background from the theme and ignore ``bg=``, which would
+        leave every swatch looking identical.
+        """
+        self.helper.add_section_header(self.content, t("section_pass_colors"),
+                                       color="darkgreen")
+        frame = ttk.Frame(self.content)
+        frame.pack(fill="x", padx=10, pady=2)
+
+        def make_row(category):
+            row = ttk.Frame(frame)
+            row.pack(fill="x", pady=1)
+            ttk.Label(row, text=t(f"col_cat_{category}"), width=18).pack(side="left")
+            swatch = tk.Button(row, width=6, relief="ridge", bd=1,
+                               bg=pass_colors.resolve_palette(self.app.params)[category])
+
+            def pick():
+                from tkinter import colorchooser
+                current = pass_colors.resolve_palette(self.app.params)[category]
+                chosen = colorchooser.askcolor(
+                    color=current, parent=self.content.winfo_toplevel(),
+                    title=t("col_pick_title"))[1]
+                if not chosen:
+                    return                      # Cancel must change nothing.
+                stored = dict(self.app.params.get("pass_colors") or {})
+                stored[category] = chosen
+                self.app.params["pass_colors"] = stored
+                swatch.configure(bg=chosen)
+                self._apply_pass_colors()
+
+            swatch.configure(command=pick)
+            swatch.pack(side="left", padx=4)
+            self._color_swatches[category] = swatch
+
+        self._color_swatches = {}
+        for category in pass_colors.CATEGORIES:
+            make_row(category)
+
+        f_reset = ttk.Frame(frame)
+        f_reset.pack(fill="x", pady=(4, 0))
+        ttk.Button(f_reset, text=t("btn_colors_reset"),
+                   command=self._reset_pass_colors).pack(side="left")
+        self.helper.bind_tooltip(
+            frame,
+            "Pas renkleri — SADECE GÖRSEL. Yol hesabını, G-code'u veya reçeteyi\n"
+            "etkilemez.\n\n"
+            "TERS pas kendi rengini alır ve operasyon tipini EZER: 3B görünümde\n"
+            "ilk bakışta görmek istediğin şey odur.\n\n"
+            "Renkler operasyon listesinde satır arka planı olarak da görünür.\n"
+            "Düzenlenen pas her zaman macenta kalır (seçim göstergesi).")
+
+    def _apply_pass_colors(self):
+        """Push a palette change to both views that use it."""
+        self.app.redraw_paths_cached()          # 3D, from cache — no recalculation
+        try:
+            self.root.ui_program.refresh_ops_tree()   # operation list tints
+        except Exception:
+            pass                                 # tab not built yet (startup)
+
+    def _reset_pass_colors(self):
+        self.app.params["pass_colors"] = {}
+        defaults = pass_colors.resolve_palette(self.app.params)
+        for category, swatch in getattr(self, "_color_swatches", {}).items():
+            swatch.configure(bg=defaults[category])
+        self._apply_pass_colors()
 
     def _create_widgets(self):
         # --- Visual Settings ---
@@ -128,6 +202,8 @@ class ProcessTab(ScrollableTabBase):
             "şekillendiğini görürsün. TAMAMEN GÖRSELDİR: yol hesaplamasını, G-code'u\n"
             "veya simülasyonu ETKİLEMEZ, yalnızca 3B'de gösterilen çizgiyi taşır.\n"
             "(Radyal yaklaşım; eğik yüzeylerde temas noktası normal boyunca hafifçe kayabilir.)")
+
+        self._add_pass_colors()
 
         # ---------------- Back-support cylinder (3D view only) ----------------
         # Moved here from the Machine tab (2026-07-30): these three fields only

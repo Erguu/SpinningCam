@@ -17,6 +17,51 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.024": [
+        ("Speed Mode is now RPM only",
+         "CSS (constant surface speed) has been switched off. The machine's "
+         "recipe has no constant-surface-speed mode — it carries a fixed RPM — "
+         "so a surface speed in m/min was being sent to the machine as if it "
+         "were RPM: ask for 200 m/min and the spindle ran 200 RPM, with nothing "
+         "on screen saying so. NOTHING YOUR MACHINE DOES HAS CHANGED. Older "
+         "operations saved as CSS keep their number and now show it as RPM, "
+         "which is what they have always run.",
+         "Program List ▸ select an operation ▸ Speed Mode"),
+        ("Tool changes no longer stop the spindle",
+         "The turret now indexes with the part still turning, and the new "
+         "operation's speed is set just before the change so the spindle is up "
+         "to speed when the first cut starts. Before, every tool change stopped "
+         "the spindle and restarted it — a spin-down and a spin-up each time, "
+         "for nothing. The roller still retracts to the tool-change point first; "
+         "that clearance is unchanged.",
+         "Program List ▸ operations using different tools"),
+        ("Shorter recipes: the spindle is only commanded when the speed changes",
+         "An operation that runs at the same speed as the one before it no "
+         "longer repeats the command — the spindle is already turning at that "
+         "speed, so the line did nothing but use up part of the machine's "
+         "1000-line limit. One real program spent 25 of its 205 lines this way; "
+         "another spent 15 while sitting one line under the limit. Every real "
+         "speed change is still commanded.",
+         "Export ▸ SCL for TIA Portal"),
+        ("Pass colours: reverse passes finally look different",
+         "A reverse pass used to be drawn in exactly the same colour as a "
+         "forward one, so the thing you most need to spot in the 3D view was "
+         "invisible. Reverse now has its own colour, and cutting and bending "
+         "have theirs instead of sharing the roughing blue. You can change any "
+         "of the six colours yourself, and the same colours tint the rows of "
+         "the operation list so the list and the 3D view always agree. Colours "
+         "are yours, not the part's: opening someone else's program will not "
+         "repaint your screen.",
+         "Process tab ▸ Pass Colors"),
+        ("Warning when an operation has zero spindle speed",
+         "An operation with Speed set to 0 tells the machine to run that whole "
+         "pass with the part standing still — found on a real recipe, on two "
+         "cuts and a bend. Exporting now lists those operations and asks "
+         "whether to carry on. It is a warning, not a block. Clearing the Speed "
+         "box does NOT give you zero; it falls back to the general speed "
+         "setting.",
+         "Export ▸ G-code or SCL"),
+    ],
     "1.023": [
         ("Deleting every operation now really does empty the program",
          "If you cleared the operation list, the program did not go with it: "
