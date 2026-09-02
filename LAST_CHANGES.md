@@ -5,6 +5,55 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-09-03 — Tahmini sac kenarı 3B kaplaması (+ follow-blank yükseklik BUG'ı tespit edildi)
+
+**BULGU (henüz DÜZELTİLMEDİ):** follow-blank flanş tahminini `target_z` (ankraj)
+yüksekliğinde yapıyor; olması gereken `contact_z = target_z + p2_z_extend` (rulonun
+gerçekten şekillendirdiği yer). `p2_z_extend = 0` iken ikisi AYNI → normal programlar
+etkilenmez. Extend kullanan programlarda tahmin DONUYOR.
+
+Saha kanıtı (`020926.ssp`, Meksika): ankraj 74 pasta sabit `target_z = 10`, Extend
+5 → 136 rampalanıyor. Ölçüm ankrajda yapıldığı için **77 pasın 74'ü aynı 69.49 mm**
+cevabını alıyor; doğru yükseklikte ölçülünce 69.49 → 0 arasında düzgün azalıyor.
+Operatörün `reach_blank_factor`'ı elle 0.3–1.5 arasında oynatmasının bir kısmı bu.
+İlgili satırlar: `path_generator.py:884`, `ui/dialogs/pass_table.py:202` ve `:330`.
+Detay: hafıza notu `project_follow_blank_wrong_height`.
+
+**BU OTURUMDA YAPILAN — sadece GÖRSEL katman, motor davranışı DEĞİŞMEDİ:**
+
+| # | Ne | Dosya |
+|---|----|-------|
+| 1 | Pas başına tahmini sac kenarı KAYDEDİCİ (yalnızca yazar, motor OKUMAZ) | `path_generator.py` `last_blank_edge` |
+| 2 | 3B halka kaplaması — TÜM paslar birden | `main.py` `update_blank_edge()` |
+| 3 | Aç/kapat kutusu + araç ipucu | `ui/tabs/process_tab.py` `_be_var` |
+| 4 | i18n `cb_show_blank_edge` (EN/TR/ES) | `i18n.py` |
+| 5 | Yardım penceresi "Tahmini Sac Kenarı" bölümü | `ui/dialogs/help_window.py` |
+| 6 | Testler: 8 birim + 3 GUI | `_test_blank_edge.py`, `_test_blank_edge_gui.py` |
+
+Kaydedici `contact_z`'de ölçer (DOĞRU yükseklik) → **kaplama doğruyu, motor hâlâ
+donmuş değeri kullanıyor.** Bilerek: kullanıcı motor düzeltmesini onaylamadan önce
+farkı GÖRMEK istedi. Motor düzeltilince ikisi örtüşecek.
+
+`show_blank_edge` varsayılan **True**. Bükülmüş Sac Kaplamasından AYRI katman
+(`update_deformed_blank` HİÇ değişmedi — kullanıcı isteği). Halkalar tüm pasları
+gösterdiği için pas değiştirince yeniden çizilmez; sadece yol yeniden hesaplanınca.
+
+**TAHMİNDİR:** `estimate_flange_reach` sabit kalınlık + düz flanş varsayar. İncelme
+ve kenarın geri kıvrılması YOK → kenarın geri çekilme BİÇİMİ doğru, kesin yarıçap
+değil. Sac çapı tanımsızsa hiçbir şey çizilmez.
+
+**Geri alma:** `process_tab.py`'deki kutuyu kaldır + `main.py:1366`'daki
+`update_blank_edge` çağrısını sil. Kaydedici zararsız (kimse okumaz).
+
+**MAKİNEDE DOĞRULANMADI. GUI'DE DE ELLE AÇILMADI** — kaplama fonksiyonu ekransız
+(off-screen) plotter ile doğrulandı (halkalar doğru merkez/yarıçapta, aç/kapat ve
+veri yokluğu çalışıyor); tam `calculate_paths` ekransız koşuda ÇÖKÜYOR ama bu
+DEĞİŞİKLİKTEN ÖNCE DE çöküyordu (kaydedici kapatılıp doğrulandı).
+Test durumu: eklenen 11 test geçiyor; `_test_pass_edits` düşüyor ama HEAD'de de
+düşüyor (stash ile doğrulandı) — bkz. `project_known_failing_tests`.
+
+---
+
 ## v1.025 — 2026-09-02 sürümü
 
 `version.py` **1.024 → 1.025**, `changelog.py`'ye operatöre dönük 4 madde eklendi.

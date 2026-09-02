@@ -52,7 +52,7 @@ class SpinningApp:
             "ref_points": [], "ref_point_labels": [],
             "tip_dist": [], "ref_point_dist": [],
             "mandrel_dims": [],
-            "clamp_zone": None, "deformed_blank": None,
+            "clamp_zone": None, "deformed_blank": None, "blank_edge": None,
         }
         # #63 phase 1: selected op index driving the faded-blue deformed-blank overlay;
         # its formed Z is read fresh from path_gen.last_op_end_z each draw (survives recalc).
@@ -222,6 +222,10 @@ class SpinningApp:
             "show_deformed_blank": True,
             # #63: radial nudge (mm) for the overlay — +out / -in — to tune its position.
             "deformed_blank_offset": 0.0,
+
+            # Predicted blank-edge rings: one ring per forming pass showing where the
+            # unformed sheet edge is estimated to be. Visual only — never feeds a path.
+            "show_blank_edge": True,
 
             # Cylinder
             "cylinder_show": True,
@@ -688,6 +692,53 @@ class SpinningApp:
                         smooth_shading=True)
         except Exception as e:
             logger.warning(f"Deformed-blank overlay failed: {e}")
+        if render:
+            try: self.plotter.render()
+            except Exception: pass
+
+    def update_blank_edge(self, render=False):
+        """Predicted unformed-sheet EDGE: one ring per forming pass, at the radius the
+        flange model says the blank edge has reached by that pass.
+
+        Reads ``path_gen.last_blank_edge`` — recorded by the engine at each pass's real
+        contact height — so this never re-derives pass geometry and cannot drift from it.
+        Purely visual: it draws nothing into the toolpath or the G-code, and it is
+        SEPARATE from the faded-blue bent-sheet overlay (``update_deformed_blank``).
+
+        ESTIMATE, not truth: the flange model assumes constant thickness and a flat
+        flange, so the rings show the SHAPE of the edge retreating, not an exact radius.
+        ``render=True`` forces a redraw when called standalone."""
+        if self.actors.get("blank_edge"):
+            try: self.plotter.remove_actor(self.actors["blank_edge"])
+            except Exception: pass
+        self.actors["blank_edge"] = None
+        if not self.params.get("show_blank_edge", True):
+            if render:
+                try: self.plotter.render()
+                except Exception: pass
+            return
+        try:
+            edges = getattr(self.path_gen, "last_blank_edge", None) or []
+            if edges:
+                import numpy as _np, pyvista as _pv
+                cx = float(self.params.get("mandrel_pos_x_offset", 0.0))
+                rings = []
+                for _z, _r in edges:
+                    if _r <= 0.1:          # flange used up — nothing left to draw
+                        continue
+                    rings.append(_pv.Circle(radius=float(_r), resolution=72)
+                                 .translate((cx, 0.0, float(_z)), inplace=False)
+                                 .extract_feature_edges(boundary_edges=True,
+                                                        feature_edges=False,
+                                                        manifold_edges=False,
+                                                        non_manifold_edges=False))
+                if rings:
+                    merged = rings[0].merge(rings[1:]) if len(rings) > 1 else rings[0]
+                    self.actors["blank_edge"] = self.plotter.add_mesh(
+                        merged, color=(0.16, 0.47, 0.84), opacity=0.55,
+                        line_width=2, style="wireframe", lighting=False)
+        except Exception as e:
+            logger.warning(f"Blank-edge overlay failed: {e}")
         if render:
             try: self.plotter.render()
             except Exception: pass
@@ -1313,6 +1364,9 @@ class SpinningApp:
             # Deformed-blank overlay (#63) — redraws here so it tracks the active pass
             # (pass-stepping calls update_scene("paths")). Faded blue, purely visual.
             self.update_deformed_blank(render=False)
+            # Predicted blank-edge rings — cover ALL passes, so unlike the overlay above
+            # they do not change while stepping passes; redrawn here after a recalc.
+            self.update_blank_edge(render=False)
             if self.actors["roller"]: self.plotter.remove_actor(self.actors["roller"])
             if self.actors.get("roller_tip"): self.plotter.remove_actor(self.actors["roller_tip"]); self.actors["roller_tip"] = None
 

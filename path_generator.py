@@ -397,6 +397,7 @@ class PathGenerator:
         self.last_kinematic_warnings = []  # reachability issues from last G-code generation
         self._path_op_map = []             # toolpath index → op dict (parallel to last_calculated_paths)
         self.last_op_end_z = {}            # op-index → CAM Z the op's last forming pass reaches (incl. p2_z_extend)
+        self.last_blank_edge = []          # per forming pass: (contact_z, edge_radius) — see calculate_paths
         self.last_tool_change_warnings = []  # custom tool-change points near the turret swing envelope
         self.last_point_cap_warnings = []  # #99/#101: fillet or exit caps refused because they would cost clearance
         self.last_waypoint_warnings = []   # #100: hand-drawn exit tails closer than the op clearance
@@ -531,6 +532,7 @@ class PathGenerator:
         self.last_exit_break_counts = {}  # #102: path index → break count on its exit leg
         self._path_op_map = []  # toolpath index → op dict, synced as paths are appended
         self.last_op_end_z = {}  # op-index → CAM Z the op's last forming pass actually reaches
+        self.last_blank_edge = []  # (contact_z, edge_radius) per forming pass — 3D blank-edge overlay
         self.last_op_reach = {}       # op-index → exit reach magnitude of last forming pass (#61)
         self.last_op_end_angle = {}   # op-index → exit angle (deg from +X) of last forming pass (#61)
         self.last_clamp_warnings = []  # ops whose start_z sits inside the clamp zone (#62)
@@ -1023,6 +1025,22 @@ class PathGenerator:
                 else:
                     r_contact = mandrel_mgr.get_radius_fast(contact_z) + shell_offset
                     nx, nz = mandrel_mgr.get_normal_at_z(contact_z)
+
+                # Predicted unformed blank EDGE for this pass — RECORD ONLY, read by the
+                # 3D overlay (main.update_blank_edge). Nothing here feeds the toolpath.
+                # Measured at contact_z (where the roller actually forms), NOT at the
+                # anchor target_z, so it stays correct when Extend is used.
+                if not is_finish:
+                    try:
+                        _R_bl = float(params.get("blank_radius", 0.0) or 0.0)
+                        if _R_bl > 0:
+                            from process_planner import estimate_flange_reach
+                            _edge_fr = estimate_flange_reach(mandrel_mgr, _R_bl, contact_z)
+                            self.last_blank_edge.append((float(contact_z),
+                                                         float(r_contact + _edge_fr)))
+                    except Exception:
+                        pass
+
                 total_off = r_tool + blank_thick + eff_clearance
                 # Per-op conformal flag: normal-projected P2 placement. Falls back to global conformal_clearance_all_operations.
                 conformal = op.get("conformal_clearance_operation_specific", params.get("conformal_clearance_all_operations", False))

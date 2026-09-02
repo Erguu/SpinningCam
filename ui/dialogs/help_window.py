@@ -367,6 +367,20 @@ Kaplaması         mavi bir yüzey; operasyona tıkladıkça veya pas
                    maliyetidir; KAPATMAK çok operasyonlu programlarda
                    operasyon seçimini belirgin şekilde hızlandırır.
 
+Tahmini Sac       Her şekillendirme pasosu için sacın işlenmemiş
+Kenarı            KENARININ nerede olduğu tahminini halka olarak
+                   gösterir. Bükülmüş Sac Kaplamasından FARKLIDIR:
+                   tek bir pası değil TÜM pasları birden gösterir,
+                   bu yüzden pas değiştirdikçe değişmez. Halkalar
+                   yukarı çıktıkça daralır — sac tükendiğinde çizilmez.
+                   "Tahmini Sac Kenarını Göster" ile aç/kapat.
+                   SADECE görsel — takım yolunu veya G-code'u etkilemez.
+                   TAHMİNDİR: model sabit kalınlık ve düz flanş varsayar
+                   (incelme ve kenarın geri kıvrılması hesaba katılmaz),
+                   bu yüzden kenarın geri çekilme BİÇİMİ doğrudur,
+                   kesin yarıçap DEĞİLDİR. Sac çapı tanımlı değilse
+                   hiçbir şey çizilmez.
+
 
 İPUCU
 ════════════════════════════════════════════════════════════════

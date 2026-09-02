@@ -659,6 +659,7 @@ STRINGS = {
     "cb_auto_calc_angle":   {"EN": "Auto-Calc Angle (Y)",           "TR": "Oto-Hesap Açısı (Y)",        "ES": "Ángulo Auto-Calculado (Y)"},
     "cb_show_heatmap":      {"EN": "Show Collision Heatmap",        "TR": "Çarpışma Haritasını Göster", "ES": "Mostrar Mapa de Calor"},
     "cb_show_deformed_blank": {"EN": "Show Bent-Sheet Overlay",     "TR": "Bükülmüş Sac Kaplamasını Göster", "ES": "Mostrar Superposición de Chapa Doblada"},
+    "cb_show_blank_edge":     {"EN": "Show Predicted Sheet Edge",   "TR": "Tahmini Sac Kenarını Göster",     "ES": "Mostrar Borde de Chapa Estimado"},
     "btn_save_cam_angle":   {"EN": "Save Current Angle",            "TR": "Mevcut Açıyı Kaydet",        "ES": "Guardar Ángulo Actual"},
     "btn_reset_cam":        {"EN": "Reset Camera",                  "TR": "Kamerayı Sıfırla",           "ES": "Restablecer Cámara"},
     "lbl_cam_presets":      {"EN": "Camera Presets:",               "TR": "Kamera Önayarları:",         "ES": "Presets de Cámara:"},

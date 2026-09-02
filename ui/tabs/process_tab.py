@@ -131,6 +131,26 @@ class ProcessTab(ScrollableTabBase):
             "SADECE görsel — takım yolunu veya G-code'u etkilemez. Kapatmak, çok operasyonlu "
             "programlarda operasyon seçimini belirgin şekilde hızlandırır (her tıklamada bu "
             "yüzey yeniden hesaplanır).")
+        # Predicted blank-edge rings: one ring per forming pass at the estimated
+        # unformed-sheet edge. Separate layer from the bent-sheet overlay above —
+        # it shows ALL passes at once, so it does not change while stepping passes.
+        self._be_var = tk.BooleanVar(value=bool(self.app.params.get("show_blank_edge", True)))
+        def _toggle_blank_edge():
+            self.app.params["show_blank_edge"] = self._be_var.get()
+            try:
+                self.app.update_blank_edge(render=True)
+            except Exception:
+                pass
+            self.app.save_settings_json()
+        cb_be = ttk.Checkbutton(f_db, text=t("cb_show_blank_edge"),
+                                variable=self._be_var, command=_toggle_blank_edge)
+        cb_be.pack(anchor="w")
+        self.helper.bind_tooltip(cb_be,
+            "Her şekillendirme pasosu için sacın işlenmemiş KENARININ nerede olduğu "
+            "TAHMİNİNİ halka olarak gösterir. SADECE görsel — takım yolunu veya G-code'u "
+            "etkilemez. TAHMİNDİR: model sabit kalınlık ve düz flanş varsayar, bu yüzden "
+            "kenarın geri çekilme BİÇİMİ doğrudur, kesin yarıçap değil.")
+
         self.helper.add_spinbox(self.content, self.app, "shell_thickness", t("sp_shell_thickness"), 0, 20, 0.1,
                                 "3D görünümdeki shell (kabuk) meshinin kalınlığı (mm) — sadece görseldir, G-code'u etkilemez. "
                                 "STL export için kullanılır.")
