@@ -5,6 +5,134 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## v1.025 — 2026-09-02 sürümü
+
+`version.py` **1.024 → 1.025**, `changelog.py`'ye operatöre dönük 4 madde eklendi.
+Bu sürümdeki işler:
+
+| # | Ne | Blok |
+|---|----|------|
+| 1 | #104 — iki pası yan yana karşılaştır (+ tablodan düzenle) | 2026-09-02 |
+| 2 | #105 — kopya adları NUMARALANIYOR, "(kopya)" yığılmıyor | 2026-09-02b |
+
+Oturum sonu test durumu: **72/78 dosya temiz** — kalan 6'sı HEAD'de zaten kırık
+(bkz. `project_known_failing_tests`). `_test_gcode_not_plc.py` toplu koşuda bir kez
+düştü, tek tek üç kez geçti → flaky, bu işle ilgisiz.
+
+**MAKİNEDE DOĞRULANMADI.** Özellik salt-ek: motor, `compute_pass_rows` ve op şeması
+değişmedi, dolayısıyla üretilen takım yolu/reçete bit-aynı.
+
+---
+
+## 2026-09-02b — #105 KOPYA ADLARI NUMARALANIYOR
+
+**Kullanıcı bulgusu:** *"because copying so many operations, their name has so many
+copy on it"* — kopyanın kopyası `Rough (kopya) (kopya) (kopya)` oluyordu. Tek bir
+ayarlanmış operasyondan program kurmanın normal yolu tam olarak bu, yani birkaç
+çoğaltmada ad okunmaz hâle geliyordu.
+
+**Artık:** `Rough` → `Rough 2` → `Rough 3`. Adı zaten sayıyla biten op SAYIYI
+SÜRDÜRÜR (`Rough 1` → `Rough 2`, asla `Rough 1 2`). Sayı KULLANILMAYAN ilk boşluğu
+alır (`Rough`, `Rough 2`, `Rough 3`, `Rough 5` varken → `Rough 4`). Karşılaştırma
+büyük/küçük harf ve boşluk duyarsız.
+
+| Ne | Dosya | Fonksiyon |
+|----|-------|-----------|
+| Ad üretici (SAF) | `ui/tabs/program_tab.py` | `next_copy_name(name, existing)`, `strip_copy_suffixes()`, `_NAME_TAIL_NUM` |
+| Çağrı yeri | `ui/tabs/program_tab.py` | `copy_ops()` — `used` seti döngü İÇİNDE büyür |
+| Test | `_test_copy_naming.py` | 30 kontrol (saf + gerçek widget) |
+
+**ESKİ ADLAR TEMİZLENİR ama YALNIZ YENİ KOPYADA:** `Rough (kopya) (kopya)`
+kopyalanınca yeni ad `Rough 2` olur — marker üstüne SAYI eklenmez. Diskteki mevcut
+op adlarına DOKUNULMAZ (veri yeniden yazımı olmaz); eski adlar kopyalanana kadar
+oldukları gibi kalır. Toplu bir ad temizliği İSTENMEDİ, yapılmadı.
+
+**`used` seti neden döngü içinde büyüyor:** üç op'u birden kopyalarken üçü de
+`Rough 2` olurdu. Şimdi `Rough 2`, `Rough 3`, `Rough 4`.
+
+**`lbl_copy_suffix` i18n anahtarı SİLİNMEDİ:** artık YAZILMIYOR ama eski dosyalardaki
+markerı ayıklamak için ÜÇ dilde de OKUNUYOR (EN'de yapılmış ad TR oturumda da
+temizlenebilsin). `_copy_suffix_variants()` üçünü birden alır.
+
+**GERİ ALMA:** `copy_ops` içindeki üç satırı
+`cl["name"] = f"{cl['name']} ({t('lbl_copy_suffix')})"` ile değiştirmek yeter.
+
+---
+
+## 2026-09-02 — #104 PASLARI KARŞILAŞTIR (Compare ⇄)
+
+**Kullanıcı isteği:** *"bazen bazı pasların neden diğerlerinden farklı davrandığını
+anlamak zor"* — herhangi İKİ pası yan yana koyup parametrelerini tablo hâlinde
+karşılaştırmak, farkları vurgulamak. Paslar **farklı operasyonlardan** seçilebilmeli,
+**ileri pas ile ters pas** da karşılaştırılabilmeli.
+
+**Yeni dosyalar:**
+- `pass_compare.py` — SAF model (Tk yok): pas listeleme, iki tarafın satırlarını
+  üretme, düzenlemenin nereye yazılacağını çözme, uygulama, metin raporu.
+- `ui/dialogs/pass_compare_dialog.py` — pencere (iki seçici + tablo + düzenleme).
+
+**Giriş noktaları:** Program sekmesi araç çubuğu **Karşılaştır ⇄** ve operasyon
+sağ-tık menüsü. Araç çubuğu düğmesi seçime BAĞLI DEĞİL (iki pas pencerenin kendi
+seçicilerinden gelir); sağ-tıkta seçili op A tarafını tohumlar.
+
+**SEÇİM İKİ ADIMLI (kullanıcı düzeltmesi 2026-09-02):** ilk sürümde TEK açılır
+kutuda programdaki BÜTÜN paslar listeleniyordu — üç operasyonla okunur, yirmiyle
+kullanılamaz (*"selecting a pass in a drop box where all the passes in the program
+are visible can be hard later"*). Artık her taraf için önce **OPERASYON**, sonra o
+operasyonun **PASI**. Operasyon etiketi pas sayısını taşır ve ters/kapalı op'ları
+işaretler. Operasyon değişince pas numarası SIĞDIĞI SÜRECE KORUNUR (op'lar arasında
+gezip hepsinin 3. pasına bakmak yaygın hareket; her seferinde 1'e dönmek onu bozardı),
+sığmıyorsa kırpılır. Tek paslı op'ta pas kutusu `disabled` — tıklanabilir ama hiçbir
+şey yapmayan kutu olmuyor. Model: `list_operations()` + `pass_choices()`;
+`list_passes()` (düz liste) korundu.
+
+**Tablo İKİ bölüm** — cevap ikisinden birinde olabilir:
+1. **GEÇERLİ (yalnız bu pas)** — `compute_pass_rows`'un çözdüğü değerler
+   (P1_Z, Uzatma, P2_Z, Klerens, Açı, Reach, uç noktası, çıkış noktası ve kırılma
+   sayısı, uyarılar). Her sayının yanında ÖNCELİK ZİNCİRİNDEKİ kaynağı yazar
+   (`op` / `fan` / `follow` / `⭑pin` / `✎staged`) — iki pas aynı sayıyı FARKLI
+   sebeplerle gösterebilir ve aranan şey çoğu zaman budur.
+2. **OPERASYON (tüm pasları)** — `OP_PARAM_UNIVERSE`'ün iki tipin birleşimi.
+   "Tuhaf" pasın sebebi genelde burada (`pass_shape`, `exit_bow`, feed…).
+
+**DÜZENLEME (kullanıcı kararı):** tablo düzenlenebilir. GEÇERLİ satırı → her zaman
+pas-başına pin. OPERASYON satırı → pinlenebilir beş alanda (`target_z`,
+`p2_z_extend`, `clearance`, `pass_angle`, `reach`; yalnız kaba op) **HER SEFERİNDE
+SORULUR**: "sadece bu pas" mı "tüm operasyon" mu. Diğer alanlarda tek cevap
+operasyon-genelidir ve operasyon adı + pas sayısı gösterilerek ONAYLATILIR —
+operatörün 3. ile 7. pası karşılaştırırken farkında olmadan 12 pası değiştirmesi
+bu yüzden mümkün değil. Düzenlemeler beklemede (✎), canlı önizlenir, [Uygula]
+hepsini TEK geri-al adımı yazar.
+
+**İKİ AYRI BEKLEME SÖZLÜĞÜ — sebebi:** `staged_pins` {(op, pas): {...}} ve
+`staged_ops` {op: {...}}. Tek sözlük olsaydı AYNI operasyonun iki pasını
+karşılaştırırken iki taraf aynı op düzenlemesi üzerinde çakışırdı; ayrı tutunca
+op-seviyesi bir bekleme İKİ tarafta da doğru şekilde önizleniyor.
+
+**GÜRÜLTÜ AZALTMA (ajan kararı, sorulmadı):**
+- Boş bir alan, motorun GERÇEKTE kullanacağı değerle `(varsayılan)` işaretiyle
+  gösterilir ve aynı sayının elle yazılmış hâline EŞİT sayılır. Sayılar
+  `OP_PARAM_DEFAULTS`'tan; mod/boolean'lar `pass_compare._IMPLIED_DEFAULTS`'tan.
+  ⚠ `exit_bow_trim` ve `exit_mid_trim` varsayılanı **True** (path_generator.py:2341,
+  :2455) — False sayılsaydı ikisi de kırpan iki op FARKLI raporlanırdı.
+  `conformal_clearance_operation_specific` GLOBAL ayara düşer.
+- Grup anahtarı KAPALI olan bağımlı alan `(kullanılmıyor)` işaretlenir ve fark
+  sayılmaz (`GROUP_DEPS` tersi) — ikisinde de Kademeli kapalıyken yelpaze-bitiş
+  açıları fark diye listelenmiyor.
+- O op tipinin evreninde OLMAYAN parametre `—` gösterilir, o tipin varsayılanı
+  DEĞİL (o değeri hiç kullanmayacak).
+
+**GERİ ALMA:** özelliği tamamen kaldırmak için araç çubuğu düğmesi + sağ-tık
+satırı + iki yeni dosya + `packaging_manifest` girdileri yeter; motorda,
+`compute_pass_rows`'ta veya op şemasında HİÇBİR değişiklik yok.
+
+**Test:** `_test_pass_compare.py` (45 kontrol), `_test_pass_compare_gui.py`
+(gerçek widget). Oturum sonu tam tarama: **72/78 dosya temiz**; kalan 6 HEAD'de
+zaten kırık (bkz. `project_known_failing_tests`). `_test_gcode_not_plc.py` toplu
+koşuda bir kez düştü, tek tek üç kez GEÇTİ → flaky, bu işle ilgisiz.
+
+---
+
 ## v1.024 — 2026-08-31 sürümü
 
 `version.py` **1.023 → 1.024**, `changelog.py`'ye operatöre dönük 5 madde

@@ -17,6 +17,43 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.025": [
+        ("Compare two passes side by side",
+         "When one pass behaves differently from another and you cannot see "
+         "why, put the two next to each other. Pick any two passes — they may "
+         "be in different operations, and one may be a reverse pass. The table "
+         "lists everything about both and marks every row that DIFFERS, so the "
+         "one setting nobody remembers changing stops hiding among the fifty "
+         "that match. \"Only differences\" hides the rest. Each side is picked "
+         "in two steps — choose the operation, then the pass inside it — so the "
+         "list you scan stays short however long the program gets.",
+         "Program List ▸ Compare ⇄  (also on the right-click menu)"),
+        ("It shows where each number came from, not just the number",
+         "Two passes can show the same Reach for completely different reasons — "
+         "one from the operation's own field, the other from the progressive "
+         "fan, the blank-edge follow, or a value pinned by hand on that one "
+         "pass. Each value now carries that tag, and a field the operation "
+         "never set is shown as the value the machine will really use, marked "
+         "\"default\", so an unset field and a field set to the same number are "
+         "not reported as a difference.",
+         "Program List ▸ Compare ⇄ ▸ click any row"),
+        ("You can change values straight from the comparison",
+         "Double-click a value to edit it, on either side. For the five "
+         "per-pass values (P1_Z, Extend, Clearance, Angle, Reach on roughing) "
+         "you are asked whether you mean THIS PASS ONLY or the WHOLE "
+         "operation; every other setting can only apply to the whole "
+         "operation, and it says so — naming the operation and how many passes "
+         "that is — before anything is staged. Edits wait until [Apply], which "
+         "writes them all as one undo step.",
+         "Program List ▸ Compare ⇄ ▸ double-click a value"),
+        ("Copies are numbered instead of collecting \"(copy)\"",
+         "Duplicating \"Rough\" now gives \"Rough 2\", then \"Rough 3\" — a "
+         "copy of a copy no longer reads \"Rough (copy) (copy) (copy)\". A name "
+         "that already ends in a number carries on from it, and the number "
+         "skips anything already in use. Names you have already saved are left "
+         "exactly as they are; only new copies are named the new way.",
+         "Program List ▸ right-click an operation ▸ Copy"),
+    ],
     "1.024": [
         ("Speed Mode is now RPM only",
          "CSS (constant surface speed) has been switched off. The machine's "

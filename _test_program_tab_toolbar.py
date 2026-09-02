@@ -127,7 +127,7 @@ print("Batch targets/compute/apply + single-step undo OK")
 # --- #69 Copy: multi-target duplicate as a block after the last target ---
 tab._batch_checked.clear()
 n0 = len(app.params["operations"])
-app.params["operations"][0]["name"] = "my rough"     # named op -> suffixed copy
+app.params["operations"][0]["name"] = "my rough"     # named op -> numbered copy
 tab.refresh_ops_tree()
 tab._batch_checked.update({0, 1})
 tab.copy_ops()
@@ -135,12 +135,16 @@ assert len(app.params["operations"]) == n0 + 2, "copy did not add 2 clones"
 assert app.params["operations"][2] == {**app.params["operations"][0],
                                        "name": app.params["operations"][2]["name"]}, \
     "first clone content differs"
-assert app.params["operations"][2]["name"].startswith("my rough ("), \
-    "named copy not suffixed"
+# 2026-09-02: copies are numbered ("my rough 2"), not "(copy)"-suffixed —
+# duplicating a duplicate used to pile the marker up. See _test_copy_naming.py.
+assert app.params["operations"][2]["name"] == "my rough 2", \
+    f"named copy not numbered: {app.params['operations'][2]['name']!r}"
+assert app.params["operations"][3].get("name") is None, \
+    "the unnamed op's clone must stay unnamed"
 assert not tab._batch_checked, "ticks must clear after copy (indices shifted)"
 tab.undo_op_action()
 assert len(app.params["operations"]) == n0, "undo did not remove the copies"
-print("Copy (multi, block insert, name suffix, undo) OK")
+print("Copy (multi, block insert, numbered name, undo) OK")
 
 # --- #70 Name shown in Type column ---
 tab.refresh_ops_tree()

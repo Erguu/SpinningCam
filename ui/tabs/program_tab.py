@@ -1,4 +1,5 @@
 import copy
+import re
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 from ui.dialogs.zone_manager import ZoneManager
@@ -235,6 +236,76 @@ _DEFAULT_COLUMNS = {
 # ── Batch edit (#67) ─────────────────────────────────────────────────────
 # Parameters that CAN be batch-edited at all: numeric scalars only (the batch
 # modes are += / = / ×=). Strings, booleans and mode combos are excluded — the
+# ── Copy naming (2026-09-02, user request) ───────────────────────────────
+# Copies used to be "<name> (copy)", so copying a copy gave
+# "Rough (copy) (copy) (copy)" — unreadable after a few duplications, which is
+# exactly what people do when building a program out of one tuned operation.
+# A trailing COUNTER instead: "Rough" → "Rough 2" → "Rough 3".
+_NAME_TAIL_NUM = re.compile(r"^(.*?)[\s_-]*(\d+)$")
+
+
+def _copy_suffix_variants():
+    """Every language's old "(copy)" suffix, lowercased.
+
+    All three, not just the active language: a name made in EN and reopened in
+    TR still carries "(copy)", and leaving it in would put the very debris this
+    change removes at the front of the new counted name.
+    """
+    try:
+        from i18n import STRINGS
+        vals = STRINGS.get("lbl_copy_suffix", {}).values()
+    except Exception:
+        vals = ()
+    return tuple(f"({str(v).lower()})" for v in vals) or ("(copy)",)
+
+
+def strip_copy_suffixes(name):
+    """Drop any number of trailing legacy "(copy)" markers. Pure."""
+    s = (name or "").strip()
+    marks = _copy_suffix_variants()
+    changed = True
+    while changed:
+        changed = False
+        low = s.lower()
+        for m in marks:
+            if low.endswith(m):
+                s = s[: len(s) - len(m)].rstrip()
+                changed = True
+                break
+    return s
+
+
+def next_copy_name(name, existing):
+    """Name for a copy of ``name``, avoiding everything in ``existing``.
+
+    "Rough"   → "Rough 2"      (no number yet: the original is implicitly 1)
+    "Rough 1" → "Rough 2"      (continues the number, never "Rough 1 2")
+    "Rough 2" → "Rough 3", or the first free number above it
+    "Rough (copy)" → "Rough 2" (the legacy marker is dropped, not built on)
+
+    ``existing`` is any iterable of names; the match is case-insensitive and
+    whitespace-trimmed, because two operations differing only in case read as
+    the same one in the list. Pure — callers add the result to their own set so
+    a multi-op copy hands out distinct numbers.
+    """
+    base = strip_copy_suffixes(name)
+    if not base:
+        return ""
+    taken = {str(x).strip().lower() for x in (existing or ()) if x}
+    m = _NAME_TAIL_NUM.match(base)
+    if m and m.group(1).strip():
+        stem, n = m.group(1).strip(), int(m.group(2))
+    elif m:
+        stem, n = "", int(m.group(2))     # the name is just a number
+    else:
+        stem, n = base, 1
+    while True:
+        n += 1
+        cand = f"{stem} {n}" if stem else str(n)
+        if cand.strip().lower() not in taken:
+            return cand
+
+
 def _has_exit_waypoints(op):
     """#100: does ANY pass of this op carry a hand-drawn exit tail?
 
@@ -1066,6 +1137,18 @@ class ProgramTab:
                 "hiçbir şey otomatik eklenmez.")
             self._toolbar_items.append(btn_suggest)
 
+        # #104 — compare any two passes. Not selection-gated: the two passes are
+        # picked inside the window and may sit in different operations.
+        btn_compare = ttk.Button(f_tools, text=t("btn_pass_compare"),
+                                 command=self.open_pass_compare)
+        self.helper.bind_tooltip(btn_compare,
+            "İki pası yan yana karşılaştır — farklı operasyonlardan, ileri ile ters pas "
+            "olabilir. Hem pasın GEÇERLİ değerleri (demir, uzatma, klerens, açı, reach, "
+            "uç noktası) hem operasyonun ayarları listelenir; FARKLI olan satırlar "
+            "işaretlenir. Değerler tablo içinde düzenlenebilir; düzenlemeler "
+            "[Uygula]'ya kadar programa yazılmaz.")
+        self._toolbar_items.append(btn_compare)
+
         btn_tools = ttk.Button(f_tools, text=t("btn_tools"), width=5, command=self.open_tool_manager)
         self.helper.bind_tooltip(btn_tools, "Takım kütüphanesini aç. "
                                             "Rulo geometrilerini (ID, yarıçap) buradan tanımlayabilirsin.")
@@ -1790,11 +1873,16 @@ class ProgramTab:
         ops = self.app.params.get("operations", [])
         self._push_undo(t("btn_copy_op"))
         self._clear_batch_checks()  # indices shift after the insert
+        # Numbered copies (2026-09-02): "Rough" → "Rough 2" → "Rough 3", not
+        # "Rough (copy) (copy)". `used` grows as we go so copying three ops at
+        # once hands out three DIFFERENT numbers instead of three "Rough 2"s.
+        used = {o.get("name") for o in ops if o.get("name")}
         clones = []
         for i in targets:
             cl = copy.deepcopy(ops[i])
             if cl.get("name"):
-                cl["name"] = f"{cl['name']} ({t('lbl_copy_suffix')})"
+                cl["name"] = next_copy_name(cl["name"], used)
+                used.add(cl["name"])
             clones.append(cl)
         ins = max(targets) + 1
         ops[ins:ins] = clones
@@ -1849,6 +1937,7 @@ class ProgramTab:
         m.add_command(label=t("btn_compute_reach"), command=self.compute_reach_from_blank, state=has)
         m.add_command(label=t("btn_compute_angle"), command=self.compute_angle_from_surface, state=has)
         m.add_command(label=t("btn_pass_table"), command=self.open_pass_table, state=has)
+        m.add_command(label=t("btn_pass_compare"), command=self.open_pass_compare)
         m.add_command(label=t("btn_batch"), command=self.open_batch_edit, state=batch_ok)
         m.add_separator()
         m.add_command(label=t("ctx_move_up"), command=lambda: self.move_op(-1), state=has)
@@ -4461,6 +4550,39 @@ class ProgramTab:
             return
         from ui.dialogs.pass_table import PassTableDialog
         PassTableDialog(self.ui_root, self.app, self, idx)
+
+    def open_pass_compare(self):
+        """#104: compare any two passes side by side.
+
+        Deliberately NOT gated on the tree selection the way Passes ▦ is: the
+        two passes may live in different operations, so the window carries its
+        own pickers. A single selected op only seeds side A — the operator is
+        usually looking at one pass and wondering what the other one does
+        differently.
+        """
+        ops = self.app.params.get("operations", [])
+        if not ops:
+            messagebox.showinfo(t("pc_title"), t("pc_no_ops"))
+            return
+        seed_a = seed_b = None
+        sel = self.tree_ops.selection()
+        if sel:
+            try:
+                idx = int(sel[0])
+                if 0 <= idx < len(ops):
+                    seed_a = (idx, 0)
+                    # Second pass of the same op if it has one, else the next op —
+                    # either way the window opens on a real comparison rather than
+                    # an op against itself.
+                    import pass_compare as _pc
+                    if _pc.pass_count(ops[idx]) > 1:
+                        seed_b = (idx, 1)
+                    elif idx + 1 < len(ops):
+                        seed_b = (idx + 1, 0)
+            except (ValueError, IndexError):
+                seed_a = seed_b = None
+        from ui.dialogs.pass_compare_dialog import PassCompareDialog
+        PassCompareDialog(self.ui_root, self.app, self, seed_a, seed_b)
 
     def open_split_op(self):
         """Split the selected multi-pass op into contiguous chunk-ops (#64). Opens the

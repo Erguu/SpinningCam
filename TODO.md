@@ -3,6 +3,98 @@
 
 ---
 
+## Diagnostics — 2026-09-02
+
+### 105. ⏳ IMPLEMENTED 2026-09-02 (headless + real-widget verified; GUI smoke pending) — Numbered copy names
+
+**User finding (verbatim):** *"because copying so many operation, their name has so
+many copy on it. instead of inserting (copy), can we make them have number at the
+end?"*
+
+`copy_ops` appended `" (copy)"`, so a copy of a copy read
+`Rough (copy) (copy) (copy)`. Now: `Rough` → `Rough 2` → `Rough 3`
+(`program_tab.next_copy_name`, pure + tested).
+
+**AGENT'S PICKS (not asked — the request named one behaviour, these follow from it):**
+- A name already ending in a number CONTINUES it (`Rough 1` → `Rough 2`), never
+  `Rough 1 2`.
+- The number takes the first FREE slot, matched case-insensitively.
+- A legacy `(copy)`/`(kopya)`/`(copia)` marker is stripped off the base of the NEW
+  copy so the counter starts clean — existing names on disk are NOT rewritten.
+
+**NOT DONE / could be offered:** a one-off cleanup pass over the names already piled
+up in the user's current programs. That is a data rewrite and was not requested.
+
+**Test:** `_test_copy_naming.py` (30 checks, pure + real `copy_ops`). Stale
+assertion in `_test_program_tab_toolbar.py` updated to the new behaviour (that file
+still fails earlier, on the long-known `btn_batch` line).
+
+
+### 104. ⏳ IMPLEMENTED 2026-09-02 (headless + real-widget verified; GUI smoke + PHYSICAL pending) — Compare two passes
+
+**User request (2026-09-02, verbatim):** *"sometimes its hard to understand why some
+of the passes act different than the others. Can we have a 'compare' option where I
+can compare two different passes in the manner of the parameters of them and
+highlight the differences, all in a table. passes can be selected from different
+operations also. even a forward pass can be compare with reverse pass"*
+
+**Shipped:** `pass_compare.py` (pure model) + `ui/dialogs/pass_compare_dialog.py`
+(Tk). Entry points: Program-tab toolbar **Compare ⇄** and the operation right-click
+menu. Read-only until [Apply]; nothing in the engine changed.
+
+**DECIDED (user, asked and answered 2026-09-02):**
+- **D1** — the table lists **BOTH** layers, in two sections: the pass's *effective*
+  values (from `compute_pass_rows`, with the provenance stage on each number) and
+  the *operation settings* it inherits. Effective-only cannot explain a difference
+  that comes from `pass_shape` or `exit_bow`; op-only hides pins and fan/follow.
+- **D2** — opened from the Program tab (toolbar + right-click), with its own
+  pickers, because the two passes may live in different operations.
+- **D2a** — **AMENDED 2026-09-02** after the first cut shipped one flat combobox
+  of every pass in the program: *"selecting a pass in a drop box where all the
+  passes in the program are visible can be hard later. might it be better if we
+  select the operation first, then select the pass in a different drop box"* —
+  yes. Each side is now OPERATION then PASS. Agent's picks inside that (not
+  asked): the op label carries the pass count and the reverse/off tags; changing
+  the operation KEEPS the pass number where it fits and clamps where it does
+  not; a single-pass operation greys its pass box.
+- **D3** — **editable in the same table** (user's words: *"operator should be able
+  to write new values into the parameters in the same table"*).
+- **D4** — an edit to an OPERATION-section row **offers a choice each time**:
+  *this pass only* (per-pass pin) or *the whole operation*. Only the five keys the
+  engine reads per pass (`target_z`, `p2_z_extend`, `clearance`, `pass_angle`,
+  `reach`, roughing only) can be a pin; everything else is op-wide and is
+  CONFIRMED with the operation name and its pass count before it is staged.
+- **D5** — staged behind [Apply] / [Cancel] like the pass table; Apply = ONE undo
+  step. Two staging dicts (`staged_pins` keyed by (op, pass), `staged_ops` keyed by
+  op) so comparing two passes OF THE SAME OP resolves both sides through the same
+  staged op instead of fighting over one dict.
+
+**AGENT'S PICKS (not asked):**
+- An unset field is shown as the value the engine would really use, marked
+  `(default)`, and compares EQUAL to an explicit copy of it — otherwise "Only
+  differences" fills with rows that run identically. Numbers come from
+  `OP_PARAM_DEFAULTS`; modes/booleans need `pass_compare._IMPLIED_DEFAULTS`
+  (⚠ `exit_bow_trim` / `exit_mid_trim` default **True**;
+  `conformal_clearance_operation_specific` falls back to the GLOBAL setting).
+- A dependant whose group toggle is off is marked `(not in use)` and excluded from
+  the difference count (`GROUP_DEPS` inverted).
+- Value cells use SHORT provenance tags (`pc_src_*`), not
+  `recipe_explain.source_label` — that one is a sentence fragment and swamps the
+  cell. The explanation bar still uses the long form.
+
+**OPEN / not done:**
+- No 2D preview of the two passes (the pass table has one; here two overlaid
+  sketches were not asked for). Would be the obvious next step if the numbers
+  alone turn out not to be enough on the machine.
+- Three-way or whole-operation comparison is out of scope — two passes only.
+- Not verified on the machine.
+
+**Tests:** `_test_pass_compare.py` (model, 45 checks), `_test_pass_compare_gui.py`
+(real widgets: build, filter, staged apply → one undo step → undo restores both
+destinations).
+
+---
+
 ## Point control — 2026-08-26 (scoping, NOT started, nothing decided yet)
 
 > Two operator requests raised by the user 2026-08-26. Both are the SAME underlying

@@ -87,6 +87,8 @@ CRITICAL_MODULES = [
     "ui.dialogs.op_library_dialog",   # op library UI (#71), lazily imported
     "ui.dialogs.batch_edit_dialog",   # batch edit UI (#67), lazily imported
     "ui.dialogs.pass_table",          # per-pass table (#80/#79), lazily imported
+    "pass_compare",                   # two-pass comparison model (#104), lazily imported
+    "ui.dialogs.pass_compare_dialog", # two-pass comparison UI (#104), lazily imported
     "recipe_explain",                 # provenance + recipe audit, lazily imported
     "ui.dialogs.recipe_audit",        # "Preview & Analyze" UI, lazily imported
     "ui.dialogs.orphan_commands",     # out-of-range pass trigger prompt, lazily imported

@@ -706,6 +706,63 @@ pass carrying pins can't be reproduced by a single parametric
 operation, so Split/Unite of a pinned op is a summary — review it.
 
 
+COMPARE PASSES (Compare ⇄ — why is THAT one different?)
+════════════════════════════════════════════════════════════════
+The Pass Table shows one operation. When two passes ought to behave
+the same and don't, the difference is usually somewhere else — so
+Compare puts any TWO passes side by side, from ANY two operations,
+forward against reverse included. Program-tab toolbar, or the
+operation right-click menu.
+
+Each side is picked in TWO steps: choose the OPERATION, then the
+pass inside it. The operation list shows its pass count and marks
+reverse and switched-off operations. Changing the operation keeps
+the pass number where it fits, so stepping across operations to
+compare their pass 3 does not send you back to pass 1 each time.
+An operation with a single pass (cutting, bending, count 1) shows
+its pass box greyed - there is nothing to choose.
+
+Two sections, because the answer can be in either:
+  • EFFECTIVE (this pass only) — what that ONE pass runs: P1_Z, Extend,
+    contact Z, Clearance, Angle, Reach, the exit endpoint, how many
+    exit waypoints and break points it carries, and its warnings.
+    Each number is tagged with WHERE it came from (operation field /
+    fan / follow / ⭑pin) — two passes can show the same value for
+    different reasons, and that is often the thing you are hunting.
+  • OPERATION (all its passes) — everything the pass inherits
+    from its operation: shape, P2 radius, the exit bow/arc/curl, feed, speed,
+    tool, direction, retract, tool-change, tilt. A pass "acting
+    strangely" is very often an op-level field nobody remembers
+    setting.
+
+Rows that DIFFER are marked ● (with the numeric difference where
+both sides are numbers). "Only differences" hides the rest — usually
+the fastest way to the answer. A value the operation does not store
+is shown as its real fallback marked "(default)", so an unset field
+and a field set to the same number are NOT reported as a difference.
+A parameter that does not exist for that operation type shows "—".
+Click any row for a plain-language explanation of both sides;
+"Copy report" puts the whole comparison on the clipboard.
+
+EDITING: double-click a value to change it, on either side. Two
+things can happen, and the window always tells you which:
+  • THIS PASS ONLY — written as a per-pass pin (⭑), exactly like a
+    Pass Table edit. Available for P1_Z, Extend, Clearance, Angle
+    and Reach on roughing operations — those are the only values
+    the engine reads per pass.
+  • THE WHOLE OPERATION — written into the operation field, so it
+    changes EVERY pass of that operation. You are asked to confirm
+    and told how many passes that is.
+Edit an EFFECTIVE row and it is always a pin. Edit an OPERATION
+row for one of the five pinnable fields and you are asked
+which of the two you meant; for everything else there is only the
+op-wide answer, and it asks you to confirm it.
+Edits are staged (✎) and previewed live — nothing touches the
+program until [Apply], which writes them all as ONE undo step.
+[Cancel] discards them. Clearing a cell (empty value) removes the
+pin, or removes the operation field so it returns to its default.
+
+
 PASS DIRECTION (FORWARD / REVERSE)
 ════════════════════════════════════════════════════════════════
 Each roughing or finishing operation has a Direction setting.
@@ -778,6 +835,11 @@ set, otherwise the selected rows — same rule as Batch) and inserts
 the copies right below the last target, selected and ready to
 edit. One Ctrl+Z removes them. Use this instead of abusing "Save
 as Default" for copying.
+A named operation's copy is NUMBERED: "Rough" becomes "Rough 2",
+then "Rough 3". A name that already ends in a number carries on
+from it ("Rough 1" -> "Rough 2", never "Rough 1 2"), and the
+number skips any already in use. Copies of an unnamed operation
+stay unnamed. Names already saved in your programs are untouched.
 
 Operations can be given a NAME ("Name" field at the top of the
 property editor, or right-click → Rename…). The name replaces the
@@ -1428,6 +1490,63 @@ operasyonla üretilemez → pinli op'un Böl/Birleştir'i bir özettir,
 sonucu gözden geçir.
 
 
+PASLARI KARŞILAŞTIR (Karşılaştır ⇄ — şu pas neden farklı?)
+════════════════════════════════════════════════════════════════
+Pas Tablosu TEK bir operasyonu gösterir. İki pasın aynı davranması
+gerekirken davranmıyorsa fark genelde başka yerdedir — Karşılaştır,
+HERHANGİ iki pası yan yana koyar: farklı operasyonlardan olabilir,
+biri ileri biri ters olabilir. Program sekmesi araç çubuğundan veya
+operasyon sağ-tık menüsünden açılır.
+
+Her taraf İKİ adımda seçilir: önce OPERASYON, sonra o operasyonun
+içindeki pas. Operasyon listesi pas sayısını gösterir, ters ve
+kapalı operasyonları işaretler. Operasyon değişince pas numarası
+sığdığı sürece KORUNUR — operasyonlar arasında gezip hepsinin 3.
+pasına bakmak için her seferinde 1. pasa dönmek gerekmez. Tek
+paslı operasyonda (kesme, kıvırma, count 1) pas kutusu soluktur;
+seçilecek bir şey yoktur.
+
+İki bölüm, çünkü cevap ikisinden birinde olabilir:
+  • GEÇERLİ (yalnız bu pas) — o TEK pasın çalıştırdığı: P1_Z, Uzatma,
+    temas Z'si, Klerens, Açı, Reach, çıkış uç noktası, kaç çıkış
+    noktası ve kırılma noktası taşıdığı ve uyarıları. Her sayının
+    yanında NEREDEN geldiği yazar (operasyon alanı / yelpaze /
+    takip / ⭑pin) — iki pas aynı değeri FARKLI sebeplerle
+    gösterebilir ve aranan şey çoğu zaman tam olarak budur.
+  • OPERASYON (tüm pasları) — pasın operasyonundan devraldığı
+    her şey:
+    şekil, P2 yarıçapı, çıkış kavisi/yayı/kıvrımı, besleme, hız,
+    takım, yön, geri çekilme, takım değişimi, eğim. "Tuhaf davranan"
+    bir pasın sebebi çoğu zaman kimsenin hatırlamadığı bir
+    operasyon-seviyesi alandır.
+
+FARKLI satırlar ● ile işaretlenir (iki taraf da sayıysa farkın
+kendisi de yazar). "Sadece farklar" gerisini gizler — cevaba en hızlı
+yol genelde budur. Operasyonun saklamadığı bir değer, gerçek
+varsayılanı "(varsayılan)" işaretiyle gösterilir; böylece boş bir alan
+ile aynı sayıya ayarlanmış bir alan FARK olarak raporlanmaz. O
+operasyon tipinde olmayan parametre "—" görünür. Herhangi bir satıra
+tıklayınca iki taraf da düz dille açıklanır; "Raporu kopyala" tüm
+karşılaştırmayı panoya alır.
+
+DÜZENLEME: bir değere çift tıkla — her iki tarafta da. İki şey
+olabilir ve pencere hangisi olduğunu HER ZAMAN söyler:
+  • SADECE BU PAS — pas-başına pin (⭑) olarak yazılır, tıpkı Pas
+    Tablosu düzenlemesi gibi. Kaba operasyonlarda P1_Z, Uzatma,
+    Klerens, Açı ve Reach için geçerlidir — motorun pas başına
+    okuduğu değerler yalnız bunlardır.
+  • TÜM OPERASYON — operasyon alanına yazılır, yani o operasyonun
+    HER pasını değiştirir. Onay istenir ve kaç pas olduğu söylenir.
+GEÇERLİ bölümündeki bir satırı düzenlemek her zaman pindir.
+OPERASYON bölümünde pinlenebilir beş alandan birini düzenlersen
+hangisini kastettiğin sorulur; diğer her şeyde tek cevap
+operasyon-geneli yazımdır ve onaylatılır.
+Düzenlemeler beklemeye alınır (✎) ve canlı önizlenir — [Uygula]'ya
+kadar programa HİÇBİR ŞEY yazılmaz, Uygula hepsini TEK Ctrl+Z adımı
+olarak yazar, [İptal] atar. Hücreyi boşaltmak pini kaldırır, ya da
+operasyon alanını silip varsayılanına döndürür.
+
+
 PAS YÖNÜ (İLERİ / TERS)
 ════════════════════════════════════════════════════════════════
 Her kaba veya bitirme operasyonunun bir Yön ayarı vardır. İleri
@@ -1499,6 +1618,11 @@ yoksa seçili satırlar — Toplu ile aynı kural) ve kopyaları son
 hedefin hemen altına, seçili ve düzenlemeye hazır ekler. Tek
 Ctrl+Z hepsini kaldırır. Kopyalama için "Varsayılan Kaydet"i
 kullanmaya artık gerek yok.
+Adı olan bir operasyonun kopyası NUMARALANIR: "Rough" -> "Rough 2",
+sonra "Rough 3". Adı zaten sayıyla bitiyorsa sayı SÜRDÜRÜLÜR
+("Rough 1" -> "Rough 2", asla "Rough 1 2") ve kullanılan sayılar
+atlanır. Adsız operasyonun kopyası adsız kalır. Programlarınızda
+KAYITLI adlara dokunulmaz.
 
 Operasyonlara AD verilebilir (özellik editörünün üstündeki "Ad"
 alanı veya sağ-tık → Yeniden adlandır…). Ad, listede tip yazısının

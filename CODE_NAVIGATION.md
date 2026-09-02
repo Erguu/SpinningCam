@@ -517,6 +517,36 @@ klasik zaman kaybı.
 | CLI (kayıtlı .ssp üzerinde, başsız) | `explain.py` | `--op N`, `--pass N`, `--step`, `--all`, `--lang` |
 | Test | `_test_recipe_explain.py` | 24 kontrol |
 
+### 23b. İki pası KARŞILAŞTIR (#104) — 2026-09-02
+
+"Pasım neden tuhaf?" TEK pası açıklar; bu ise **KARŞILAŞTIRMALI** soruyu yanıtlar:
+*şu iki pas aynı davranmalıydı, neden davranmıyor?* Cevap genelde pasın kendi
+değerinde değil, **operasyon-seviyesi bir alanda** — bu yüzden tablo İKİ bölümlü.
+
+| Ne | Dosya | Fonksiyon/Anahtar |
+|----|-------|-------------------|
+| Saf model (Tk YOK) | `pass_compare.py` | `list_passes()`, `pass_row()`, `build_rows()`, `apply_edits()`, `format_report()` |
+| Pencere (tablo + hücre düzenleme) | `ui/dialogs/pass_compare_dialog.py` | `PassCompareDialog` |
+| **İKİ ADIMLI seçim** (op → pas; düz liste 20 op'ta kullanılamaz) | `pass_compare.py` + dialog | `list_operations()`, `pass_choices()`, `op_label()`; dialog: `_build_pickers()`, `_sync_pickers()`, `_on_op_pick()` (pas no. SIĞDIĞI SÜRECE korunur), `_on_pass_pick()` |
+| Giriş noktaları | `ui/tabs/program_tab.py` | `open_pass_compare()`; araç çubuğu `btn_compare` (seçime bağlı DEĞİL) + `_on_tree_right_click` satırı |
+| Düzenlemenin hedefi | `pass_compare.py` | `edit_scope_options(row, op_type)` → `["pin"]` / `["pin","op"]` / `["op"]`; `PIN_KEYS` = motorun pas-başına OKUDUĞU beş alan (`path_generator.py:849`) |
+| Bekleme (iki AYRI sözlük) | `pass_compare_dialog.py` | `staged_pins {(op,pas):{...}}` + `staged_ops {op:{...}}` — AYNI op'un iki pası karşılaştırılırken tek sözlük çakışırdı |
+| Boş alanın gerçek varsayılanı | `pass_compare.py` | `_implied_default()`; sayılar `OP_PARAM_DEFAULTS`, mod/boolean `_IMPLIED_DEFAULTS` |
+| Ölü (grup anahtarı kapalı) alanlar | `pass_compare.py` | `_DEP_OF` (= `GROUP_DEPS` tersi) → `_is_inert()`; fark sayılmaz |
+| Test | `_test_pass_compare.py` (45), `_test_pass_compare_gui.py` | — |
+
+**GOTCHA — `_IMPLIED_DEFAULTS`'taki iki `True` yazım hatası DEĞİL:**
+`exit_bow_trim` ve `exit_mid_trim` varsayılanı **KIRP (True)** —
+`path_generator.py:2341` ve `:2455`. False sayılırsa ikisi de kırpan iki
+operasyon "farklı" raporlanır. `conformal_clearance_operation_specific` ise
+False'a değil **GLOBAL** `conformal_clearance_all_operations`'a düşer.
+
+**GOTCHA — hücrede `pc_src_*` kullanılır, `recipe_explain.source_label` DEĞİL:**
+ikincisi cümle parçasıdır ("the operation setting") ve hücrede annote ettiği
+sayıyı boğar. Uzun hâli yalnız alttaki açıklama çubuğunda.
+
+**SALT-EK:** motorda, `compute_pass_rows`'ta ve op şemasında hiçbir değişiklik yok.
+
 **Kurallar:**
 - `prov` **tamamen ek** — hiçbir hesaplanan sayıyı değiştirmez (`_test_recipe_explain.py`
   motorla çapraz doğrular).
