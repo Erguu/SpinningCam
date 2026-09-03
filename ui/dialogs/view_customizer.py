@@ -11,6 +11,7 @@ _OP_TYPES = [
     ("finishing", "op_type_finishing"),
     ("cutting",   "op_type_cutting"),
     ("bending",   "op_type_bending"),
+    ("point",     "op_type_point"),
 ]
 
 # #84 — Border color choices for the highlight feature. Order matters (dropdown

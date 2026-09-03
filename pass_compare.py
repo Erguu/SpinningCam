@@ -47,8 +47,9 @@ PIN_KEYS = ("target_z", "p2_z_extend", "clearance", "pass_angle", "reach")
 # Ops whose per-pass pins the engine ignores entirely.
 _PIN_OP_TYPES = ("roughing",)
 
-# Ops with no per-pass geometry at all — one feed line, no pass table.
-_NO_PASS_TYPES = ("cutting", "bending")
+# Ops with no per-pass geometry at all — one move, no pass table. Cutting and
+# bending are a single feed line; a Point is a single positioning move.
+_NO_PASS_TYPES = ("cutting", "bending", "point")
 
 # Section ids, in display order.
 SECTIONS = ("pass", "effective", "operation")
@@ -85,6 +86,9 @@ _ENUMS = {
     "feed_mode":        ["mm_min", "mm_rev"],
     "tilt_mode":        ["normal", "interp"],
     "tool_change_mode": ["global", "absolute", "relative"],
+    "point_motion":     ["synchronized", "x_first", "z_first"],
+    "point_mode":       ["absolute", "surface", "relative", "home"],
+    "retract_motion":   ["synchronized", "x_first", "z_first"],
 }
 
 _BOOLS = frozenset((
@@ -92,7 +96,7 @@ _BOOLS = frozenset((
     "reach_follow_blank", "back_pass_enabled", "back_pass_swapped",
     "conformal_clearance_operation_specific", "approach_follow_surface",
     "exit_bow_trim", "exit_mid_trim", "straight_line_mode",
-    "tool_change_simultaneous",
+    "tool_change_simultaneous", "point_rapid",
 ))
 
 _TEXTS = frozenset(("name",))
@@ -114,6 +118,13 @@ _IMPLIED_DEFAULTS = {
     "tool_change_mode": "global",
     "exit_bow_trim":    True,
     "exit_mid_trim":    True,
+    "point_motion":     "synchronized",
+    "point_mode":       "absolute",
+    "retract_motion":   "synchronized",
+    # A Point op defaults to a RAPID — the third True here, and for the same
+    # reason as the trims: reading it as False would report a difference between
+    # two Point ops that both rapid.
+    "point_rapid":      True,
 }
 
 # Every other boolean in _BOOLS is off when absent. conformal_clearance_

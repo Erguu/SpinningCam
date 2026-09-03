@@ -221,7 +221,27 @@ class ProcessTab(ScrollableTabBase):
             "doğru radyal olarak içeri kaydırılır — böylece sacın gerçekte nerede\n"
             "şekillendiğini görürsün. TAMAMEN GÖRSELDİR: yol hesaplamasını, G-code'u\n"
             "veya simülasyonu ETKİLEMEZ, yalnızca 3B'de gösterilen çizgiyi taşır.\n"
-            "(Radyal yaklaşım; eğik yüzeylerde temas noktası normal boyunca hafifçe kayabilir.)")
+            "(Radyal yaklaşım; eğik yüzeylerde temas noktası normal boyunca hafifçe kayabilir.)\n"
+            "Turuncu hızlı hareket çizgileri ve Nokta üçgenleri de birlikte kayar.")
+
+        f_rapids = ttk.Frame(self.content)
+        f_rapids.pack(fill="x", padx=10, pady=2)
+        var_rapids = tk.BooleanVar(value=bool(self.app.params.get("show_rapids", True)))
+        def on_rapids_toggle():
+            # Visual-only, same as the tip-paths toggle above: store the flag and
+            # redraw from the CACHED paths so nothing is recalculated.
+            self.app.params["show_rapids"] = var_rapids.get()
+            self.app.save_settings_json()
+            self.app.redraw_paths_cached()
+        cb_rapids = ttk.Checkbutton(self.content, text=t("cb_show_rapids"),
+                                    variable=var_rapids, command=on_rapids_toggle)
+        cb_rapids.pack(anchor="w", padx=10)
+        self.helper.bind_tooltip(cb_rapids,
+            "Turuncu kesikli G0 (hızlı) hareket çizgilerini göster/gizle.\n"
+            "Kapatınca yalnızca kesme pasoları kalır — çok pasolu programlarda\n"
+            "yolları okumak kolaylaşır. Rulonun ilk pasoya gidiş çizgisi de\n"
+            "bu ayara uyar.\n"
+            "TAMAMEN GÖRSELDİR: hareketler silinmez, G-code ve reçete AYNEN kalır.")
 
         self._add_pass_colors()
 

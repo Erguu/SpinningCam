@@ -26,7 +26,8 @@ palette and always wins.
 from path_generator import op_builds_back_pass
 
 # Order matters: it is the order the palette editor lists them in.
-CATEGORIES = ("roughing", "finishing", "reverse", "back", "cutting", "bending")
+CATEGORIES = ("roughing", "finishing", "reverse", "back", "cutting", "bending",
+              "point")
 
 # Chosen to stay distinguishable from each other AND from the fixed magenta of
 # the active pass. `back` keeps the teal it has always had, `roughing` the blue
@@ -40,6 +41,7 @@ DEFAULT_COLORS = {
     "back":      "#00968f",   # teal
     "cutting":   "#2e9e4f",   # green
     "bending":   "#b03060",   # maroon
+    "point":     "#8a8f98",   # grey — a positioning move, deliberately quiet
 }
 
 # The active-editing pass. Not user-editable, not a category. Held as hex, not
@@ -87,7 +89,7 @@ def op_category(op):
     """
     op = op or {}
     op_type = str(op.get("type", "roughing") or "roughing").lower()
-    if op_type in ("cutting", "bending"):
+    if op_type in ("cutting", "bending", "point"):
         return op_type
     if str(op.get("direction", "forward") or "forward").lower() == "reverse":
         return "reverse"
@@ -110,6 +112,12 @@ def path_categories(ops):
         if not op.get("enabled", True):
             continue
         category = op_category(op)
+        # A Point op is a positioning move and appends NO toolpath, so it
+        # contributes no colour either. Emitting one here would shift every
+        # later path's colour by one — the exact failure this function's
+        # docstring is about.
+        if category == "point":
+            continue
         count = 1 if category in ("cutting", "bending") else int(op.get("count", 1) or 1)
         has_back = op_builds_back_pass(op)
         for _ in range(max(count, 0)):

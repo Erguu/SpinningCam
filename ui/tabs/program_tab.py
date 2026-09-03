@@ -7,7 +7,10 @@ from ui.dialogs.tool_manager import ToolManager
 from ui.helpers_ui import _fmt_num, scroll_not_edit
 from i18n import t
 from ui import dialog_sizing
-from path_generator import op_builds_back_pass, resolve_speed_mode, speed_mode_choices
+from path_generator import (op_builds_back_pass, point_surface_x,
+                            resolve_point_mode, resolve_point_motion,
+                            resolve_retract_motion, retract_motion_is_risky,
+                            resolve_speed_mode, speed_mode_choices)
 import pass_colors
 
 # Accurate default each op-parameter field falls back to when left empty.
@@ -65,6 +68,11 @@ OP_PARAM_DEFAULTS = {
     "plunge_start_z": "= End Z",
     "tool_change_x": "= home X",
     "tool_change_z": "= home Z",
+    "point_x": 0,
+    "point_z": 0,
+    "point_standoff": 0,
+    "point_dx": 0,
+    "point_dz": 0,
 }
 
 
@@ -95,13 +103,31 @@ _TOOL_CHANGE_KEYS = ["tool_change_mode", "tool_change_x", "tool_change_z",
 # from the retract offset (see config_schema.migrate_bend_points).
 _CUT_BEND_POINTS = ["plunge_start_x", "plunge_start_z", "plunge_end_x", "plunge_end_z"]
 
+# Point op (2026-09-03): one setpoint plus how the axes get there.
+# Deliberately NO retract keys — a retract runs after the move and would undo
+# the position that is the whole point of the operation.
+#
+# point_mode decides which of the position fields are live (2026-09-03b):
+#   absolute -> point_x, point_z          surface  -> point_z, point_standoff
+#   relative -> point_dx, point_dz        home     -> point_dx, point_dz
+# All of them stay in the universe so they remain columnable and batch-editable
+# whatever mode an op is in; the editor shows only the live ones.
+_POINT_KEYS = ["point_mode", "point_x", "point_z", "point_standoff",
+               "point_dx", "point_dz", "point_motion", "point_rapid"]
+
+# Op types with no per-pass geometry: nothing to split, unite, tabulate, or fit
+# a reach/angle to. Cutting and bending are one typed feed line; a Point is one
+# typed positioning move. Kept as one name so a future type cannot be added to
+# four guards and missed in the fifth.
+_NO_PASS_OP_TYPES = ("cutting", "bending", "point")
+
 OP_PARAM_UNIVERSE = {
     "roughing": _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + [
         "name", "tool_id", "count", "direction",
         "tilt_mode", "tilt_start", "tilt_end", "tilt_offset",
         "start_z", "end_z", "p2_z_extend",
         "proj_extend_bottom", "proj_extend_top",
-        "retract_x", "retract_z",
+        "retract_x", "retract_z", "retract_motion",
         "pass_shape", "p2_radius", "p2_radius_max_points", "exit_max_points",
         "exit_arc_angle", "exit_bow", "exit_bow_bias",
         # exit_mid_rotation is deliberately absent (#102): it is no longer an
@@ -124,11 +150,12 @@ OP_PARAM_UNIVERSE = {
         "name", "tool_id", "count", "direction",
         "tilt_mode", "tilt_start", "tilt_end", "tilt_offset",
         "start_z", "end_z", "proj_extend_bottom", "proj_extend_top",
-        "retract_x", "retract_z",
+        "retract_x", "retract_z", "retract_motion",
         "clearance", "pass_shape", "straight_line_mode",
     ],
-    "cutting":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + _CUT_BEND_POINTS + ["name", "tool_id", "retract_x", "retract_z"],
-    "bending":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + _CUT_BEND_POINTS + ["name", "tool_id", "retract_x", "retract_z"],
+    "cutting":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + _CUT_BEND_POINTS + ["name", "tool_id", "retract_x", "retract_z", "retract_motion"],
+    "bending":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + _CUT_BEND_POINTS + ["name", "tool_id", "retract_x", "retract_z", "retract_motion"],
+    "point":    _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + _POINT_KEYS + ["name", "tool_id"],
 }
 
 # Tilt fields only exist on tilt-arm machines; filtered out otherwise.
@@ -150,8 +177,14 @@ OP_PARAM_LABELS = {
     "p2_z_extend": "lbl_p2z_extend",
     "proj_extend_bottom": "lbl_proj_bottom", "proj_extend_top": "lbl_proj_top",
     "retract_x": "lbl_op_retract_x", "retract_z": "lbl_op_retract_z",
+    "retract_motion": "lbl_retract_motion",
     "plunge_start_x": "lbl_bend_start_x", "plunge_start_z": "lbl_bend_start_z",
     "plunge_end_x": "lbl_bend_end_x",     "plunge_end_z": "lbl_bend_end_z",
+    "point_mode": "lbl_point_mode",
+    "point_x": "lbl_point_x", "point_z": "lbl_point_z",
+    "point_standoff": "lbl_point_standoff",
+    "point_dx": "lbl_point_dx", "point_dz": "lbl_point_dz",
+    "point_motion": "lbl_point_motion", "point_rapid": "lbl_point_rapid",
     "clearance": "lbl_clearance", "pass_shape": "lbl_shape_mode",
     "straight_line_mode": "lbl_straight_line",
     "p2_radius": "lbl_p2_radius", "p2_radius_max_points": "lbl_p2_max_pts",
@@ -196,6 +229,7 @@ GROUP_DEPS = {
 SECTION_KEYS = {
     "speed_feed": ["speed_mode", "speed", "feed_mode", "feed"],
     "cut_bend_move": _CUT_BEND_POINTS,
+    "point_move": _POINT_KEYS,
     "path_shape": ["pass_shape", "p2_radius", "p2_radius_max_points",
                    "exit_max_points",
                    "exit_arc_angle", "exit_bow",
@@ -223,6 +257,12 @@ _DEFAULT_BASIC = {
                   "plunge_start_x", "plunge_start_z", "plunge_end_x", "plunge_end_z"},
     "bending":   {"name", "speed_mode", "speed", "feed_mode", "feed", "tool_id",
                   "plunge_start_x", "plunge_start_z", "plunge_end_x", "plunge_end_z"},
+    # A Point op is meant to be readable at a glance: everything it does is
+    # basic. Speed/feed stay out — the move is a rapid unless the operator says
+    # otherwise, and feed only matters once they do.
+    "point":     {"name", "tool_id", "point_mode", "point_x", "point_z",
+                  "point_standoff", "point_dx", "point_dz", "point_motion",
+                  "point_rapid"},
 }
 
 # Per-type default column picks (subset of the universe).
@@ -231,6 +271,7 @@ _DEFAULT_COLUMNS = {
     "finishing": ["count", "start_z", "end_z"],
     "cutting":   ["plunge_start_x", "plunge_start_z", "plunge_end_x", "plunge_end_z"],
     "bending":   ["plunge_start_x", "plunge_start_z", "plunge_end_x", "plunge_end_z"],
+    "point":     ["point_mode", "point_x", "point_z", "point_motion"],
 }
 
 # ── Batch edit (#67) ─────────────────────────────────────────────────────
@@ -456,8 +497,17 @@ class ProgramTab:
     # ------------------------------------------------------------------
 
     def _op_logical_count(self, op):
-        """Number of *forward* passes this op contributes (cutting/bending always 1)."""
-        if op.get("type", "roughing") in ("cutting", "bending"):
+        """Number of *forward* passes this op contributes (cutting/bending always 1).
+
+        A Point op contributes ZERO — it is a positioning move, not a pass, and
+        the engine appends no toolpath for it. Returning 1 here would shift every
+        later pass's index by one and hand the pass navigator, the 3D highlight
+        and the pass table someone else's pass.
+        """
+        op_type = op.get("type", "roughing")
+        if op_type == "point":
+            return 0
+        if op_type in ("cutting", "bending"):
             return 1
         return int(op.get("count", 1))
 
@@ -469,7 +519,7 @@ class ProgramTab:
         `back_pass_enabled` — a reverse pass IS the return stroke and gets no
         back pass, so the checkbox alone counted a path that is never built.
         """
-        if op.get("type", "roughing") in ("cutting", "bending"):
+        if op.get("type", "roughing") in _NO_PASS_OP_TYPES:
             return 1
         return 2 if op_builds_back_pass(op) else 1
 
@@ -824,6 +874,74 @@ class ProgramTab:
                                              padx=10, pady=(0, 2))
         return inner
 
+    def _point_surface_preview(self, op):
+        """The X a "surface" Point resolves to right now, as display text.
+
+        Read-only feedback: the operator types Z and a standoff, and the X is
+        derived from the mandrel. Showing the resolved number is what lets them
+        sanity-check it against the DRO instead of trusting arithmetic they
+        cannot see. Returns "—" when there is no mandrel to measure against.
+        """
+        try:
+            mgr = getattr(self.app, "mandrel_mgr", None)
+            if mgr is None or getattr(mgr, "profile_z", None) is None:
+                return "—"
+            z = float(op.get("point_z", 0.0) or 0.0)
+            center = float(self.app.params.get("mandrel_pos_x_offset", 0.0))
+            side = 1.0 if self.app.params.get("roller_positive_x_side", True) else -1.0
+            d = point_surface_x(op, self.app.params, mgr, z, center)
+            return f"{center + side * d:.2f} mm"
+        except Exception:
+            return "—"
+
+    def _add_retract_motion_field(self, idx, op):
+        """Axis order for this op's pass retract (2026-09-03).
+
+        Rendered right under Retract X / Retract Z by BOTH editor branches (the
+        common one and cutting/bending), so the three fields that describe one
+        move stay together.
+
+        Default "synchronized" = the single diagonal G0 every recipe has always
+        used, so an op that never touches this emits byte-identical G-code.
+
+        Picking "Z first" shows a standing amber warning: a retract starts ON the
+        work, so moving Z first drags the roller along the part for the whole Z
+        offset before lifting it clear. Warn, never block — the operator may have
+        measured their setup and want it (user decision 2026-09-03).
+        """
+        f_rm = ttk.Frame(self.f_prop_editor)
+        f_rm._pkey = "retract_motion"
+        f_rm.pack(fill="x", padx=2, pady=1)
+        ttk.Label(f_rm, text=t("lbl_retract_motion"), width=15).pack(side="left")
+        # Stored as the raw key, never the translated label — a program saved in
+        # one language must still run when opened in another.
+        _rm_map = {t("opt_point_sync"): "synchronized",
+                   t("opt_point_x_first"): "x_first",
+                   t("opt_point_z_first"): "z_first"}
+        _rm_rev = {v: k for k, v in _rm_map.items()}
+        _rm_var = tk.StringVar(
+            value=_rm_rev.get(resolve_retract_motion(op), t("opt_point_sync")))
+        cb_rm = ttk.Combobox(f_rm, values=list(_rm_map.keys()), textvariable=_rm_var,
+                             state="readonly", width=16)
+        cb_rm.pack(side="right", fill="x", expand=True)
+        scroll_not_edit(cb_rm)
+
+        def _on_rm(event=None, _i=idx, _v=_rm_var, _m=_rm_map):
+            self.app.params["operations"][_i]["retract_motion"] = _m.get(
+                _v.get(), "synchronized")
+            self._schedule_auto_calc()
+            # Re-render so the Z-first warning appears/disappears immediately.
+            self.on_op_select(None, _flush=False)
+        cb_rm.bind("<<ComboboxSelected>>", _on_rm)
+        self.helper.bind_tooltip(cb_rm, t("tip_retract_motion"))
+
+        if retract_motion_is_risky(resolve_retract_motion(op)):
+            f_warn = ttk.Frame(self.f_prop_editor)
+            f_warn.pack(fill="x", padx=10, pady=(0, 2))
+            ttk.Label(f_warn, text=t("lbl_retract_zfirst_warn"),
+                      foreground="#cc6600", font=("Arial", 8, "italic"),
+                      wraplength=260, justify="left").pack(side="left")
+
     def _add_tool_change_fields(self, idx, op):
         """Per-op tool-change position (2026-07-21). Only takes effect on an op that
         first needs a NEW tool. "global" (default) = machine home; "absolute" pins
@@ -1098,6 +1216,7 @@ class ProgramTab:
             "finishing": t("btn_add_finish"),
             "cutting":   t("btn_add_cut"),
             "bending":   t("btn_add_bend"),
+            "point":     t("btn_add_point"),
         }
         adapter = getattr(self.app, "active_adapter", None)
         op_types = adapter.get_available_op_types() if adapter else list(_op_menu_labels.keys())
@@ -1539,6 +1658,8 @@ class ProgramTab:
             self.ui_root.refresh_clamp_status()
             self.ui_root.refresh_flatness_status()
             self.ui_root.refresh_tool_change_status()
+            self.ui_root.refresh_retract_motion_status()
+            self.ui_root.refresh_point_status()
             try: self.ui_root.ui_process.refresh_process_time()
             except Exception: pass
         else:
@@ -2181,6 +2302,160 @@ class ProgramTab:
                      "Tipik değer: 0.1–1.0 mm/dev. Devir değişse de talaş kalınlığı sabit kalır.")
         self._add_prop_entry(idx, "feed", f_lbl, op, is_float=True, tooltip=f_tooltip)
 
+        # --- Point: one setpoint and how the axes get there ---------------
+        if op_type == "point":
+            ttk.Separator(self.f_prop_editor, orient="horizontal").pack(fill="x", pady=5)
+
+            # Tool selector. A Point op carrying a different tool_id is how you
+            # say "change the tool HERE" — the engine's tool-change block runs
+            # before this op's move, so the change happens at a place you chose
+            # instead of wherever the previous pass happened to end.
+            f_tool = ttk.Frame(self.f_prop_editor)
+            f_tool._pkey = "tool_id"
+            f_tool.pack(fill="x", padx=10, pady=2)
+            tk.Label(f_tool, text=t("lbl_tool_id")).pack(side="left")
+            tool_ids = [tl["id"] for tl in self.ui_root.tool_library]
+            if not tool_ids:
+                tool_ids = ["T0101", "T0202"]
+            cb_ptool = ttk.Combobox(f_tool, values=tool_ids, width=15)
+            cb_ptool.pack(side="right")
+            scroll_not_edit(cb_ptool)
+            cb_ptool.set(op.get("tool_id", "T0101"))
+
+            def on_point_tool_change(event=None, _idx=idx):
+                tid = cb_ptool.get().strip()
+                if not tid:
+                    return
+                self.app.on_param_change(f"operations[{_idx}].tool_id", tid, "paths")
+                found = next((tl for tl in self.ui_root.tool_library
+                              if tl["id"] == tid), None)
+                if found:
+                    r_cal = found.get("r_tool")
+                    r = r_cal if r_cal is not None else found.get("radius", 0.0)
+                    self.app.on_param_change(f"operations[{_idx}].r_tool", r, "paths")
+            cb_ptool.bind("<<ComboboxSelected>>", on_point_tool_change)
+            cb_ptool.bind("<Return>", on_point_tool_change)
+            cb_ptool.bind("<FocusOut>", on_point_tool_change)
+
+            self._add_section_header("point_move", t("hdr_point_move"))
+
+            # What the position is measured FROM. "absolute" (default) is the
+            # original behaviour; the others exist because a PASS derives its X
+            # from the mandrel and therefore follows the part, while an absolute
+            # Point does not. Stored as the raw key, never the translated label.
+            f_pmode = ttk.Frame(self.f_prop_editor)
+            f_pmode._pkey = "point_mode"
+            f_pmode.pack(fill="x", padx=10, pady=2)
+            ttk.Label(f_pmode, text=t("lbl_point_mode"), width=15).pack(side="left")
+            _pmd_map = {t("opt_point_absolute"): "absolute",
+                        t("opt_point_surface"): "surface",
+                        t("opt_point_relative"): "relative",
+                        t("opt_point_home"): "home"}
+            _pmd_rev = {v: k for k, v in _pmd_map.items()}
+            _pmd_var = tk.StringVar(
+                value=_pmd_rev.get(resolve_point_mode(op), t("opt_point_absolute")))
+            cb_pmd = ttk.Combobox(f_pmode, values=list(_pmd_map.keys()),
+                                  textvariable=_pmd_var, state="readonly", width=18)
+            cb_pmd.pack(side="right", fill="x", expand=True)
+            scroll_not_edit(cb_pmd)
+
+            def _on_pmd(event=None, _i=idx, _v=_pmd_var, _m=_pmd_map):
+                self.app.params["operations"][_i]["point_mode"] = _m.get(
+                    _v.get(), "absolute")
+                self._schedule_auto_calc()
+                # Re-render: each mode shows a different set of fields.
+                self.on_op_select(None, _flush=False)
+            cb_pmd.bind("<<ComboboxSelected>>", _on_pmd)
+            self.helper.bind_tooltip(cb_pmd, t("tip_point_mode"))
+
+            _p_mode = resolve_point_mode(op)
+            # Same X convention as cutting/bending: the number the operator
+            # reads on the DRO, not a part radius.
+            _p_tip = ("Takım referans X'i (DRO X) — mandrel yüzey yarıçapı "
+                      "DEĞİLDİR. Kesme/kıvırma alanlarıyla aynı okuma.")
+
+            if _p_mode == "absolute":
+                self._add_prop_entry(idx, "point_x", t("lbl_point_x"), op, is_float=True,
+                                     tooltip=t("tip_point_x") + " " + _p_tip)
+                self._add_prop_entry(idx, "point_z", t("lbl_point_z"), op, is_float=True,
+                                     tooltip=t("tip_point_z"))
+            elif _p_mode == "surface":
+                # Z only — X is derived from the mandrel, exactly as for a pass.
+                self._add_prop_entry(idx, "point_z", t("lbl_point_z"), op, is_float=True,
+                                     tooltip=t("tip_point_z_surface"))
+                self._add_prop_entry(idx, "point_standoff", t("lbl_point_standoff"),
+                                     op, is_float=True, default_hint=0.0,
+                                     tooltip=t("tip_point_standoff"))
+                # Show the X this actually resolves to. A derived number the
+                # operator cannot see is a number they cannot check.
+                f_px = ttk.Frame(self.f_prop_editor)
+                f_px.pack(fill="x", padx=10, pady=(0, 2))
+                ttk.Label(f_px, text=t("lbl_point_resolved_x"),
+                          foreground="#6c7086", font=("Arial", 8, "italic")).pack(side="left")
+                ttk.Label(f_px, text=self._point_surface_preview(op),
+                          foreground="#6c7086", font=("Arial", 8, "italic")).pack(side="right")
+            else:
+                # relative / home: an offset from an anchor.
+                _anchor_key = ("lbl_point_anchor_prev" if _p_mode == "relative"
+                               else "lbl_point_anchor_home")
+                f_anch = ttk.Frame(self.f_prop_editor)
+                f_anch.pack(fill="x", padx=10, pady=(0, 2))
+                ttk.Label(f_anch, text=t(_anchor_key), foreground="#6c7086",
+                          font=("Arial", 8, "italic"), wraplength=260,
+                          justify="left").pack(side="left")
+                self._add_prop_entry(idx, "point_dx", t("lbl_point_dx"), op,
+                                     is_float=True, default_hint=0.0,
+                                     tooltip=t("tip_point_dx"))
+                self._add_prop_entry(idx, "point_dz", t("lbl_point_dz"), op,
+                                     is_float=True, default_hint=0.0,
+                                     tooltip=t("tip_point_dz"))
+
+            # Motion order. Stored as the raw key, never the translated label —
+            # a program saved in TR must still run when opened in EN.
+            f_pm = ttk.Frame(self.f_prop_editor)
+            f_pm._pkey = "point_motion"
+            f_pm.pack(fill="x", padx=10, pady=2)
+            ttk.Label(f_pm, text=t("lbl_point_motion"), width=15).pack(side="left")
+            _pm_map = {t("opt_point_sync"): "synchronized",
+                       t("opt_point_x_first"): "x_first",
+                       t("opt_point_z_first"): "z_first"}
+            _pm_rev = {v: k for k, v in _pm_map.items()}
+            _pm_var = tk.StringVar(
+                value=_pm_rev.get(resolve_point_motion(op), t("opt_point_sync")))
+            cb_pm = ttk.Combobox(f_pm, values=list(_pm_map.keys()),
+                                 textvariable=_pm_var, state="readonly", width=16)
+            cb_pm.pack(side="right", fill="x", expand=True)
+            scroll_not_edit(cb_pm)
+
+            def _on_pm(event=None, _i=idx, _v=_pm_var, _m=_pm_map):
+                self.app.params["operations"][_i]["point_motion"] = _m.get(
+                    _v.get(), "synchronized")
+                self._schedule_auto_calc()
+            cb_pm.bind("<<ComboboxSelected>>", _on_pm)
+            self.helper.bind_tooltip(cb_pm, t("tip_point_motion"))
+
+            # Rapid vs feed. Default rapid — that is what "go there" means.
+            f_pr = ttk.Frame(self.f_prop_editor)
+            f_pr._pkey = "point_rapid"
+            f_pr.pack(fill="x", padx=10, pady=1)
+            ttk.Label(f_pr, text=t("lbl_point_rapid"), width=15).pack(side="left")
+            _pr_var = tk.BooleanVar(value=bool(op.get("point_rapid", True)))
+
+            def _toggle_pr(_i=idx, _v=_pr_var):
+                self.app.params["operations"][_i]["point_rapid"] = _v.get()
+                self._schedule_auto_calc()
+            ttk.Checkbutton(f_pr, variable=_pr_var, command=_toggle_pr).pack(side="right")
+            self.helper.bind_tooltip(f_pr, t("tip_point_rapid"))
+
+            # No retract fields, deliberately (user decision 2026-09-03): a
+            # retract runs AFTER the move and would immediately undo the
+            # position this operation exists to reach. Leaving a point in a
+            # controlled way is a second Point op — visible in the list.
+            self._add_tool_change_fields(idx, op)
+            self._apply_field_visibility(op_type)
+            self._apply_label_highlights(op_type)   # #84
+            return
+
         # --- Cutting / Bending: simplified property set ---
         if op_type in ("cutting", "bending"):
             ttk.Separator(self.f_prop_editor, orient="horizontal").pack(fill="x", pady=5)
@@ -2252,6 +2527,7 @@ class ProgramTab:
             self._add_prop_entry(idx, "retract_z", t("lbl_op_retract_z"), op, is_float=True,
                                  default_hint=50.0,
                                  tooltip="Bu operasyonun geri çekilme Z ofseti (mm).")
+            self._add_retract_motion_field(idx, op)
             # Same tool-change block every other op type gets. The engine already
             # honored these keys here (resolve_tool_change_point runs before the
             # type check); only the editor was missing them.
@@ -2447,6 +2723,7 @@ class ProgramTab:
         self._add_prop_entry(idx, "retract_z", t("lbl_op_retract_z"), op, is_float=True,
                              default_hint=50.0,
                              tooltip="Bu operasyonun pas geri çekilmesi için Z ofseti (mm). Boş = 50 mm.")
+        self._add_retract_motion_field(idx, op)
 
         if op_type == "roughing":
             _hdr = self._add_section_header("path_shape", t("lbl_path_shape_hdr"))
@@ -4371,7 +4648,7 @@ class ProgramTab:
         """Flange-model reach for an op → (r_start, r_end, fanned), or None if not
         computable (wrong type / no blank / fully consumed). Shared by the manual Reach⟲
         button and the auto 'reach follows blank' refresh (#61 option B)."""
-        if op.get("type") in ("cutting", "bending"):
+        if op.get("type") in _NO_PASS_OP_TYPES:
             return None
         R = float(self.app.params.get("blank_radius", 0.0) or 0.0)
         if R <= 0:
@@ -4430,7 +4707,7 @@ class ProgramTab:
         if idx >= len(ops):
             return
         op = ops[idx]
-        if op.get("type") in ("cutting", "bending"):
+        if op.get("type") in _NO_PASS_OP_TYPES:
             messagebox.showinfo(t("msg_reach_title"), t("msg_reach_badtype"))
             return
         R = float(self.app.params.get("blank_radius", 0.0) or 0.0)
@@ -4488,7 +4765,7 @@ class ProgramTab:
         if idx >= len(ops):
             return
         op = ops[idx]
-        if op.get("type") in ("cutting", "bending"):
+        if op.get("type") in _NO_PASS_OP_TYPES:
             messagebox.showinfo(t("msg_angle_title"), t("msg_reach_badtype"))
             return
         if op.get("pass_angle") in (None, ""):
@@ -4545,7 +4822,7 @@ class ProgramTab:
         ops = self.app.params.get("operations", [])
         if idx >= len(ops):
             return
-        if ops[idx].get("type") in ("cutting", "bending"):
+        if ops[idx].get("type") in _NO_PASS_OP_TYPES:
             messagebox.showinfo(t("pt_title_short"), t("msg_reach_badtype"))
             return
         from ui.dialogs.pass_table import PassTableDialog
@@ -4601,7 +4878,7 @@ class ProgramTab:
         if idx >= len(ops):
             return
         op = ops[idx]
-        if op.get("type") in ("cutting", "bending"):
+        if op.get("type") in _NO_PASS_OP_TYPES:
             messagebox.showinfo(t("msg_split_title"), t("msg_split_badtype"))
             return
         if int(op.get("count", 1)) < 2:
@@ -4664,7 +4941,7 @@ class ProgramTab:
         children = [ops[i] for i in targets]
         types = {o.get("type", "roughing") for o in children}
         tools = {o.get("tool_id") for o in children}
-        if (types & {"cutting", "bending"}) or len(types) > 1 or len(tools) > 1:
+        if (types & set(_NO_PASS_OP_TYPES)) or len(types) > 1 or len(tools) > 1:
             messagebox.showinfo(t("msg_unite_title"), t("msg_unite_incompat"))
             return
 
@@ -4811,6 +5088,25 @@ class ProgramTab:
     def _factory_op(self, mode):
         """Clean factory-default op dict for ``mode`` — NEVER reads op_presets.
         Single source for '+ Ekle ▾ (fabrika temiz)' and 'Fabrika sıfırla'."""
+        if mode == "point":
+            # A fresh Point sits AT the machine's Program Start, so adding one is
+            # a no-op move rather than a surprise dive at the part. The operator
+            # types where they actually want to go.
+            _ops = self.app.params.get("operations") or []
+            return {
+                "type": mode, "enabled": True, "count": 1,
+                "tool_id": _ops[-1].get("tool_id", "T0101") if _ops else "T0101",
+                "r_tool": 0.0,
+                "point_mode": "absolute",
+                "point_x": float(self.app.params.get("home_x", 300.0)),
+                "point_z": float(self.app.params.get("home_z", 150.0)),
+                "point_standoff": 0.0, "point_dx": 0.0, "point_dz": 0.0,
+                "point_motion": "synchronized",
+                "point_rapid": True,
+                "feed": 300.0, "feed_mode": "mm_min",
+                "speed": 300.0, "speed_mode": "RPM",
+            }
+
         if mode in ("cutting", "bending"):
             # Cutting/bending: single radial plunge at mandrel end
             def_tool_id = "T0303"

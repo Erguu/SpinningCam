@@ -18,6 +18,14 @@ from simulation_controller import SimulationController
 from tool_step_loader import ToolStepLoader
 from logger_config import logger
 
+# 3D-view switches that belong to the OPERATOR, not to the part. save_project
+# writes the whole params dict, so load_project puts these back afterwards —
+# see the comment at that call site. Add a key here whenever a new view-only
+# toggle is introduced; anything that changes a path or a number does NOT
+# belong in this list.
+_VIEW_ONLY_PREF_KEYS = ("show_tip_paths", "show_rapids")
+
+
 class SpinningApp:
     def __init__(self, plotter=None, headless=False):
         # 1. Initialize Managers (single instantiation — second block below does the real init)
@@ -53,6 +61,7 @@ class SpinningApp:
             "tip_dist": [], "ref_point_dist": [],
             "mandrel_dims": [],
             "clamp_zone": None, "deformed_blank": None, "blank_edge": None,
+            "point_markers": None,
         }
         # #63 phase 1: selected op index driving the faded-blue deformed-blank overlay;
         # its formed Z is read fresh from path_gen.last_op_end_z each draw (survives recalc).
@@ -191,6 +200,12 @@ class SpinningApp:
             # centre — visual only, pulls each drawn line in by r_tool. No effect on
             # path generation or G-code.
             "show_tip_paths": False,
+
+            # Orange dashed G0 lines in the 3D view. update_scene has read this
+            # key since long before there was anything to write it, so it has
+            # always defaulted to on — keeping True here preserves that exactly.
+            # Visual only: hiding them changes no path and no G-code.
+            "show_rapids": True,
 
             # Clamp / counter-press zone (TODO #62). The base region of the part is
             # held between the counter-press and the mandrel and is NOT machined.
@@ -631,6 +646,39 @@ class SpinningApp:
             total += span
         return float(ops[0].get("r_tool", 25.0) or 25.0) if ops else 25.0
 
+    def _rapid_rtools(self, rapids):
+        """One r_tool per rapid segment, in render order — the roller that is
+        actually mounted while that rapid runs.
+
+        Needed only by the "draw at roller tip" view. A rapid connects the end of
+        one pass to the start of the next, so if the passes are pulled in by
+        r_tool and the rapids are not, the lines stop meeting and the picture
+        shows gaps that do not exist.
+
+        Derived by walking ``last_calculated_sequence``, which interleaves
+        ("cut", path, r_tool, ...) and ("rapid", seg) in emission order: the
+        r_tool in force is simply the one from the most recent cut. Both lists
+        are appended at the same sites in the same order, but if they ever fall
+        out of step this returns a uniform fallback rather than shifting
+        segments by somebody else's tool radius.
+        """
+        n = len(rapids)
+        ops = self.params.get("operations", [])
+        default_r = float(ops[0].get("r_tool", 25.0) or 25.0) if ops else 25.0
+        seq = getattr(self.path_gen, "last_calculated_sequence", None) or []
+        out, current = [], default_r
+        for item in seq:
+            if not item:
+                continue
+            if item[0] == "cut" and len(item) > 2:
+                try:
+                    current = float(item[2])
+                except (TypeError, ValueError):
+                    pass
+            elif item[0] == "rapid":
+                out.append(current)
+        return out if len(out) == n else [default_r] * n
+
     def _shift_path_to_tip(self, p_arr, r_tool):
         """VISUAL-ONLY: return a copy of a toolpath pulled radially inward by the
         roller radius r_tool, so the drawn line sits at the roller TOUCH POINT
@@ -696,17 +744,31 @@ class SpinningApp:
             try: self.plotter.render()
             except Exception: pass
 
+    # One ring's worth of angles, shared by every ring and every redraw — see
+    # update_blank_edge for why the rings are built by hand instead of pv.Circle.
+    _RING_COS = np.cos(np.linspace(0.0, 2.0 * np.pi, 72, endpoint=False))
+    _RING_SIN = np.sin(np.linspace(0.0, 2.0 * np.pi, 72, endpoint=False))
+
     def update_blank_edge(self, render=False):
         """Predicted unformed-sheet EDGE: one ring per forming pass, at the radius the
         flange model says the blank edge has reached by that pass.
 
         Reads ``path_gen.last_blank_edge`` — recorded by the engine at each pass's real
-        contact height — so this never re-derives pass geometry and cannot drift from it.
+        contact height, with the flange laid along that pass's P2→P3 exit direction — so
+        this never re-derives pass geometry and cannot drift from it. Rings therefore
+        climb as the pass angle fans over; they do not sit in one horizontal plane.
         Purely visual: it draws nothing into the toolpath or the G-code, and it is
         SEPARATE from the faded-blue bent-sheet overlay (``update_deformed_blank``).
 
-        ESTIMATE, not truth: the flange model assumes constant thickness and a flat
-        flange, so the rings show the SHAPE of the edge retreating, not an exact radius.
+        ESTIMATE, not truth: constant thickness, and a STRAIGHT flange — the real sheet
+        curves where it wraps the roller between P2 and P3 and only straightens further
+        out. The rings show the SHAPE of the edge retreating, not an exact radius.
+        The rings are assembled by hand as one closed polyline each, all merged into a
+        single mesh. The obvious pv.Circle(...).extract_feature_edges(...) builds a FILLED
+        disc and then runs a VTK filter to throw the fill away — measured at ~4.4 ms per
+        ring, so a 60-pass program cost ~240 ms on EVERY redraw of the 3D view. Building
+        the loops directly gives the identical picture (same 72 points per ring) in ~1.7 ms
+        (2026-09-03). Keep it filter-free.
         ``render=True`` forces a redraw when called standalone."""
         if self.actors.get("blank_edge"):
             try: self.plotter.remove_actor(self.actors["blank_edge"])
@@ -720,25 +782,99 @@ class SpinningApp:
         try:
             edges = getattr(self.path_gen, "last_blank_edge", None) or []
             if edges:
-                import numpy as _np, pyvista as _pv
                 cx = float(self.params.get("mandrel_pos_x_offset", 0.0))
-                rings = []
+                cos_t, sin_t = self._RING_COS, self._RING_SIN
+                n_seg = len(cos_t)
+                pts, lines, off = [], [], 0
                 for _z, _r in edges:
                     if _r <= 0.1:          # flange used up — nothing left to draw
                         continue
-                    rings.append(_pv.Circle(radius=float(_r), resolution=72)
-                                 .translate((cx, 0.0, float(_z)), inplace=False)
-                                 .extract_feature_edges(boundary_edges=True,
-                                                        feature_edges=False,
-                                                        manifold_edges=False,
-                                                        non_manifold_edges=False))
-                if rings:
-                    merged = rings[0].merge(rings[1:]) if len(rings) > 1 else rings[0]
+                    _r, _z = float(_r), float(_z)
+                    pts.append(np.column_stack((cx + _r * cos_t, _r * sin_t,
+                                                np.full(n_seg, _z))))
+                    idx = np.arange(off, off + n_seg)
+                    # closed loop: n+1 ids, last one repeats the first
+                    lines.append(np.concatenate(([n_seg + 1], idx, (off,))))
+                    off += n_seg
+                if pts:
+                    merged = pv.PolyData(np.vstack(pts).astype(float),
+                                         lines=np.concatenate(lines).astype(np.int64))
                     self.actors["blank_edge"] = self.plotter.add_mesh(
                         merged, color=(0.16, 0.47, 0.84), opacity=0.55,
                         line_width=2, style="wireframe", lighting=False)
         except Exception as e:
             logger.warning(f"Blank-edge overlay failed: {e}")
+        if render:
+            try: self.plotter.render()
+            except Exception: pass
+
+    def update_point_markers(self, render=False):
+        """Triangle marker at every Point operation's setpoint.
+
+        Reads ``path_gen.last_point_markers`` — written by the engine in
+        ``calculate_paths`` and already mirrored for a negative-X roller, so the
+        triangle sits where the machine actually goes rather than at the mirror
+        image of the typed number.
+
+        A Point op draws no toolpath (it removes no material and is not a pass),
+        so without this it would be invisible in the 3D view: the roller would
+        simply appear somewhere new between two passes with nothing to say why.
+
+        Purely visual. There is no show/hide toggle on purpose — a marker only
+        exists because the operator added a Point op, which makes it opt-in
+        already, and hiding it would hide the only evidence the op is there.
+        ``render=True`` forces a redraw when called standalone.
+        """
+        if self.actors.get("point_markers"):
+            try: self.plotter.remove_actor(self.actors["point_markers"])
+            except Exception: pass
+        self.actors["point_markers"] = None
+        try:
+            marks = getattr(self.path_gen, "last_point_markers", None) or []
+            if not marks:
+                if render:
+                    try: self.plotter.render()
+                    except Exception: pass
+                return
+            import numpy as _np, pyvista as _pv
+            # Size from the mandrel so the marker stays readable on a small part
+            # and does not swamp a large one; the floor keeps it visible when no
+            # mandrel is loaded yet.
+            try:
+                _span = float(self.mandrel_mgr.props.get("top_z", 100.0))
+            except Exception:
+                _span = 100.0
+            s = max(4.0, min(12.0, _span * 0.04))
+            # A Point's stored X is the roller CENTRE, like every path point, so
+            # the "draw at roller tip" view has to move the marker too — else the
+            # triangle sits r_tool away from the pass lines it is meant to be
+            # read against. In "mandrel surface" mode this is what makes the
+            # marker land exactly on the sheet, since the resolved X already
+            # includes r_tool.
+            _tip = self.params.get("show_tip_paths", False)
+            _ops = self.params.get("operations", [])
+            tris = []
+            for m in marks:
+                px, pz = float(m.get("x", 0.0)), float(m.get("z", 0.0))
+                if _tip:
+                    _oi = int(m.get("op_index", -1))
+                    _op = _ops[_oi] if 0 <= _oi < len(_ops) else {}
+                    _rt = float(_op.get("r_tool", 0.0) or 0.0)
+                    px = float(self._shift_path_to_tip(
+                        np.array([[px, 0.0, pz]]), _rt)[0][0])
+                pts = _np.array([
+                    [px,             0.0, pz + s],          # apex
+                    [px - s * 0.866, 0.0, pz - s * 0.5],
+                    [px + s * 0.866, 0.0, pz - s * 0.5],
+                ])
+                tris.append(_pv.PolyData(pts, faces=_np.array([3, 0, 1, 2])))
+            merged = tris[0].merge(tris[1:]) if len(tris) > 1 else tris[0]
+            colour = pass_colors.rgb_floats(
+                pass_colors.resolve_palette(self.params)["point"])
+            self.actors["point_markers"] = self.plotter.add_mesh(
+                merged, color=colour, opacity=0.85, lighting=False)
+        except Exception as e:
+            logger.warning(f"Point marker overlay failed: {e}")
         if render:
             try: self.plotter.render()
             except Exception: pass
@@ -1300,19 +1436,35 @@ class SpinningApp:
                         )
                         self.actors["analysis_lines"].append(actor)
                 # Render Rapids (Dashed Lines for G0)
-                if self.params.get("show_rapids", True):
-                    for r_seg in rapids:
+                _show_rapids = self.params.get("show_rapids", True)
+                if _show_rapids:
+                    # Draw at the roller tip too when that view is on, or the
+                    # rapids stop meeting the passes they connect.
+                    _tip = self.params.get("show_tip_paths", False)
+                    _r_list = self._rapid_rtools(rapids) if _tip else None
+                    for _ri, r_seg in enumerate(rapids):
                         if len(r_seg) < 2: continue
                         try:
-                            act = self.plotter.add_lines(r_seg, color='orange', width=2)
+                            _seg = np.asarray(r_seg, dtype=float)
+                            if _tip:
+                                _seg = self._shift_path_to_tip(_seg, _r_list[_ri])
+                            act = self.plotter.add_lines(_seg, color='orange', width=2)
                             prop = act.GetProperty()
                             prop.SetLineStipplePattern(0xFF00)
                             prop.SetLineStippleRepeatFactor(2)
                             self.actors["rapids"].append(act)
                         except: pass
 
-                if len(paths) > 0 and len(paths[0]) > 0:
-                     self.actors["approach"] = self.plotter.add_lines(np.array([roller_pos, paths[0][0]]), color='black', width=1)
+                # The approach line is a rapid too (roller's current position ->
+                # first pass start), so it follows the same switch. Leaving one
+                # lone positioning line on screen after hiding the rest reads as
+                # a bug, not as a different kind of move.
+                if _show_rapids and len(paths) > 0 and len(paths[0]) > 0:
+                     _first = np.asarray(paths[0][0], dtype=float)
+                     if self.params.get("show_tip_paths", False):
+                         _first = self._shift_path_to_tip(
+                             np.array([_first]), self._rtool_for_pass(0))[0]
+                     self.actors["approach"] = self.plotter.add_lines(np.array([roller_pos, _first]), color='black', width=1)
 
                 # Distance lines: mandrel surface → closest contact point per pass
                 if self.params.get("show_pass_dist_lines", False):
@@ -1367,6 +1519,9 @@ class SpinningApp:
             # Predicted blank-edge rings — cover ALL passes, so unlike the overlay above
             # they do not change while stepping passes; redrawn here after a recalc.
             self.update_blank_edge(render=False)
+            # Point-op setpoints — same timing as the rings above: they cover the
+            # whole program, so they do not change while stepping passes.
+            self.update_point_markers(render=False)
             if self.actors["roller"]: self.plotter.remove_actor(self.actors["roller"])
             if self.actors.get("roller_tip"): self.plotter.remove_actor(self.actors["roller_tip"]); self.actors["roller_tip"] = None
 
@@ -2096,6 +2251,16 @@ class SpinningApp:
                     # saved — the small cousin of the 2026-08-14 machine-settings
                     # incident.
                     _pass_colors = copy.deepcopy(self.params.get("pass_colors", {}))
+                    # Same argument again, for the 3D VIEW switches. These say
+                    # how this operator wants to look at the screen; they change
+                    # no path, no G-code and no recipe. Without this, opening a
+                    # colleague's .ssp silently hides your rapid lines or moves
+                    # every drawn path by r_tool, with nothing on screen saying
+                    # why. show_tip_paths had this flaw from the start; it is
+                    # fixed here rather than left for the new switch to inherit.
+                    _view_prefs = {k: self.params.get(k)
+                                   for k in _VIEW_ONLY_PREF_KEYS
+                                   if k in self.params}
                     loaded_params = d.get("params", {})
 
                     from machine_loader import diff_machine_params, strip_machine_params
@@ -2117,6 +2282,7 @@ class SpinningApp:
                                     len(_accepted), ", ".join(sorted(_accepted)))
                     self.params["op_view_show_advanced"] = _show_adv
                     self.params["pass_colors"] = _pass_colors
+                    self.params.update(_view_prefs)
                     # Customize-View column/tag config IS per program: if the
                     # loaded file has none, drop any stale in-memory config so
                     # the resolver falls back to sensible defaults.

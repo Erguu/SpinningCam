@@ -50,8 +50,15 @@ menubuttons = [w for w in tab.frame.winfo_children()[1].winfo_children()
 assert len(menubuttons) == 1, "Add dropdown missing"
 menu = menubuttons[0].nametowidget(menubuttons[0]["menu"])
 n_entries = menu.index("end") + 1
-# 4 op types + separator + 4 factory-clean variants (2026-07-08 escape hatch)
-assert n_entries == 9, f"expected 9 dropdown entries (4 + sep + 4 factory), got {n_entries}"
+# One entry per op type, a separator, then a factory-clean variant of each
+# (2026-07-08 escape hatch). Derived from the adapter rather than hard-coded:
+# this count was pinned at 9 and broke the day a fifth op type ("point") was
+# added, which is a change to the op set, not a regression in the toolbar.
+_n_types = len(app.active_adapter.get_available_op_types())
+_expected = 2 * _n_types + 1
+assert n_entries == _expected, (
+    f"expected {_expected} dropdown entries ({_n_types} + sep + {_n_types} "
+    f"factory), got {n_entries}")
 # selecting an entry adds an op
 menu.invoke(0)  # roughing
 assert len(app.params["operations"]) == 3, "dropdown add_op did not append"

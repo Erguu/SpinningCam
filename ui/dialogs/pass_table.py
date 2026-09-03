@@ -63,7 +63,8 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
     explanation bar, ui/dialogs/recipe_audit.py and explain.py.
     """
     count = int(op.get("count", 1))
-    if op.get("type") in ("cutting", "bending"):
+    # "point" joins these: a positioning move has no passes to tabulate.
+    if op.get("type") in ("cutting", "bending", "point"):
         return []
     is_finish = op.get("type") == "finishing"
     staged = staged or {}
@@ -196,6 +197,21 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
         _rec("extend", [("op", p2_ext), (_org("p2_z_extend"), edit_ext)])
         _rec("clr", [("op", op_clearance), (_org("clearance"), edit_clr)])
 
+        # Exit DIRECTION is resolved BEFORE the reach, because follow-blank needs it to
+        # turn the flat flange overhang into the slant length actually travelled.
+        # Mirrors the engine, where the θ_B block likewise sits above follow-blank.
+        eff_angle = fan_angle = theta_B = None
+        exit_dir = (def_p3_x, def_p3_z)         # raw mode: the p3 ratio is the direction
+        if pa_deg is not None:
+            eff_angle = pa_deg
+            if prog_a:
+                eff_angle += i * (prog_a_end - eff_angle) / (count - 1)
+                fan_angle = eff_angle
+            if edit_angle is not None:
+                eff_angle = edit_angle
+            theta_B = theta_A + math.radians(eff_angle)
+            exit_dir = (math.cos(theta_B), math.sin(theta_B))
+
         follow_reach = None
         if follow and est_flange is not None:
             try:
@@ -203,6 +219,18 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
             except Exception:
                 fr = 0.0
             if fr > 0:
+                # FLAT → SLANT — MUST mirror path_generator.py (2026-09-03). The flange
+                # model answers "how far does the sheet stick out sideways"; the stroke
+                # travels along the exit, where the same material is longer. Miss this
+                # and the table shows a stroke shorter than the machine runs — the exact
+                # class of drift the fb_min note below was written about.
+                if not op.get("reach_blank_flat_legacy", False):
+                    try:
+                        from process_planner import flange_slant_length
+                        fr = flange_slant_length(
+                            mgr.get_radius_fast(target_z) + shell_off, fr, *exit_dir)[0]
+                    except Exception:
+                        pass
                 follow_reach = max(fr * fb_fac + fb_off, 0.0)
                 # Degenerate-flange guard — MUST mirror path_generator.py ~638
                 # (added to the engine 2026-07-22, missed here until 2026-07-28).
@@ -216,15 +244,7 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
                     follow_reach = None
 
         p3_x, p3_z = def_p3_x, def_p3_z
-        eff_angle = None
         if pa_deg is not None:
-            eff_angle = pa_deg
-            fan_angle = None
-            if prog_a:
-                eff_angle += i * (prog_a_end - eff_angle) / (count - 1)
-                fan_angle = eff_angle
-            if edit_angle is not None:
-                eff_angle = edit_angle
             _rec("angle", [("op", pa_deg), ("fan", fan_angle),
                            (_org("pass_angle"), edit_angle)])
             L3 = reach_v if reach_v is not None else math.hypot(p3_x, p3_z)
@@ -243,7 +263,6 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
                            ("follow", follow_reach),
                            (_org("reach"), edit_reach)])
             if L3 > 0.001:
-                theta_B = theta_A + math.radians(eff_angle)
                 p3_x = L3 * math.cos(theta_B)
                 p3_z = L3 * math.sin(theta_B)
             elif not _tail:
@@ -529,7 +548,10 @@ class PassTableDialog(tk.Toplevel):
             if j == self.op_index:
                 break
             if o.get("enabled", True):
-                base += 1 if o.get("type") in ("cutting", "bending") else int(o.get("count", 1))
+                _t = o.get("type")
+                if _t == "point":
+                    continue          # contributes no pass — must not shift the base
+                base += 1 if _t in ("cutting", "bending") else int(o.get("count", 1))
         return base
 
     def refresh(self):

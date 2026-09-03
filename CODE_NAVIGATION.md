@@ -126,6 +126,78 @@ Feed = op'un kendi Feed'i. `count` YOK SAYILIR (her zaman 1 yol).
   ama düzenlenemez alan. Takım değişim anahtarları 2026-07-21'den 07-31'e kadar tam
   olarak bu durumdaydı. Yeni alan eklerken İKİ tarafı da güncelle.
 
+### 4f. Pas geri çekilmesinde EKSEN SIRASI — 2026-09-03, v1.028
+
+Op alanı `retract_motion`: `synchronized` (VARSAYILAN) / `x_first` / `z_first`.
+
+| Ne | Dosya | Fonksiyon/Anahtar |
+|----|-------|-------------------|
+| **TEK doğruluk kaynağı** | `path_generator.py` | `retract_segments(end_pt, dx, dz, motion)` — 5 çağrı yeri |
+| Mod çözücü + risk yüklemi | `path_generator.py` | `resolve_retract_motion()`, `retract_motion_is_risky()` (= `z_first`) |
+| Emitter (2 yer) | `path_generator.py` | `generate_gcode` → ileri pas retract + geri pas (BP) retract |
+| Sim (3 yer) | `path_generator.py` | `calculate_paths` → kesme/kıvırma, ileri pas, geri pas |
+| Uyarı toplama | `path_generator.py` | `last_retract_motion_warnings`; log `[RETRACT]` |
+| UI alanı (İKİ editör dalından çağrılır) | `ui/tabs/program_tab.py` | `_add_retract_motion_field()` |
+| Uyarı yüzeyi (SAKİN not, MODAL YOK) | `ui/main_window.py` | `refresh_retract_motion_status()` |
+
+**`dx` fonksiyona YÖNÜNÜ ALMIŞ gelmeli** (`retract_x_offset_real` emitter'da,
+`abs()` kanonik sim'de). `retract_segments` sadece ŞEKLE karar verir —
+bkz. [[project_retract_sign_rule]].
+
+**`z_first` = parçayı çizme riski.** Geri çekilme rulo İŞ ÜZERİNDEYKEN başlar.
+Takım değişimi bloğu da önce Z gider ama SORUN DEĞİL: oraya gelindiğinde pas
+retract'ı ruloyu zaten kaldırmıştır. Uyarı var, ENGEL YOK (kullanıcı kararı).
+
+**SATIR MALİYETİ:** bölünmüş retract satırları İKİYE katlar → 1000 satır PLC
+tavanı ([[project_scl_loadmem_format]]).
+
+Ortak söz dağarcığı Nokta ile: `AXIS_MOTION_MODES`, `motion_waypoints`.
+Test: `_test_retract_motion.py` (10), `_test_retract_motion_gui.py` (4).
+
+### 4e. "Nokta" (Point) operasyonu — 2026-09-03, v1.027
+
+Tek bir X/Z'ye git ve dur. Pas DEĞİL, konumlandırma hareketi.
+
+| Ne | Dosya | Fonksiyon/Anahtar |
+|----|-------|-------------------|
+| Saf çözücüler | `path_generator.py` | `resolve_point_target()` (kanonik/gerçek çerçeve), `resolve_point_motion()`, `point_motion_waypoints()`, `resolve_point_feed()`; sabit `POINT_MOTION_MODES` |
+| Sim dalı (takım yolu EKLEMEZ) | `path_generator.py` | `calculate_paths` → `if op_type_str == "point"` (kesme/kıvırma dalından ÖNCE) |
+| Emitter dalı (`global_path_idx`'e DOKUNMAZ) | `path_generator.py` | `generate_gcode` → `emit_count` satırından ÖNCE |
+| 3B üçgen | `main.py` | `update_point_markers()`; veri `path_gen.last_point_markers` (sonda aynalanır) |
+| UI editörü | `ui/tabs/program_tab.py` | `on_op_select` → `if op_type == "point"`; `_POINT_KEYS`, `_factory_op` |
+| Pas üretmeyen tipler (TEK isim) | `ui/tabs/program_tab.py` | `_NO_PASS_OP_TYPES` — Böl/Birleştir/Erişim/Açı/Pas tablosu guard'ları |
+
+**KRİTİK KURAL — Point SIFIR takım yolu üretir.** `calculate_paths` ve
+`generate_gcode` `paths_to_use` üzerinde ORTAK indeksle yürür; bir taraf ekleyip
+diğeri eklemezse sonraki tüm paslar YANLIŞ operasyona kayar. Aynalar da atlamalı:
+`pass_colors.path_categories`, `pass_table.compute_pass_rows` + `_op_start_pass_idx`,
+`pass_compare._NO_PASS_TYPES`, `program_tab._op_logical_count` (**0** döner).
+
+**REFERANS MODLARI (v1.029):** `point_mode` = `absolute` (VARSAYILAN, eski
+davranış) / `surface` (X mandrelden — pasonun aynı yığını, `point_surface_x`) /
+`relative` (önceki pasın FORMING sonundan ΔX/ΔZ) / `home` (Program Başlangıcından).
+Okunamayan değer → `absolute`.
+
+**⚠ `resolve_point_target` içinde `side`'ın İKİ İŞİ VAR:**
+`side` = RULO tarafı (surface geometrisi, HER İKİ çağıranda);
+`frame_flip = 1.0 if center_x is None else side` = çerçeve dönüşümü (ofsetler).
+Karıştırılırsa `relative`/`home` negatif taraflı makinede TERS yönde uygulanır.
+`resolve_tool_change_point` emitter'dan `side` OLMADAN çağrıldığı için orada bu
+ayrım kendiliğinden doğru.
+
+**ΔX işareti HARFİDİR** (retract'ın tersi, [[project_retract_sign_rule]]).
+
+**X ÇERÇEVESİ:** `point_x` = MAKİNE/DRO X'i. `resolve_point_target(center_x=, side=)`
+`resolve_tool_change_point` ile aynı dönüşümü yapar — bkz. [[project_canonical_x_frame]].
+Yanlışı pozitif taraflı makinede TAMAMEN sessizdir.
+
+`surface` modunda profil dışı Z → `last_point_warnings` + `refresh_point_status`
+(amber, modal yok); editörde hesaplanan X `_point_surface_preview` ile gösterilir.
+
+**Geri çekilme alanı YOK** (bilerek): hareketten sonra çalışır, konumu bozar.
+
+Test: `_test_point_op.py` (15), `_test_point_op_gui.py` (6).
+
 ### 4c. Pas geri çekilmesi — işaret/yön kuralı (2026-07-31)
 
 | Ne | Dosya | Fonksiyon |
@@ -245,6 +317,24 @@ diyaloğuyla sessizce çelişebilecek ikinci bir dönüşüm yolu doğardı.
 | Polling loop (50fps) | `ui/main_window.py` | `check_sim_loop()` satır 264 |
 | Roller güncelleme | `main.py` | `update_roller_visual()` satır 612 |
 | Live monitor (POS/S/F) | `ui/main_window.py` | `_update_live_monitor()` satır 278 |
+
+### 12b. 3B görünüm anahtarları (görsel-only) — 2026-09-04, v1.030
+
+| Ne | Dosya | Fonksiyon/Anahtar |
+|----|-------|-------------------|
+| Hızlı hareketleri göster/gizle | `main.py` | `params["show_rapids"]`; render `update_scene` rapid bloğu + siyah yaklaşma çizgisi |
+| Uç kayması (temas noktasında çiz) | `main.py` | `params["show_tip_paths"]`; `_shift_path_to_tip()` |
+| Hızlı hareket başına `r_tool` | `main.py` | `_rapid_rtools()` — `last_calculated_sequence`'i yürür (cut→rapid sırası); uzunluk tutmazsa TEK fallback |
+| Nokta üçgeni uç kayması | `main.py` | `update_point_markers()` → `marker["op_index"]` → op `r_tool` |
+| **.ssp'den geri yüklenmez** | `main.py` | `_VIEW_ONLY_PREF_KEYS` + `load_project` restore |
+| Kutular | `ui/tabs/process_tab.py` | `cb_show_tip_paths`, `cb_show_rapids` (ikisi de `redraw_paths_cached()`) |
+
+**KURAL:** uç kayması PASO + HIZLI HAREKET + NOKTA üçgenini BİRLİKTE kaydırmalı.
+Hızlı hareket bir pasonun bittiği yerden başlar; biri kayıp diğeri kalmazsa
+çizgiler buluşmaz. Test: `_test_view_toggles.py` (4 kombinasyon → AYNI G-code).
+
+**Yeni görsel-only anahtar eklersen `_VIEW_ONLY_PREF_KEYS`'e de ekle**, yoksa
+başkasının .ssp'si operatörün görünümünü sessizce değiştirir.
 
 ### 13. Görsel / kamera ayarları
 | Ne | Dosya | Satır/Fonksiyon |

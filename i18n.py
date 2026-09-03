@@ -98,6 +98,7 @@ STRINGS = {
     "op_type_finishing":    {"EN": "Finishing",                     "TR": "Bitirme",                    "ES": "Acabado"},
     "op_type_cutting":      {"EN": "Cutting",                       "TR": "Kesme",                      "ES": "Corte"},
     "op_type_bending":      {"EN": "Bending",                       "TR": "Kıvırma",                    "ES": "Doblado"},
+    "op_type_point":        {"EN": "Point",                         "TR": "Nokta",                      "ES": "Punto"},
     "vp_speed":             {"EN": "Speed",                         "TR": "Hız",                        "ES": "Velocidad"},
     "vp_feed":              {"EN": "Feed",                          "TR": "Besleme",                    "ES": "Avance"},
     "vp_back_pass":         {"EN": "Back Pass",                     "TR": "Geri Pas",                   "ES": "Pasada Inversa"},
@@ -660,6 +661,7 @@ STRINGS = {
     "cb_show_heatmap":      {"EN": "Show Collision Heatmap",        "TR": "Çarpışma Haritasını Göster", "ES": "Mostrar Mapa de Calor"},
     "cb_show_deformed_blank": {"EN": "Show Bent-Sheet Overlay",     "TR": "Bükülmüş Sac Kaplamasını Göster", "ES": "Mostrar Superposición de Chapa Doblada"},
     "cb_show_blank_edge":     {"EN": "Show Predicted Sheet Edge",   "TR": "Tahmini Sac Kenarını Göster",     "ES": "Mostrar Borde de Chapa Estimado"},
+    "cb_show_rapids":         {"EN": "Show Rapid (G0) Moves",       "TR": "Hızlı (G0) Hareketleri Göster",   "ES": "Mostrar Movimientos Rápidos (G0)"},
     "btn_save_cam_angle":   {"EN": "Save Current Angle",            "TR": "Mevcut Açıyı Kaydet",        "ES": "Guardar Ángulo Actual"},
     "btn_reset_cam":        {"EN": "Reset Camera",                  "TR": "Kamerayı Sıfırla",           "ES": "Restablecer Cámara"},
     "lbl_cam_presets":      {"EN": "Camera Presets:",               "TR": "Kamera Önayarları:",         "ES": "Presets de Cámara:"},
@@ -959,6 +961,7 @@ STRINGS = {
     "btn_add_finish":       {"EN": "+ Finish",                      "TR": "+ Bitirme",                  "ES": "+ Acabado"},
     "btn_add_cut":          {"EN": "+ Cut",                         "TR": "+ Kes",                      "ES": "+ Corte"},
     "btn_add_bend":         {"EN": "+ Bend",                        "TR": "+ Kıv",                      "ES": "+ Doblar"},
+    "btn_add_point":        {"EN": "+ Point",                       "TR": "+ Nokta",                    "ES": "+ Punto"},
     "btn_del_op":           {"EN": "Delete",                        "TR": "Sil",                        "ES": "Eliminar"},
     "msg_confirm_del_multi": {"EN": "Delete {n} operations?",        "TR": "{n} operasyon silinsin mi?", "ES": "¿Eliminar {n} operaciones?"},
     "btn_tools":            {"EN": "Tools",                         "TR": "Takımlar",                   "ES": "Herram."},
@@ -1178,9 +1181,15 @@ STRINGS = {
     "sug_note_passes":      {"EN": "{n} roughing passes: total bend {bend:.0f}° ÷ {per:.0f}°/pass allowed for this material.",
                              "TR": "{n} kaba paso: toplam bükme {bend:.0f}° ÷ bu malzeme için paso başına izin verilen {per:.0f}°.",
                              "ES": "{n} pasadas de desbaste: curvatura total {bend:.0f}° ÷ {per:.0f}°/pasada permitido para este material."},
-    "sug_note_passangle":   {"EN": "Pass angle starts at {first:.0f}° and fans to 180°, so the last pass lays the material along the surface.",
-                             "TR": "Paso açısı {first:.0f}°'den başlar ve 180°'ye yayılır; son paso malzemeyi yüzey boyunca yatırır.",
-                             "ES": "El ángulo comienza en {first:.0f}° y se abre hasta 180°; la última pasada tiende el material sobre la superficie."},
+    "sug_note_passangle":   {"EN": "Pass angle fans {first:.0f}° → {last:.0f}°: 90° is flat, and {last:.0f}° = 90° + the {bend:.0f}° wall angle, so the last pass lays the sheet on the wall. It stops there — 180° would aim the roller back over the part.",
+                             "TR": "Paso açısı {first:.0f}° → {last:.0f}° yayılır: 90° düz demek, {last:.0f}° = 90° + {bend:.0f}° duvar açısı; son paso sacı duvara yatırır. Orada durur — 180° ruloyu parçanın üstüne geri çevirirdi.",
+                             "ES": "El ángulo se abre {first:.0f}° → {last:.0f}°: 90° es plano y {last:.0f}° = 90° + el ángulo de pared {bend:.0f}°, así la última pasada tiende la chapa sobre la pared. Ahí se detiene — 180° apuntaría el rodillo de vuelta sobre la pieza."},
+    "sug_note_arm":         {"EN": "Approach arm X0 / Z3 with pass shape linear_approach and step 0.5 — the geometry both of your existing programs use.",
+                             "TR": "Yaklaşım kolu X0 / Z3, pas şekli linear_approach, adım 0.5 — mevcut iki programınızın da kullandığı geometri.",
+                             "ES": "Brazo de aproximación X0 / Z3, forma linear_approach y paso 0.5 — la geometría que usan sus dos programas existentes."},
+    "sug_note_follow":      {"EN": "Follow the sheet is ON at factor 1.0: each pass reaches the sheet edge that is actually left, instead of a fixed length.",
+                             "TR": "Sacı takip et AÇIK, çarpan 1.0: her paso sabit bir uzunluk yerine gerçekten kalan sac kenarına uzanır.",
+                             "ES": "Seguir la chapa ACTIVADO con factor 1.0: cada pasada alcanza el borde de chapa que realmente queda, no una longitud fija."},
     "sug_note_rpm":         {"EN": "{rpm:.0f} RPM = {v:.0f} m/min surface speed at the Ø{d:.0f} mm major diameter.",
                              "TR": "{rpm:.0f} RPM = Ø{d:.0f} mm en büyük çapta {v:.0f} m/dak yüzey hızı.",
                              "ES": "{rpm:.0f} RPM = {v:.0f} m/min de velocidad superficial en el diámetro mayor Ø{d:.0f} mm."},
@@ -1252,6 +1261,7 @@ STRINGS = {
     "col_cat_back":         {"EN": "Back pass",                     "TR": "Geri pas",                   "ES": "Pasada de retorno"},
     "col_cat_cutting":      {"EN": "Cutting",                       "TR": "Kesme",                      "ES": "Corte"},
     "col_cat_bending":      {"EN": "Bending",                       "TR": "Kıvırma",                    "ES": "Doblado"},
+    "col_cat_point":        {"EN": "Point (position)",              "TR": "Nokta (konum)",              "ES": "Punto (posición)"},
     "col_pick_title":       {"EN": "Pick a pass color",             "TR": "Pas rengi seç",              "ES": "Elegir color de pasada"},
     "btn_colors_reset":     {"EN": "Reset colors",                  "TR": "Renkleri sıfırla",           "ES": "Restablecer colores"},
     "lbl_speed_feed":       {"EN": "Speed & Feed",                  "TR": "Hız & Besleme",              "ES": "Velocidad & Avance"},
@@ -1748,6 +1758,116 @@ STRINGS = {
     "lbl_bend_start_z":     {"EN": "Start Z",                       "TR": "Başlangıç Z",                "ES": "Inicio Z"},
     "lbl_bend_end_x":       {"EN": "End X",                         "TR": "Bitiş X",                    "ES": "Fin X"},
     "lbl_bend_end_z":       {"EN": "End Z",                         "TR": "Bitiş Z",                    "ES": "Fin Z"},
+    # Pass-retract axis order (2026-09-03). Reuses the opt_point_* mode labels —
+    # one vocabulary for both features, so the operator learns the words once.
+    "lbl_retract_motion":   {"EN": "Retract order",                 "TR": "Çekilme sırası",             "ES": "Orden de retirada"},
+    "tip_retract_motion":   {"EN": "How the roller pulls away after a pass. \"Both together\" is one "
+                                   "diagonal move and is what every program did before this setting "
+                                   "existed. \"X first\" lifts clear of the part and then moves along "
+                                   "it — the safe way to split the move. Splitting costs one extra "
+                                   "recipe line per pass.",
+                             "TR": "Pas bittikten sonra rulonun nasıl uzaklaşacağı. \"İkisi birlikte\" "
+                                   "tek çapraz harekettir ve bu ayar yokken her program böyle "
+                                   "çalışıyordu. \"Önce X\" ruloyu parçadan kaldırır, sonra boyunca "
+                                   "hareket eder — bölmenin güvenli yolu. Bölmek pas başına bir "
+                                   "reçete satırı fazladan yer.",
+                             "ES": "Cómo se aparta el rodillo tras una pasada. \"Ambos a la vez\" es "
+                                   "un movimiento diagonal y es lo que hacía todo programa antes de "
+                                   "este ajuste. \"Primero X\" separa el rodillo de la pieza y luego "
+                                   "avanza — la forma segura de dividir el movimiento. Dividir cuesta "
+                                   "una línea de receta extra por pasada."},
+    "lbl_retract_zfirst_warn": {"EN": "⚠ Z first drags the roller ALONG the part before it lifts clear — "
+                                      "this can scratch the surface. Use \"X first\" to pull away first.",
+                                "TR": "⚠ Önce Z, rulo daha parçanın ÜZERİNDEYKEN boyunca sürükler — "
+                                      "yüzeyi çizebilir. Önce uzaklaşmak için \"Önce X\" kullanın.",
+                                "ES": "⚠ Primero Z arrastra el rodillo SOBRE la pieza antes de "
+                                      "separarlo — puede rayar la superficie. Use \"Primero X\" para "
+                                      "apartarlo antes."},
+    "status_retract_zfirst": {"EN": "{n} operation(s) retract Z first (op {idx}) — the roller travels along the part before lifting",
+                              "TR": "{n} operasyon önce Z ile çekiliyor (op {idx}) — rulo kalkmadan önce parça boyunca gidiyor",
+                              "ES": "{n} operación(es) se retiran primero en Z (op {idx}) — el rodillo recorre la pieza antes de separarse"},
+    # Point op (2026-09-03): one typed setpoint, no passes.
+    "hdr_point_move":       {"EN": "GO TO POSITION",                "TR": "KONUMA GİT",                 "ES": "IR A POSICIÓN"},
+    # What the Point's position is measured FROM (2026-09-03b).
+    "lbl_point_mode":       {"EN": "Measured from",                 "TR": "Neye göre",                  "ES": "Medido desde"},
+    "opt_point_absolute":   {"EN": "Fixed position",                "TR": "Sabit konum",                "ES": "Posición fija"},
+    "opt_point_surface":    {"EN": "The mandrel surface",           "TR": "Mandrel yüzeyi",             "ES": "La superficie del mandril"},
+    "opt_point_relative":   {"EN": "End of previous pass",          "TR": "Önceki pasın sonu",          "ES": "Fin de la pasada anterior"},
+    "opt_point_home":       {"EN": "Program Start",                 "TR": "Program Başlangıcı",         "ES": "Inicio de Programa"},
+    "tip_point_mode":       {"EN": "\"Fixed position\" stays where you type it. \"The mandrel surface\" "
+                                   "works the X out from the part, the same way a pass does — so the "
+                                   "Point follows the part if the mandrel or the sheet thickness "
+                                   "changes. The other two are an offset from a place that can move.",
+                             "TR": "\"Sabit konum\" yazdığınız yerde kalır. \"Mandrel yüzeyi\" X'i "
+                                   "parçadan hesaplar — tıpkı bir pas gibi — böylece mandrel veya sac "
+                                   "kalınlığı değişince Nokta da parçayı takip eder. Diğer ikisi "
+                                   "hareket edebilen bir yere göre ofsettir.",
+                             "ES": "\"Posición fija\" se queda donde la escribe. \"La superficie del "
+                                   "mandril\" calcula la X a partir de la pieza, igual que una pasada, "
+                                   "así el Punto sigue a la pieza si cambia el mandril o el espesor. "
+                                   "Las otras dos son un desplazamiento desde un sitio que puede moverse."},
+    "lbl_point_standoff":   {"EN": "Standoff",                      "TR": "Boşluk",                     "ES": "Separación"},
+    "tip_point_standoff":   {"EN": "How far clear of the sheet surface the roller sits, in mm. 0 puts it "
+                                   "touching — the same place a pass with zero clearance would reach. "
+                                   "The tool radius and the sheet thickness are already accounted for.",
+                             "TR": "Rulonun sac yüzeyinden ne kadar uzakta duracağı (mm). 0 = temas "
+                                   "ediyor; sıfır boşluklu bir pasın ulaşacağı yerin aynısı. Takım "
+                                   "yarıçapı ve sac kalınlığı zaten hesaba katılmıştır.",
+                             "ES": "A qué distancia de la superficie de la chapa queda el rodillo, en mm. "
+                                   "0 lo deja tocando — el mismo sitio al que llegaría una pasada con "
+                                   "holgura cero. El radio de la herramienta y el espesor ya están incluidos."},
+    "lbl_point_resolved_x": {"EN": "→ X works out to",              "TR": "→ X şu oluyor",              "ES": "→ X resulta"},
+    "lbl_point_dx":         {"EN": "Offset X (ΔX)",                 "TR": "Ofset X (ΔX)",               "ES": "Desplaz. X (ΔX)"},
+    "lbl_point_dz":         {"EN": "Offset Z (ΔZ)",                 "TR": "Ofset Z (ΔZ)",               "ES": "Desplaz. Z (ΔZ)"},
+    "tip_point_dx":         {"EN": "How far to move in X from the anchor. Positive is away from the part.",
+                             "TR": "Çıpadan X'te ne kadar gidileceği. Pozitif = parçadan uzağa.",
+                             "ES": "Cuánto moverse en X desde el anclaje. Positivo se aleja de la pieza."},
+    "tip_point_dz":         {"EN": "How far to move in Z from the anchor.",
+                             "TR": "Çıpadan Z'de ne kadar gidileceği.",
+                             "ES": "Cuánto moverse en Z desde el anclaje."},
+    "lbl_point_anchor_prev": {"EN": "Measured from where the previous pass finished cutting — before its retract.",
+                              "TR": "Önceki pasın kesmeyi bitirdiği yerden ölçülür — geri çekilmesinden ÖNCE.",
+                              "ES": "Medido desde donde terminó de cortar la pasada anterior — antes de su retirada."},
+    "lbl_point_anchor_home": {"EN": "Measured from the machine's Program Start point.",
+                              "TR": "Makinenin Program Başlangıcı noktasından ölçülür.",
+                              "ES": "Medido desde el punto de Inicio de Programa de la máquina."},
+    "tip_point_z_surface":  {"EN": "Height on the mandrel to go to. The X is worked out from the mandrel "
+                                   "radius at this height, so this is the only position you type.",
+                             "TR": "Mandrel üzerinde gidilecek yükseklik. X, bu yükseklikteki mandrel "
+                                   "yarıçapından hesaplanır; yazdığınız tek konum budur.",
+                             "ES": "Altura en el mandril a la que ir. La X se calcula del radio del mandril "
+                                   "a esa altura, así que es la única posición que escribe."},
+    "status_point_offmandrel": {"EN": "{n} Point op(s) measured from the mandrel have a Z off the profile (op {idx}) — check the height",
+                                "TR": "{n} Nokta op'unun mandrel Z'si profil dışında (op {idx}) — yüksekliği kontrol edin",
+                                "ES": "{n} Punto(s) medidos desde el mandril tienen una Z fuera del perfil (op {idx}) — revise la altura"},
+    "lbl_point_x":          {"EN": "Point X",                       "TR": "Nokta X",                    "ES": "Punto X"},
+    "lbl_point_z":          {"EN": "Point Z",                       "TR": "Nokta Z",                    "ES": "Punto Z"},
+    "lbl_point_motion":     {"EN": "Axis order",                    "TR": "Eksen sırası",               "ES": "Orden de ejes"},
+    "lbl_point_rapid":      {"EN": "Rapid (G0)",                    "TR": "Hızlı (G0)",                 "ES": "Rápido (G0)"},
+    "opt_point_sync":       {"EN": "Both together",                 "TR": "İkisi birlikte",             "ES": "Ambos a la vez"},
+    "opt_point_x_first":    {"EN": "X first, then Z",               "TR": "Önce X, sonra Z",            "ES": "Primero X, luego Z"},
+    "opt_point_z_first":    {"EN": "Z first, then X",               "TR": "Önce Z, sonra X",            "ES": "Primero Z, luego X"},
+    "tip_point_x":          {"EN": "X the roller moves to. This is the machine X you read on the DRO.",
+                             "TR": "Rulonun gideceği X. Makinede (DRO) okuduğunuz X değeridir.",
+                             "ES": "X a la que se mueve el rodillo. Es la X de máquina que lee en el DRO."},
+    "tip_point_z":          {"EN": "Z the roller moves to.",
+                             "TR": "Rulonun gideceği Z.",
+                             "ES": "Z a la que se mueve el rodillo."},
+    "tip_point_motion":     {"EN": "How the two axes travel. \"Both together\" is one diagonal move. "
+                                   "\"X first\" moves X all the way, then Z. \"Z first\" moves Z, then X. "
+                                   "Splitting the move costs one extra recipe line.",
+                             "TR": "İki eksenin nasıl hareket edeceği. \"İkisi birlikte\" tek çapraz harekettir. "
+                                   "\"Önce X\" X'i tamamen götürür, sonra Z'yi. \"Önce Z\" önce Z'yi götürür. "
+                                   "Hareketi bölmek bir reçete satırı fazladan yer.",
+                             "ES": "Cómo viajan los dos ejes. \"Ambos a la vez\" es un movimiento diagonal. "
+                                   "\"Primero X\" mueve X del todo y luego Z. \"Primero Z\" mueve Z y luego X. "
+                                   "Dividir el movimiento cuesta una línea de receta extra."},
+    "tip_point_rapid":      {"EN": "On: the machine goes there at rapid speed (G0). "
+                                   "Off: it goes at this operation's Feed (G1) — for easing into a fixture.",
+                             "TR": "Açık: makine oraya hızlı gider (G0). "
+                                   "Kapalı: bu operasyonun Besleme hızıyla gider (G1) — bir aparata yavaş yanaşmak için.",
+                             "ES": "Activado: la máquina va a velocidad rápida (G0). "
+                                   "Desactivado: va al Avance de esta operación (G1) — para acercarse despacio a un utillaje."},
     "lbl_flat_hint":        {"EN": "Flat section from Z ≈ {} mm  →  recommended Zone Start Z",
                              "TR": "Düz bölge Z ≈ {} mm'den itibaren  →  önerilen Bölge Başlangıç Z",
                              "ES": "Sección plana desde Z ≈ {} mm  →  Inicio de Zona Z recomendado"},

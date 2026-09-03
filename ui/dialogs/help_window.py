@@ -156,6 +156,26 @@ Coloured lines     Toolpaths. Colour = operation category:
                      Maroon  = bending
                      Magenta = the pass you are editing
 
+Orange dashed      Rapid (G0) moves — the roller travelling between
+                   passes, not cutting. Hide them with Process tab
+                   → "Show Rapid (G0) Moves" when a long program
+                   gets too busy to read. Hiding is a VIEW change
+                   only: the moves still happen and the G-code and
+                   recipe are unchanged.
+
+Grey triangle      A Point operation's position. It marks where the
+                   machine is told to go; it is not a toolpath.
+
+"Draw at roller tip" (Process tab) moves the drawn lines in by the
+tool radius so you see where the sheet is actually formed. It moves
+the passes, the rapid lines AND the Point triangles together — they
+have to agree, or the rapids stop meeting the passes they connect
+and the triangles sit a tool-radius away from the lines you are
+reading them against.
+
+Both of these are YOUR view settings, not part of the program.
+Opening someone else's .ssp will not change them.
+
                    A reverse pass takes its own colour instead of
                    its operation's — telling forward from reverse
                    at a glance is the point. The pass being
@@ -284,6 +304,27 @@ Renkli çizgiler     Takım yolları. Renk = operasyon kategorisi:
                       Bordo       = kıvırma
                       Macenta     = düzenlediğin pas
 
+Turuncu kesikli     Hızlı (G0) hareketler — rulonun pasolar arasında
+                    kesmeden gittiği yollar. Uzun bir programda
+                    görüntü kalabalıklaşırsa Proses sekmesi →
+                    "Hızlı (G0) Hareketleri Göster" ile gizle.
+                    Gizlemek SADECE görünümü değiştirir: hareketler
+                    olduğu gibi kalır, G-code ve reçete AYNIDIR.
+
+Gri üçgen           Bir Nokta operasyonunun konumu. Makineye
+                    gitmesi söylenen yeri gösterir; takım yolu
+                    değildir.
+
+"Rulo ucunda çiz" (Proses sekmesi) çizilen çizgileri takım yarıçapı
+kadar içeri alır, böylece sacın gerçekte nerede şekillendiğini
+görürsün. Pasoları, turuncu hızlı hareket çizgilerini VE Nokta
+üçgenlerini BİRLİKTE kaydırır — kaydırmasa hızlı hareketler
+bağladıkları pasolarla buluşmaz, üçgenler de okundukları
+çizgilerden bir takım yarıçapı uzakta kalırdı.
+
+Bu iki ayar SENİN görünüm tercihindir, programın parçası değildir.
+Başkasının .ssp'sini açmak bunları DEĞİŞTİRMEZ.
+
                     Ters pas, operasyonunun rengi yerine kendi
                     rengini alır — ileri ile tersi bir bakışta
                     ayırmak bu özelliğin amacıdır. Düzenlenen pas
@@ -373,11 +414,17 @@ Kenarı            KENARININ nerede olduğu tahminini halka olarak
                    tek bir pası değil TÜM pasları birden gösterir,
                    bu yüzden pas değiştirdikçe değişmez. Halkalar
                    yukarı çıktıkça daralır — sac tükendiğinde çizilmez.
+                   Flanş DÜZ yatmaz: makara sacı P2→P3 çıkış yönünde
+                   sürükler, bu yüzden halkalar pas açısı yelpazelendikçe
+                   yükselir. Aynı malzeme miktarı korunur (alan eşitliği),
+                   sadece eğik durur.
                    "Tahmini Sac Kenarını Göster" ile aç/kapat.
                    SADECE görsel — takım yolunu veya G-code'u etkilemez.
-                   TAHMİNDİR: model sabit kalınlık ve düz flanş varsayar
-                   (incelme ve kenarın geri kıvrılması hesaba katılmaz),
-                   bu yüzden kenarın geri çekilme BİÇİMİ doğrudur,
+                   TAHMİNDİR: model sabit kalınlık ve DÜZ (kırıksız) bir
+                   flanş varsayar; gerçekte sac P2 ile P3 arasında makaranın
+                   üzerine sarılırken KIVRILIR ve ancak daha dışarıda
+                   düzleşir. İncelme ve kenarın geri kıvrılması da hesaba
+                   katılmaz. Bu yüzden kenarın geri çekilme BİÇİMİ doğrudur,
                    kesin yarıçap DEĞİLDİR. Sac çapı tanımlı değilse
                    hiçbir şey çizilmez.
 
@@ -408,6 +455,90 @@ Cutting        A single pass that scores or cuts the material.
 Bending        A single pass that bends the flange or rim at the
                edge of the part.
 
+Point          Not a pass at all: the machine simply goes to one
+               position you type and stops. Use it to park the
+               roller, to clear a fixture, or to change the tool at
+               a place you choose.
+
+POINT OPERATION  (go to a position)
+════════════════════════════════════════════════════════════════
+Every other operation moves the axes only as a side effect of
+making a pass. A Point is the one that just moves.
+
+  Measured from       what the position is measured FROM. See below.
+
+  Axis order          how the two axes travel:
+                        Both together   one diagonal move (default)
+                        X first, then Z  X goes all the way, then Z
+                        Z first, then X  Z goes first, then X
+                      Splitting the move costs ONE extra recipe
+                      line, which matters against the 1000-line
+                      limit on long programs.
+
+  Rapid (G0)          ticked (default) = go at rapid speed.
+                      Unticked = go at this operation's Feed,
+                      for easing into a fixture instead of
+                      arriving at full speed.
+
+  Tool                give the Point a DIFFERENT tool than the
+                      operation before it and the tool change
+                      happens here, at a place you picked, instead
+                      of wherever the last pass happened to end.
+
+A Point has NO retract, on purpose. A retract runs after the move,
+so it would immediately undo the position you just asked for. To
+leave a point in a controlled way, add a second Point — it stays
+visible in the operation list instead of hiding in a field.
+
+A Point makes no toolpath and counts as no pass: it does not appear
+in the pass table, has no reach or angle to fit, and cannot be
+split or united. In the 3D view it is a grey TRIANGLE at the
+position it drives to.
+
+WHAT A POINT IS MEASURED FROM
+════════════════════════════════════════════════════════════════
+A PASS does not work like a fixed position. You give a pass its
+Zone Start Z, and the software works the X out from the part:
+
+    X = mandrel radius at that Z + tool radius + sheet + clearance
+
+So a pass FOLLOWS the part. Change the mandrel or the sheet
+thickness and every pass moves with it. A fixed Point does not.
+"Measured from" lets a Point behave the same way:
+
+  Fixed position          Point X / Point Z, exactly as typed, and
+  (default)               they never move. Point X is MACHINE X —
+                          the number you read on the DRO, like the
+                          cutting/bending fields. NOT a part radius.
+
+  The mandrel surface     You type Point Z and a STANDOFF; the X is
+                          worked out from the part, the same way a
+                          pass does. Standoff 0 sits touching the
+                          sheet — the tool radius and sheet
+                          thickness are already counted. The
+                          resolved X is shown under the field so
+                          you can check it against the DRO.
+                          If Point Z falls off the end of the
+                          mandrel you get a warning: the radius
+                          reading is clamped there, so the X would
+                          not be the number you meant.
+
+  End of previous pass    ΔX / ΔZ from where the previous pass
+                          finished CUTTING — before its retract.
+                          (The retract is not the anchor: the
+                          G-code side has no equivalent of it, and
+                          using it would make the 3D view and the
+                          program disagree.)
+
+  Program Start           ΔX / ΔZ from the machine's Program Start
+                          point. For park positions that should
+                          follow the home setting.
+
+ΔX keeps the sign you type: +20 always raises X, on either roller
+side. (That is unlike Retract X, where the sign is ignored and the
+direction comes from the machine — a retract means "get clear",
+while a Point is a position you aimed at.)
+
 CUTTING / BENDING GEOMETRY  (Start X/Z → End X/Z)
 ════════════════════════════════════════════════════════════════
 Both types are one straight feed line. You type BOTH ends:
@@ -423,6 +554,32 @@ is the feed used for that line.
 Retract X / Retract Z behave exactly like they do on a roughing
 pass: they pull the tool away AFTER the move and have no effect on
 how far it travels.
+
+RETRACT ORDER  (which axis moves first)
+════════════════════════════════════════════════════════════════
+The retract runs AFTER a pass, from the point where the pass ended.
+Every operation type that has a retract can choose how it leaves:
+
+  Both together    one diagonal move. The default, and what every
+                   program did before this setting existed.
+  X first, then Z  lift clear of the part, THEN travel along it.
+  Z first, then X  travel along the part, THEN lift clear.
+
+⚠ Z FIRST CAN SCRATCH THE PART. The retract starts with the roller
+still ON the work, so moving Z first drags it along the surface for
+the whole Z offset before lifting. X first pulls clear before
+travelling and is the safe way to split the move. The software
+warns but does not stop you — if you have measured your setup and
+want it, you can have it.
+
+(The tool-change retract moves Z first and is fine, because by then
+the pass retract has already lifted the roller off the work. Same
+order, completely different starting point.)
+
+Splitting the move costs ONE EXTRA LINE per retract in the machine
+recipe. On a program with 250 passes that is 250 extra lines
+against the 1000-line limit — check the capacity figure in the SCL
+export dialog before committing to it on a long program.
 
 X values are MACHINE X of the tool reference point (what the DRO
 reads) — the contact point sits r_tool further in. They are NOT the
@@ -1014,7 +1171,7 @@ Large programs expose dozens of parameters per operation, most of
 which you rarely touch. Two controls tame this:
 
   - "Customize…" opens a window with one tab per operation type
-    (Roughing / Finishing / Cutting / Bending). For each parameter
+    (Roughing / Finishing / Cutting / Bending / Point). For each parameter
     the type can use, tick "Column" to add it as a column in the
     operations table (so you can compare operations at a glance),
     and/or "Advanced" to hide it from the property editor. A
@@ -1117,7 +1274,17 @@ OPERATION SUGGESTER (✨Suggest BUTTON)
 The Suggest button proposes a roughing + finishing sequence from
 the loaded mandrel profile and a material table. It estimates:
   - roughing pass count from the part's total wall angle,
-  - the pass-angle fan (first pass angle, spreading to 180°),
+  - the pass-angle fan: it starts at 90° + one material angle
+    increment and ends at 90° + the wall angle, i.e. with the
+    sheet lying ON the wall. 90° means flat. The fan used to end
+    at a fixed 180°, which is right only for a cylinder — on
+    anything shallower it aimed the last exit back over the part.
+  - approach arm X0 / Z3, pass shape linear_approach, step 0.5 —
+    the geometry the shop's own programs use. linear_approach
+    also pins the approach to vertical, which is what makes the
+    pass-angle numbers above mean what they say.
+  - "Follow the sheet" ON at factor 1.0, so each pass reaches the
+    sheet edge actually left instead of a fixed length,
   - spindle RPM from the material surface speed,
   - feeds (mm/min) from the material's mm/rev values,
   - back pass on/off (ironing stroke when the wall is steep
@@ -1274,6 +1441,86 @@ Kesme (Cutting)      Malzemeyi çizen veya kesen tek bir paso.
 Bükme (Bending)      Parçanın kenarındaki flanş veya kenarı büken
                      tek bir paso.
 
+Nokta (Point)        Paso DEĞİLDİR: makine yazdığınız tek bir
+                     konuma gider ve durur. Ruloyu park etmek, bir
+                     aparattan uzaklaşmak veya takımı SİZİN
+                     seçtiğiniz yerde değiştirmek için kullanın.
+
+NOKTA OPERASYONU  (bir konuma git)
+════════════════════════════════════════════════════════════════
+Diğer bütün operasyonlar eksenleri ancak bir paso yaparken, yan
+etki olarak hareket ettirir. Nokta, sadece hareket eden tek tiptir.
+
+  Neye göre          konumun neye göre ölçüleceği. Aşağıya bakın.
+
+  Eksen sırası       iki eksenin nasıl gideceği:
+                       İkisi birlikte  tek çapraz hareket (varsayılan)
+                       Önce X, sonra Z  X tamamen gider, sonra Z
+                       Önce Z, sonra X  önce Z gider, sonra X
+                     Hareketi bölmek BİR reçete satırı fazladan
+                     yer; uzun programlarda 1000 satır sınırına
+                     karşı bu önemlidir.
+
+  Hızlı (G0)         işaretli (varsayılan) = hızlı gider.
+                     İşareti kaldırırsanız bu operasyonun Besleme
+                     hızıyla gider — bir aparata tam hızla
+                     çarpmak yerine yavaşça yanaşmak için.
+
+  Takım              Noktaya bir ÖNCEKİ operasyondan FARKLI bir
+                     takım verirseniz takım değişimi burada, sizin
+                     seçtiğiniz yerde olur; son pasonun rastgele
+                     bittiği yerde değil.
+
+Noktanın geri çekilmesi YOKTUR, bilerek. Geri çekilme hareketten
+SONRA çalışır, yani az önce istediğiniz konumu hemen bozardı. Bir
+noktadan kontrollü ayrılmak için ikinci bir Nokta ekleyin — böylece
+bir alanın içinde saklanmak yerine operasyon listesinde görünür.
+
+Nokta takım yolu üretmez ve paso sayılmaz: pas tablosunda çıkmaz,
+uydurulacak bir erişim/açısı yoktur, bölünemez ve birleştirilemez.
+3B görünümde gittiği konumda GRİ bir ÜÇGEN olarak görünür.
+
+NOKTA NEYE GÖRE ÖLÇÜLÜR
+════════════════════════════════════════════════════════════════
+PASO sabit bir konum gibi çalışmaz. Pasoya Bölge Başlangıç Z'sini
+verirsiniz, X'i program parçadan hesaplar:
+
+    X = o Z'deki mandrel yarıçapı + takım yarıçapı + sac + boşluk
+
+Yani paso parçayı TAKİP EDER. Mandrel veya sac kalınlığı değişince
+bütün pasolar onunla birlikte kayar. Sabit bir Nokta kaymaz.
+"Neye göre" seçeneği Noktaya da aynı davranışı kazandırır:
+
+  Sabit konum           Nokta X / Nokta Z aynen yazdığınız gibi
+  (varsayılan)          kalır, asla kaymaz. Nokta X MAKİNE X'idir
+                        — DRO'da okuduğunuz sayı, kesme/kıvırma
+                        alanları gibi. Parça yarıçapı DEĞİLDİR.
+
+  Mandrel yüzeyi        Nokta Z ve bir BOŞLUK yazarsınız; X parçadan
+                        hesaplanır, tıpkı bir paso gibi. Boşluk 0 =
+                        saca temas ediyor; takım yarıçapı ve sac
+                        kalınlığı zaten sayılmıştır. Hesaplanan X
+                        alanın altında gösterilir, DRO ile
+                        karşılaştırabilirsiniz. Nokta Z mandrelin
+                        dışına düşerse UYARI çıkar: orada yarıçap
+                        okuması kırpılır, yani X kastettiğiniz sayı
+                        olmaz.
+
+  Önceki pasın sonu     Önceki pasın KESMEYİ bitirdiği yerden ΔX /
+                        ΔZ — geri çekilmesinden ÖNCE. (Geri çekilme
+                        çıpa değildir: G-code tarafında onun
+                        karşılığı yok, kullanılsaydı 3B görünüm ile
+                        program birbirini tutmazdı.)
+
+  Program Başlangıcı    Makinenin Program Başlangıcı noktasından
+                        ΔX / ΔZ. Home ayarını takip etmesi gereken
+                        park konumları için.
+
+ΔX yazdığınız işareti KORUR: +20 her iki rulo tarafında da X'i
+artırır. (Geri Çekilme X'ten farklı: orada işaret YOK SAYILIR ve
+yön makineden gelir — geri çekilme "uzaklaş" demektir, Nokta ise
+nişan aldığınız bir konumdur.)
+
 KESME / KIVIRMA GEOMETRİSİ  (Başlangıç X/Z → Bitiş X/Z)
 ════════════════════════════════════════════════════════════════
 Her iki tip de tek bir düz besleme çizgisidir. İKİ ucu da siz
@@ -1291,6 +1538,32 @@ değeri bu çizginin besleme hızıdır.
 Geri Çekilme X / Z artık roughing ile birebir aynı davranır:
 hareket BİTTİKTEN sonra takımı uzaklaştırır, hareketin uzunluğunu
 ETKİLEMEZ.
+
+ÇEKİLME SIRASI  (hangi eksen önce hareket eder)
+════════════════════════════════════════════════════════════════
+Geri çekilme pastan SONRA, pasın bittiği noktadan başlar. Geri
+çekilmesi olan her operasyon tipi nasıl ayrılacağını seçebilir:
+
+  İkisi birlikte   tek çapraz hareket. Varsayılan; bu ayar yokken
+                   her program böyle çalışıyordu.
+  Önce X, sonra Z  önce parçadan kalk, SONRA boyunca git.
+  Önce Z, sonra X  önce parça boyunca git, SONRA kalk.
+
+⚠ ÖNCE Z PARÇAYI ÇİZEBİLİR. Geri çekilme, rulo daha iş parçasının
+ÜZERİNDEYKEN başlar; önce Z hareket ederse rulo kalkmadan önce tüm
+Z ofseti boyunca yüzeyi sürterek gider. Önce X, gitmeden önce
+kaldırır — hareketi bölmenin güvenli yolu budur. Program uyarır
+ama ENGELLEMEZ: kendi düzeneğini ölçmüş biri bunu bilerek
+isteyebilir.
+
+(Takım değişimi geri çekilmesi önce Z gider ve sorun değildir:
+oraya gelindiğinde pas geri çekilmesi ruloyu zaten kaldırmıştır.
+Aynı sıra, tamamen farklı başlangıç noktası.)
+
+Hareketi bölmek reçetede geri çekilme başına BİR SATIR fazladan
+yer. 250 paslık bir programda bu 1000 satır sınırına karşı 250
+fazladan satır demektir — uzun bir programda buna karar vermeden
+önce SCL dışa aktarma penceresindeki kapasite sayısına bak.
 
 X değerleri takım referans noktasının MAKİNE X'idir (DRO'da okunan
 değer) — temas noktası r_tool kadar daha içeridedir. Mandrel yüzey
@@ -1373,6 +1646,17 @@ Bir durum satırı operasyonun hangi ÇIKIŞ MODUNDA olduğunu gösterir:
     Flanş modeli hesaplanamıyorsa (Sac Yarıçapı yok) mod
     açılmaz ve dürüstçe söylenir. Geçişin kendisi Ctrl+Z ile
     geri alınır.
+      2026-09-03'ten beri: flanş modeli sacın YANA ne kadar
+      taştığını verir, ama strok yana değil ÇIKIŞ YÖNÜNDE
+      gider ve aynı malzeme eğik dururken daha UZUNDUR. Artık
+      bu fark ekleniyor, yani Sac çarpanı = 1.0 gerçekten
+      "sacın ucuna değ" demek. Düz çıkışta hiçbir şey değişmez;
+      fark pas açısıyla büyür (40°'de ~%6, 60°'de ~%14,
+      90°'de ~%41). Daha önce operatörler bu eksiği çarpanı
+      1.2–1.5 yaparak elle kapatıyordu — o programlarda çarpanı
+      1.0'a geri çekmen gerekir. Makinede kanıtlanmış bir
+      programı hiç oynatmak istemiyorsan operasyona
+      `reach_blank_flat_legacy: true` koy, eski kısa strok döner.
   • "Doldur ⟲" (Elle modunda) — reach'i sactan BİR KEZ tahmin
     edip alana doldurur; Ctrl+Z ile geri alınır.
 
@@ -1893,7 +2177,17 @@ OPERASYON ÖNERİCİ (✨ÖNER DÜĞMESİ)
 Öner düğmesi, yüklü mandrel profilinden ve bir malzeme tablosundan
 kaba + bitirme operasyon dizisi önerir. Tahmin ettikleri:
   - parçanın toplam duvar açısından kaba paso sayısı,
-  - paso açısı yelpazesi (ilk paso açısı, 180°'ye yayılır),
+  - paso açısı yelpazesi: 90° + malzemenin bir açı adımından
+    başlar, 90° + duvar açısında biter — yani son paso sacı
+    DUVARA yatırır. 90° düz demektir. Eskiden sabit 180°'de
+    bitiyordu; bu yalnızca silindir için doğrudur, daha yatık
+    parçalarda son çıkışı parçanın ÜSTÜNE geri çeviriyordu.
+  - yaklaşım kolu X0 / Z3, pas şekli linear_approach, adım 0.5 —
+    atölyenin kendi programlarının kullandığı geometri.
+    linear_approach yaklaşımı dikeye sabitler; yukarıdaki paso
+    açısı sayılarını anlamlı kılan da budur.
+  - "Sacı takip et" AÇIK, çarpan 1.0 — her paso sabit bir uzunluk
+    yerine gerçekten kalan sac kenarına uzanır,
   - malzeme yüzey hızından mil devri (RPM),
   - malzemenin mm/dev değerlerinden beslemeler (mm/dak),
   - geri pas açık/kapalı (duvar açısı flanşta kırışma riski

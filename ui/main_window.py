@@ -514,6 +514,58 @@ class SpinningCamWindow(tk.Tk):
         except Exception:
             pass
 
+    def refresh_point_status(self):
+        """Surface Point ops measured from the mandrel whose Z falls off the
+        profile. Reads path_gen.last_point_warnings (set by calculate_paths).
+
+        Amber, no modal. Unlike the Z-first retract note this IS a mistake rather
+        than a deliberate choice — a Z past the end of the mandrel reads a
+        clamped radius, so the resolved X is not the number the operator meant —
+        but it is visible in the editor as soon as they look (the resolved X is
+        printed under the field), so a modal would be redundant.
+        """
+        try:
+            pw = getattr(self.app.path_gen, "last_point_warnings", None) or []
+            if not pw:
+                return
+            self.lbl_info.config(
+                text=t("status_point_offmandrel").format(
+                    n=len(pw), idx=pw[0]["op_index"] + 1),
+                fg="#ffb020")
+        except Exception:
+            pass
+
+    def refresh_retract_motion_status(self):
+        """Surface ops whose retract moves Z FIRST — dragging the roller along the
+        part before lifting it clear.
+
+        Reads path_gen.last_retract_motion_warnings (set by calculate_paths).
+
+        A CALM status note, no modal — deliberately unlike the clamp and
+        tool-change advisories. Those describe a geometric surprise the operator
+        did not ask for; this one describes a setting they picked on purpose, so
+        it stands until they change it. A modal on every recalculation would be
+        nagging, and the op editor already shows a standing amber line under the
+        dropdown. This exists so the warning still reaches someone who INHERITED
+        the setting from an opened .ssp and never touched the dropdown.
+
+        Lowest priority: clamp / flatness / tool-change keep the status line.
+        """
+        try:
+            rw = getattr(self.app.path_gen, "last_retract_motion_warnings", None) or []
+            if not rw:
+                return
+            for attr in ("last_clamp_warnings", "last_flatness_warnings",
+                         "last_tool_change_warnings"):
+                if getattr(self.app.path_gen, attr, None):
+                    return
+            self.lbl_info.config(
+                text=t("status_retract_zfirst").format(
+                    n=len(rw), idx=rw[0]["op_index"] + 1),
+                fg="#8090a0")
+        except Exception:
+            pass
+
     def _confirm_point_cap_warnings(self):
         """#99: tell the operator when a P2 fillet point cap could NOT be honoured.
 

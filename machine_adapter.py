@@ -11,7 +11,9 @@ class StandardTwoAxisSpinningAdapter(MachineAdapter):
     """Type code 111 — lathe / spinning / two-axis basic (cold)."""
 
     def get_available_op_types(self):
-        return ["roughing", "finishing", "cutting", "bending"]
+        # "point" is a plain positioning move — no geometry, no kinematics of its
+        # own — so it is available on every machine that can move two axes.
+        return ["roughing", "finishing", "cutting", "bending", "point"]
 
     def get_path_generator_class(self):
         from path_generator import PathGenerator

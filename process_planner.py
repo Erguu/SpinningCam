@@ -201,9 +201,24 @@ def analyze_profile(mandrel_mgr) -> dict:
     r_min = float(r.min())
     r_max = float(r.max())
 
-    # Area equivalence: blank disc area = nose face + wall surface (constant
-    # thickness assumption): pi*R^2 = pi*r_min^2 + 2*pi*sum(r*ds)
-    blank_r = math.sqrt(max(0.0, r_min * r_min + 2.0 * float((r_mid * ds).sum())))
+    # Area equivalence: blank disc area = closed flat bottom + wall surface (constant
+    # thickness assumption): pi*R^2 = pi*r_base^2 + 2*pi*sum(r*ds)
+    #
+    # r_base is the radius at the CLAMPED BASE — program zero / min-Z, where the
+    # counter-press holds the closed bottom (user, 2026-09-03). NOT r_min, which is
+    # merely the smallest radius anywhere on the profile. The two coincide only when
+    # the part narrows away from the base; on anything that narrows TOWARD it, r_min
+    # is the open mouth and contributes no disc at all.
+    #
+    # Using r_min here undersized every suggested blank and, worse, disagreed with
+    # estimate_flange_reach below — which integrates from the same base and so needs
+    # the same disc. On the default cone the two answered 89.03 vs 106.89: the
+    # suggester handed out a blank the flange model then declared used up halfway up
+    # the mandrel. A correct blank is consumed exactly AT THE TOP, which is what
+    # matching the two restores.
+    _zb, _rb = (z, r) if z[0] <= z[-1] else (z[::-1], r[::-1])   # ascending in Z
+    r_base = float(_rb[0])
+    blank_r = math.sqrt(max(0.0, r_base * r_base + 2.0 * float((r_mid * ds).sum())))
 
     return {
         "z_min": float(z[0]),
@@ -253,6 +268,73 @@ def estimate_flange_reach(mandrel_mgr, blank_radius, contact_z):
     r_at = float(mandrel_mgr.get_radius_fast(contact_z))
     r_flange = math.sqrt(max(0.0, r_at * r_at + float(blank_radius) ** 2 - rc2))
     return max(0.0, r_flange - r_at)
+
+
+def flange_slant_length(r_contact, flange_reach, exit_dx, exit_dz):
+    """How LONG the leftover flange is once it leans along the exit direction.
+
+    ``estimate_flange_reach`` answers "how far does the sheet stick out SIDEWAYS", which
+    is only the same thing when the exit is flat. Tilt the same material up and it has to
+    be LONGER to cover the same area, because it is wrapped around a smaller mean radius.
+    That extra length is what follow-blank was missing: with the flat number it commands a
+    stroke that stops short of the sheet edge, and the shortfall grows with the pass angle
+    (0% flat, ~5% at 40 deg, ~14% at 60 deg, ~41% at 90 deg on a typical cone).
+
+    Constant-thickness area equivalence, solved for a cone frustum rather than a flat
+    annulus. Leftover area is ``A/pi = 2*r1*fr + fr^2``; a frustum of slant length ``L``
+    from ``r1`` opening at rate ``dx`` has ``A/pi = (r1 + r2)*L`` with ``r2 = r1 + L*dx``,
+    so ``dx*L^2 + 2*r1*L - A/pi = 0``. At ``dx = 1`` this returns ``L = fr`` exactly, so a
+    flat exit is bit-for-bit the old answer.
+
+    BOUND: the direction is clamped at vertical. Past ~90 deg of pass angle the exit vector
+    points INWARD, and following it would fold the flange back over the formed part (a
+    128 deg pass walks a 97mm flange in to r=15mm — not a real sheet). Clamping the
+    DIRECTION and not the LENGTH keeps the material accounting exact.
+
+    Returns ``(L, dx, dz)`` — the slant length and the clamped unit exit direction.
+    """
+    fr = float(flange_reach)
+    r1 = float(r_contact)
+    n = math.hypot(float(exit_dx), float(exit_dz))
+    if n < 1e-9:                       # no exit vector to speak of — treat as flat
+        return max(0.0, fr), 1.0, 0.0
+    dx, dz = float(exit_dx) / n, float(exit_dz) / n
+    dx = max(dx, 0.0)
+    dz = math.copysign(math.sqrt(max(0.0, 1.0 - dx * dx)), dz if dz else 1.0)
+    if fr <= 0.0 or r1 <= 0.0:
+        return 0.0, dx, dz
+    k = 2.0 * r1 * fr + fr * fr        # leftover blank area / pi
+    if dx < 1e-6:                      # flange stands straight up: a cylinder, not a cone
+        L = k / (2.0 * r1)
+    else:
+        L = (math.sqrt(r1 * r1 + dx * k) - r1) / dx
+    return max(0.0, L), dx, dz
+
+
+def flange_edge_along_exit(r_contact, contact_z, flange_reach, exit_dx, exit_dz):
+    """Where the free flange EDGE sits when the sheet leaves the mandrel ALONG the
+    roller's exit direction, instead of lying flat.
+
+    ``estimate_flange_reach`` returns a RADIAL overhang — it assumes the leftover
+    material forms a flat disc at ``contact_z``. It does not. The roller drags the
+    sheet out along the P2→P3 exit line, so the flange trails away from the contact
+    point at (roughly) the pass angle and CLIMBS with it (user, 2026-09-03).
+
+    The length comes from ``flange_slant_length`` (same area equivalence, cone frustum
+    instead of a flat annulus, direction clamped at vertical); this only walks that length
+    out along the exit and reports where it lands.
+
+    Returns ``(edge_radius, edge_z)``.
+
+    ESTIMATE ONLY, and coarser than the maths suggests: constant thickness, a STRAIGHT
+    flange (the real sheet is curved where it wraps the roller and only straightens
+    further out).
+    KNOWN LIMIT: it uses THIS pass's exit direction, but the flange's real angle is a
+    HISTORY — what earlier passes already bent it to. Early passes on a fresh, still-flat
+    blank are therefore the least trustworthy.
+    """
+    L, dx, dz = flange_slant_length(r_contact, flange_reach, exit_dx, exit_dz)
+    return float(r_contact) + L * dx, float(contact_z) + L * dz
 
 
 def estimate_surface_angle(mandrel_mgr, contact_z, forming_up=True):
@@ -352,16 +434,24 @@ def suggest_operations(mandrel_mgr, params, material, tool_library,
             warnings.append(("sug_warn_workspace", {
                 "rim": center_x + blank_diameter / 2.0, "limit": float(ws_x_max)}))
 
-    # ── Approach-arm geometry: default arm scaled to the part height ─────
-    p1_x = 40.0
-    p1_z = min(50.0, max(15.0, 0.5 * info["height"]))
-    p3_z = -20.0
-    # First-pass exit direction: theta_A is the approach-arm angle from +X;
-    # pass_angle = -theta_A puts the exit radially outward (material still
-    # flat), + one material angle increment bends it by the first pass.
-    # progressive_angle_enabled spreads the fan to 180° on the last pass.
-    theta_a = math.degrees(math.atan2(-p1_z, p1_x))
-    pass_angle = round(min(170.0, max(60.0, -theta_a + angle_per_pass)), 1)
+    # ── Approach arm + pass shape: taken from the shop's OWN programs ────
+    # Both the dev file and the operator's field program (020926.ssp, 78 ops)
+    # use linear_approach with the arm at X0 / Z3 and step 0.5. This used to
+    # emit a spline arm at X40 / Z25 that appears in no real program.
+    #
+    # linear_approach also PINS theta_A to -90°, which is what makes the Pass
+    # Angle readable: 90° = radially outward (sheet still flat), 90° + wall
+    # angle = sheet lying ON the wall, 180° = straight up.
+    p1_x = 0.0
+    p1_z = 3.0
+    p3_z = -20.0        # fallback reach only; follow-blank supersedes it below
+    # The fan ends where the sheet lies on the wall — NOT at a fixed 180°.
+    # 180° is right only for a cylinder; on anything shallower it aims the exit
+    # back OVER the part (the engine logs "p3_x<0" for exactly that case: on the
+    # default 63° cone the old end-angle put the last exit at X -27.9 mm).
+    angle_end = round(min(180.0, 90.0 + bend), 1)
+    # First pass bends the flat sheet by one material increment, never past the end.
+    pass_angle = round(min(angle_end, 90.0 + angle_per_pass), 1)
 
     start_z = info["z_min"] + 0.5
     end_z = info["z_max"]
@@ -382,13 +472,18 @@ def suggest_operations(mandrel_mgr, params, material, tool_library,
         "tool_id": rough_tool, "r_tool": rough_r,
         "p1_x": p1_x, "p1_z": p1_z, "p3_z": p3_z,
         "start_z": round(start_z, 2), "end_z": round(end_z, 2),
-        "step": 1.0,
+        "step": 0.5,
         "clearance": rough_clr,
         "rot": 0.0,
         "pass_angle": pass_angle,
         "progressive_angle_enabled": n_rough > 1,
-        "progressive_angle_end": 180.0,
-        "pass_shape": "spline",
+        "progressive_angle_end": angle_end,
+        # Reach from the sheet that is actually left, not from a fixed |p3|.
+        # Only correct since the flat→slant fix (2026-09-03); before that a
+        # factor of 1.0 fell short, which is why field files carry 1.2/1.5.
+        "reach_follow_blank": True,
+        "reach_blank_factor": 1.0,
+        "pass_shape": "linear_approach",
         "direction": "forward",
         "back_pass_enabled": use_back_pass,
         "back_pass_feed": feed_rough,
@@ -400,9 +495,11 @@ def suggest_operations(mandrel_mgr, params, material, tool_library,
         "type": "finishing", "enabled": True,
         "count": 1,
         "tool_id": fin_tool, "r_tool": fin_r,
-        "p1_x": p1_x, "p1_z": p1_z, "p3_z": p3_z,
+        # Finishing traces the profile, so it keeps the spline arm — but with the
+        # same short vertical approach both real programs use (X0, Z5, P3 Z0).
+        "p1_x": 0.0, "p1_z": 5.0, "p3_z": 0.0,
         "start_z": round(start_z, 2), "end_z": round(end_z, 2),
-        "step": 1.0,
+        "step": 0.5,
         "clearance": finish_clr,
         "rot": 0.0,
         "pass_shape": "spline",
@@ -414,7 +511,10 @@ def suggest_operations(mandrel_mgr, params, material, tool_library,
 
     # One-line rationale per suggested value (rendered under the preview).
     notes.append(("sug_note_passes", {"n": n_rough, "bend": bend, "per": angle_per_pass}))
-    notes.append(("sug_note_passangle", {"first": pass_angle}))
+    notes.append(("sug_note_passangle", {"first": pass_angle, "last": angle_end,
+                                         "bend": bend}))
+    notes.append(("sug_note_arm", {}))
+    notes.append(("sug_note_follow", {}))
     notes.append(("sug_note_rpm", {"rpm": rpm, "v": v_surf, "d": d_ref}))
     notes.append(("sug_note_feed", {"mmrev": float(material.get("feed_mm_rev_rough", 0.4)),
                                     "rpm": rpm, "fr": feed_rough, "ff": feed_finish}))

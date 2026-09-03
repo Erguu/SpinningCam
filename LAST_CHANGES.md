@@ -5,6 +5,592 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-09-04 — ÖNERİCİ atölyenin KENDİ programlarına hizalandı (kısmi)
+
+Kullanıcı önericinin çıktısını "doğru görünmüyor" dedi. İki gerçek program açıldı:
+`13.07.26.ssp` (geliştirme) ve operatörün saha dosyası
+`MexicoMetalSpinning/gcodes/020926.ssp` (78 op, 4'ü açık — operatör adım adım
+deniyor, bu yüzden "4 op" bir tasarım değil test durumu).
+
+**UYARI — o dosyanın `reach_blank_factor` değerleri BAYAT** (0.3…1.5). Follow-blank
+düz→eğik düzeltmesinden ÖNCE yazıldılar; kullanıcı "artık programını
+güncelleyebilir" dedi. Sac ölçeğini o dosyadan ÇIKARMA. Yapıyı çıkar.
+
+### İki dosyanın da hemfikir olduğu (uygulandı)
+
+| Alan | Eski öneri | Yeni |
+|---|---|---|
+| `pass_shape` (kaba) | `spline` | `linear_approach` |
+| `p1_x` / `p1_z` (kaba) | 40 / 15…50 | **0 / 3** |
+| `p1_x` / `p1_z` / `p3_z` (bitirme) | 40 / 15…50 / −20 | **0 / 5 / 0** |
+| `step` | 1.0 | **0.5** |
+| `reach_follow_blank` | (yok) | **True**, `reach_blank_factor` 1.0 |
+| `progressive_angle_end` | sabit **180** | **90 + duvar açısı** |
+| `pass_angle` (ilk) | `-θ_A + açı/paso` (≈115 ama eğik koldan) | **90 + açı/paso** |
+
+### 180° neden bir HATAYDI
+
+`progressive_angle_end = 180` yalnızca SİLİNDİR için doğru. `linear_approach`
+θ_A'yı −90°'ye sabitler, yani θ_B = paso_açısı − 90. 180 → θ_B = +90 = dimdik
+yukarı. Ama varsayılan 63.4°'lik konide eski eğik kol θ_A'yı −51.3° yapıyordu ve
+180 → θ_B = 128.7°, yani çıkış EKSENE DOĞRU geri dönüyordu. Motor bunu zaten
+loglıyordu: `P3 offset → X=-27.94mm ← p3_x<0`. Artık koninin son pasosu
+`X=+8.96` — dışarı. Silindirde kural yine tam 180 verir.
+
+**Yeni kural:** 90° = düz sac, 90° + duvar açısı = sac duvara yatmış.
+Varsayılan koni: 115° → 153.4°.
+
+### Değişmeyenler (bilerek)
+
+Malzeme tablosu, RPM/besleme, geri pas eşiği, sac çapı, takım seçimi, uyarılar.
+
+### AÇIK KALAN — ankraj (kullanıcıya soruldu, cevap BEKLENİYOR)
+
+Paso sayısı hâlâ SADECE bükülme açısından geliyor (63.4/25 = 3) ve o 3 paso tüm
+100 mm duvara yayılıyor → ankrajlar 0.5 / 50.25 / 100.0, yani 50 mm sıçrama; son
+paso mandrel BURNUNDA. İki gerçek dosya çelişiyor: geliştirme dosyası tırmanıyor
+(0→30, sonra 30→60), operatörün dosyası tek yükseklikte kalıyor (hepsi 13.08).
+Hangisinin kopyalanacağı kullanıcı kararı — o gelmeden ankraja DOKUNULMADI.
+
+### Testler
+
+`_test_planner.py` yeni sözleşmeye güncellendi: yelpaze sonu 90+duvar açısı,
+dikeyi aşmama, ilk paso 90+adım, yelpaze geri gitmesin, kol/şekil/adım
+değerleri, follow-blank açık ve çarpan 1.0. Eski `== 180.0` kontrolü SİLİNDİ —
+gerekçesi teste yorum olarak yazıldı. Tüm `_test_*.py` taraması: değişiklik YOK.
+
+**Geri alma:** `process_planner.suggest_operations` içindeki kol/şekil bloğunu ve
+`rough_op`/`finish_op` alanlarını eski değerlere döndür, `_test_planner.py`'deki
+blok yerine `progressive_angle_end == 180.0` kontrolünü koy, `i18n.py`'de
+`sug_note_passangle`'ı eski tek `{first}` sürümüne al, `sug_note_arm` ve
+`sug_note_follow`'u sil.
+
+---
+
+## 2026-09-03 (h) — Tahmini sac kenarı halkaları ~100 KAT HIZLI çiziliyor
+
+Kullanıcı sordu: "bu suggest ve tahmini sac kenarı hesapları programı yavaşlatıyor
+mu?" Ölçüldü. **Hesap değil, ÇİZİM yavaşmış.**
+
+| Ne | Süre |
+|---|---|
+| Öneri düğmesi (`suggest_operations`) | 0.2 ms |
+| Yol hesabındaki flanş/sac matematiği | 400 ms'in 5 ms'i (%1.2) |
+| **Halkaları 3B'ye çizmek (20 pas)** | **88 ms — HER yeniden çizimde** |
+| Halkaları 3B'ye çizmek (60 pas) | 237 ms |
+
+Sebep: `main.update_blank_edge` her halkayı `pv.Circle` ile **dolu bir disk** olarak
+kuruyor, sonra `extract_feature_edges` VTK filtresiyle dolguyu atıp sadece kenarı
+bırakıyordu. Filtre halka başına ~4.4 ms.
+
+**Düzeltme:** halkalar elle, kapalı birer polyline olarak kuruluyor ve TEK mesh'te
+birleştiriliyor. Filtre yok, disk yok. Açı tablosu (`_RING_COS` / `_RING_SIN`,
+72 nokta) sınıf düzeyinde bir kez hesaplanıyor.
+
+| Halka | Önce | Sonra |
+|---|---|---|
+| 5 | 16 ms | 0.43 ms |
+| 20 | 63 ms | 0.60 ms |
+| 60 | 203 ms | 2.37 ms |
+
+**Görüntü BİREBİR AYNI:** halka başına aynı 72 nokta, aynı yarıçap, aynı Z.
+`_test_blank_edge.TestRingsAreDrawnCheaply` iki kurulumun nokta bulutlarını
+karşılaştırıyor (`test_same_points_as_the_filter_version`), her halkanın KAPALI
+olduğunu doğruluyor ve `update_blank_edge` gövdesinde `extract_feature_edges` /
+`pv.Circle` yeniden belirirse düşüyor. Docstring'i taramadan HARİÇ tutuyor —
+docstring bu isimleri bilerek anıyor.
+
+**Geri alma:** `main.py` `update_blank_edge` içindeki polyline bloğunu eski
+`pv.Circle(...).extract_feature_edges(...)` + `merge` döngüsüyle değiştir,
+`_RING_COS`/`_RING_SIN` sınıf alanlarını ve `TestRingsAreDrawnCheaply`'yi sil.
+Davranış aynı, sadece yavaşlar.
+
+**Doğrulama:** `_test_blank_edge.py` 27/27. Tüm `_test_*.py` taraması HEAD
+temeliyle aynı — tek fark daha önce düzelttiğim `_test_reach_follow.py` (1 → 0).
+
+**Yan bulgu (DOKUNULMADI):** `[PARAM_DEBUG]` log satırları her yol hesabının
+~%5'ini yiyor (408 ms → 389 ms kapalıyken). Teşhis için değerli; istenirse
+`logger.isEnabledFor` ile ucuzlatılabilir.
+
+---
+
+## 2026-09-04 — 3B GÖRÜNÜM ANAHTARLARI: hızlı hareketleri gizle + uç kayması her şeye — v1.030
+
+**Kullanıcı raporu:** "Proses sekmesinde 'rulo ucunda çiz' ayarı var ama turuncu
+hızlı hareket çizgileri ve 'Nokta'lar bundan ETKİLENMİYOR, etkilenmeli. Ayrıca
+hızlı hareket çizgilerini 3B'de gizleyebilmek istiyorum."
+
+### 1. `show_rapids` YARIM KALMIŞTI
+
+`main.py update_scene` bu anahtarı **okuyordu** (`.get("show_rapids", True)`) ama
+hiçbir yer YAZMIYORDU: `load_settings`'te varsayılan yok, UI'da kutu yok. Yani
+özellik yıllardır orada duruyor, hep açık kalıyordu. Tamamlandı:
+- `load_settings`'e `"show_rapids": True` (davranış birebir korunur).
+- Proses ▸ Görsel'e kutu (`cb_show_rapids`), görsel-only → `redraw_paths_cached()`
+  (YENİDEN HESAPLAMA YOK).
+- **Siyah yaklaşma çizgisi de** (`roller_pos → paths[0][0]`) bu anahtara uyuyor.
+  O da bir konumlandırma hareketi; diğerlerini gizleyip onu bırakmak hata gibi
+  okunurdu.
+
+### 2. Uç kayması artık HIZLI HAREKETLERİ ve NOKTALARI da kapsıyor
+
+Neden zorunlu: **hızlı hareket bir pasonun bittiği yerden başlar.** Pasoyu
+`r_tool` içeri alıp hızlı hareketi almazsan çizgiler BULUŞMAZ — ekranda olmayan
+boşluklar görünür. Nokta üçgeni de okunduğu çizgilerden `r_tool` uzakta kalırdı.
+
+**Hangi `r_tool` ile?** Hızlı hareket listesi düz; sahibi op belli değil. Çözüm:
+`_rapid_rtools()` `last_calculated_sequence`'i yürür — `("cut", path, r_tool, …)`
+ve `("rapid", seg)` girdileri EMİSYON SIRASINDA duruyor, yani geçerli `r_tool` =
+en son cut'ınki. İki liste aynı yerlerde aynı sırada append ediliyor; yine de
+uzunluk tutmazsa TEK bir fallback `r_tool` döner (yanlış takımla kaydırmaktansa).
+
+Nokta işaretçisi: `marker["op_index"]` → op'un `r_tool`'u. **Bonus:** `surface`
+modunda çözülen X zaten `r_tool` içeriyor, uçta çizilince tam SACIN ÜZERİNE
+oturuyor — operatör bir bakışta doğrulayabiliyor.
+
+### 3. Yan düzeltme: görünüm tercihleri .ssp'den GERİ YÜKLENMİYOR artık
+
+`save_project` TÜM params'ı yazar → başkasının .ssp'sini açmak senin hızlı
+hareket çizgilerini gizleyebiliyor ya da tüm yolları `r_tool` kaydırabiliyordu,
+ekranda hiçbir açıklama olmadan. `pass_colors` için zaten çözülmüş olan sorunun
+aynısı ([[project_ssp_carries_machine_settings]]'in küçük kuzeni).
+
+`_VIEW_ONLY_PREF_KEYS = ("show_tip_paths", "show_rapids")` — `load_project`
+bunları yükleme sonrası geri koyar. **`show_tip_paths` bu kusuru en baştan beri
+taşıyordu**; yeni anahtarın da devralmaması için birlikte düzeltildi.
+Yeni görsel-only anahtar eklerken bu listeye de ekle.
+
+### Dosyalar
+
+`main.py` (`show_rapids` varsayılanı, `_rapid_rtools()`, rapid+approach render,
+`update_point_markers` uç kayması, `_VIEW_ONLY_PREF_KEYS` + `load_project`),
+`ui/tabs/process_tab.py` (kutu), `i18n.py` (`cb_show_rapids` EN/TR/ES),
+`help_window.py` (EN+TR görünüm bölümü), `version.py`, `changelog.py`.
+
+### Test
+
+`_test_view_toggles.py` (6). En önemlisi: **iki anahtarın 4 kombinasyonu da AYNI
+G-code'u üretiyor** — görünüm anahtarı programa ASLA dokunamaz.
+
+**Geri alma:** kutuyu kaldır + `show_rapids` varsayılanını sil → eski (hep açık)
+davranış. Uç kayması için rapid/marker bloklarındaki `_tip` dallarını çıkar.
+
+---
+
+## 2026-09-03 (h) — NOKTA op'una REFERANS MODLARI — v1.029
+
+**Kullanıcı gözlemi:** "Nokta konumları mutlak sanırım, ama pasolar Bölge
+Başlangıç/Bitiş Z kullanıyor. Nokta konumunu da öyle göreli yapabilir miyiz?"
+Doğru tespit — asimetri gerçekti.
+
+**Paso:** Z verirsin, X'i motor parçadan türetir
+(`p2_x = center + radius(z) + r_tool + blank + clearance`, `path_generator.py`
+`total_off` satırı) → paso parçayı TAKİP EDER.
+**Nokta (eskiden):** iki sabit sayı, hiçbir şeyi takip etmez.
+
+### `point_mode` — DÖRT mod (kullanıcı "üçü de olsun" dedi)
+
+| Mod | Alanlar | Ne yapar |
+|---|---|---|
+| `absolute` (**VARSAYILAN**) | `point_x`, `point_z` | Eski davranış, birebir |
+| `surface` | `point_z`, `point_standoff` | X mandrelden türetilir — pasonun AYNI yığını (`point_surface_x`) |
+| `relative` | `point_dx`, `point_dz` | Önceki pasın FORMING sonundan ofset |
+| `home` | `point_dx`, `point_dz` | Program Başlangıcından ofset |
+
+`absolute` varsayılan + okunamayan değer de `absolute`'a düşer → yerleştirilmiş
+her Nokta yerinde kalır. Test bunu kilitliyor (`test_absolute_mode_unchanged`:
+anahtar hiç yokken / açıkça verilince / çöp değerle çıktı AYNI).
+
+### ⚠ `side`'ın İKİ AYRI İŞİ VAR — bu bug'ı bir kez yedim
+
+```
+side       = RULO tarafı. surface geometrisi bunu ister (HER İKİ çağıranda da).
+frame_flip = ÇERÇEVE dönüşüm katsayısı. Çağıranın çerçevesinde ZATEN duran bir
+             çıpaya eklenen ofset, yalnızca çerçeve aynalıysa dönmeli
+             → emitter'da ASLA. `frame_flip = 1.0 if center_x is None else side`
+```
+
+`resolve_tool_change_point` emitter'dan `side` argümanı OLMADAN çağrıldığı için
+(varsayılan 1.0) bu ayrım orada kendiliğinden doğruydu. Burada emitter geometri
+için gerçek `side`'ı vermek ZORUNDA, o yüzden ayrımı AÇIKÇA yazmak gerekti.
+İkisini karıştırınca `relative`/`home` negatif taraflı makinede ofseti TERS
+yönde uyguluyordu; `test_modes_agree_between_sim_and_gcode` yakaladı.
+
+### ΔX işareti: HARFİ (retract'ın TERSİ)
+
+`+20` her iki rulo tarafında da X'i ARTIRIR — `resolve_tool_change_point` ile
+aynı kural. Geri çekilmede işaret YOK SAYILIR ([[project_retract_sign_rule]])
+çünkü o "uzaklaş" demektir; Nokta ise nişan alınan bir KONUMDUR. İki kural
+bilerek farklı; help'te (EN+TR) yan yana açıklandı.
+
+### `relative` çıpası = önceki pasın FORMING sonu, `current_pt` DEĞİL
+
+`current_pt` geri çekilmeyi içerir ve emitter'da karşılığı YOKTUR. Her iki site
+de `toolpaths[-1][-1]` / `paths_to_use[idx-1][-1]` okur — AYNI dizi, ayrışamaz.
+Tool-change `relative` modu da aynı gerekçeyle aynı çıpayı kullanıyor.
+İlk op ise Nokta ve önceki pas yoksa → `absolute` alanlarına düşer.
+
+### `surface` modu uyarısı
+
+Mandrel profili dışına düşen `point_z` → `last_point_warnings`, amber durum notu
+(`refresh_point_status`, MODAL YOK), log `[POINT]`. Sebep: profil dışında
+`get_radius_fast` KIRPILMIŞ yarıçap döndürür, yani X kastedilen sayı olmaz.
+Engellemez. Ayrıca editörde hesaplanan X alanın altında YAZILI
+(`_point_surface_preview`) — türetilmiş bir sayıyı operatör göremezse
+doğrulayamaz.
+
+### Dosyalar
+
+`path_generator.py` (`POINT_MODES`, `resolve_point_mode`, `point_surface_x`,
+`resolve_point_target` yeniden yazıldı, iki çağrı yeri), `program_tab.py`
+(mod dropdown + moda göre alan, `_point_surface_preview`), `main_window.py`
+(`refresh_point_status`), `pass_compare.py`, `i18n.py` (17 anahtar × EN/TR/ES),
+`help_window.py` (EN+TR), `version.py`, `changelog.py`.
+
+### Test
+
+`_test_point_op.py` 15 → **22**, `_test_point_op_gui.py` 6 → **8**.
+
+**Geri alma:** `point_mode` dropdown'ını editörden kaldır — motor okunamayan/
+eksik modu `absolute` sayar, eski davranışa döner.
+
+---
+
+## 2026-09-03 (g) — PAS GERİ ÇEKİLMESİNE EKSEN SIRASI — v1.028
+
+`PROPOSAL_point_op_and_axis_order.md` §4 — Nokta op'unun ikinci yarısı.
+
+**Yeni op alanı `retract_motion`:** `synchronized` (VARSAYILAN) / `x_first` /
+`z_first`. Geri çekilmesi olan HER tipte var (roughing, finishing, cutting,
+bending — Nokta'da YOK, orada geri çekilme kavramı yok).
+
+### Regresyon kilidi
+
+Varsayılan `synchronized` TEK segment üretir → eski tek çapraz `G0` BİREBİR aynı.
+`_test_retract_motion.test_default_is_byte_identical` bunu iki rulo tarafında da,
+hem alan hiç yokken hem de diskte OKUNAMAYAN bir değer varken doğrular.
+
+### Tek doğruluk kaynağı: `retract_segments(end_pt, dx, dz, motion)`
+
+BEŞ çağrı yeri bunu kullanır — `generate_gcode`'da 2 (ileri pas, geri pas),
+`calculate_paths`'te 3 (ileri pas, geri pas, kesme/kıvırma). Ayrışırlarsa 3B
+görünüm makinenin sürmediği bir yolu gösterir (retract İŞARETİ ile aylarca olan
+hatanın aynı sınıfı — `_test_retract_sign.py`).
+
+`dx` fonksiyona gelmeden ÖNCE yönünü almış olmalı (`retract_x_offset_real`
+emitter'da, `abs()` kanonik sim çerçevesinde). Bu fonksiyon sadece ŞEKLE karar
+verir, yöne asla. Sıfır uzunluklu bacak DÜŞÜRÜLÜR → `retract_z=0` iken mod ne
+derse desin ikinci satır yazılmaz.
+
+### `z_first` = parçayı çizme riski (UYARI, ENGEL DEĞİL)
+
+Geri çekilme rulo daha İŞ PARÇASININ ÜZERİNDEYKEN başlar. Önce Z, tüm Z ofseti
+boyunca yüzeyi sürterek gider, SONRA kalkar. `x_first` önce kaldırır.
+
+> **Takım değişimi bloğu önce Z gider ve SORUN DEĞİLDİR** — oraya gelindiğinde pas
+> geri çekilmesi ruloyu zaten kaldırmıştır. Aynı sıra, tamamen farklı başlangıç
+> koşulu. Bu yüzden uyarı orada değil BURADA.
+
+Uyarı İKİ yerde (kullanıcı kararı: uyar, engelleme):
+- **Düzenleme anı:** `_add_retract_motion_field` dropdown'ın ALTINA amber satır
+  basar (`lbl_retract_zfirst_warn`). `_on_rm` `on_op_select`'i çağırır → seçer
+  seçmez görünür, tekrar tıklamaya gerek yok.
+- **Hesap sonrası:** `last_retract_motion_warnings` → `main_window.
+  refresh_retract_motion_status()`. **SAKİN durum notu, MODAL YOK** — clamp/
+  tool-change'den bilerek farklı: onlar istenmeyen bir geometrik sürprizi anlatır,
+  bu ise operatörün BİLEREK seçtiği bir ayarı. Her hesapta modal dırdır olurdu.
+  Asıl işi: ayarı açılan bir .ssp'den DEVRALMIŞ ve dropdown'a hiç bakmamış
+  operatöre ulaşmak. Log `[RETRACT]`.
+
+### Emitter: her bacakta İKİ eksen kelimesi
+
+`G0 X.. Z..` — hareket etmeyen eksen de yazılır. Reçete satırı zaten mutlak X ve
+Z taşır (CAM_INTERFACE_SPEC §4), yani bedava; karşılığında .nc'yi doğru okumak
+için modal duruma bağımlı olmaktan çıkıyoruz. `synchronized`'da çıktı zaten
+eskisiyle aynı.
+
+### ⚠ SATIR MALİYETİ
+
+Bölünmüş geri çekilme geri-çekilme satırlarını İKİYE KATLAR. 250 paslık program:
+250 → 500 satır, **1000 satır sert PLC tavanına** karşı
+([[project_scl_loadmem_format]]). Help'te (EN+TR) ve changelog'da yazılı; SCL
+kapasite önizlemesi zaten gerçek satır sayısını gösteriyor.
+
+### Ortak söz dağarcığı (Nokta ile paylaşılıyor)
+
+`POINT_MOTION_MODES` → `AXIS_MOTION_MODES`, `point_motion_waypoints` →
+`motion_waypoints`, ortak `_norm_motion`. UI'da aynı `opt_point_*` etiketleri
+kullanılıyor → operatör kelimeleri BİR KEZ öğreniyor, iki özellik aynı şekli
+farklı anlatamıyor.
+
+### Dosyalar
+
+`path_generator.py`, `ui/tabs/program_tab.py` (`_add_retract_motion_field`, iki
+editör dalından çağrılır), `ui/main_window.py`, `pass_compare.py`, `i18n.py`
+(4 anahtar × EN/TR/ES), `help_window.py` (EN+TR), `version.py`, `changelog.py`.
+
+### Test
+
+`_test_retract_motion.py` (10) + `_test_retract_motion_gui.py` (4).
+
+**Geri alma:** `_add_retract_motion_field` çağrılarını kaldır — alan UI'dan
+kaybolur, motor varsayılan `synchronized` ile eski davranışa döner.
+
+---
+
+## 2026-09-03 (f) — YENİ OPERASYON TİPİ: "Nokta" (Point) — v1.027
+
+**Kullanıcı isteği:** "Bazen operatör iki eksende senkron hareket istemiyor, önce X
+sonra Z. Ayrıca her hareket sadece paslarla oluyor; bazen ekseni TEK bir noktaya
+götürmek istiyorsun. Yeni bir operasyon tipi ekleyebilir miyiz?"
+
+**Kapsam:** SADECE Point operasyonu. Pas geri-çekilmesine eksen sırası eklenmedi
+(`PROPOSAL_point_op_and_axis_order.md` §4 — onaylandı ama YAPILMADI).
+
+### Temel tasarım kararı: Point SIFIR takım yolu üretir
+
+`calculate_paths` ve `generate_gcode` `paths_to_use` üzerinde ORTAK bir indeksle
+yürür. Bir tarafta bir şey ekleyip diğerinde eklemeyen op, sonraki TÜM pasları
+yanlış operasyona kaydırır — `emit_count` guard'ı tam bu yüzden var (kesme/kıvırma
+bir kez bunu yapmıştı). Point her İKİ tarafta da aynı şekilde atlanır → indeks
+kayamaz.
+
+**Bunun zinciri (hepsi güncellendi):** `pass_colors.path_categories`,
+`pass_table.compute_pass_rows` + `_op_start_pass_idx`, `pass_compare._NO_PASS_TYPES`,
+`program_tab._op_logical_count` (0 döner). Biri unutulursa liste ile resim çelişir.
+
+### Alanlar
+
+| Anahtar | Anlam |
+|---|---|
+| `point_x`, `point_z` | Hedef. **MAKİNE/DRO X'i** — kesme/kıvırma `plunge_*` ile aynı konvansiyon, parça yarıçapı DEĞİL |
+| `point_motion` | `synchronized` (varsayılan) / `x_first` / `z_first` |
+| `point_rapid` | Varsayılan `True` (G0). Kapalıysa op'un kendi Feed'i ile G1 |
+| takım değişimi | Paylaşılan `_add_tool_change_fields` — Point'e farklı `tool_id` vermek "takımı BURADA değiştir" demektir |
+
+**Geri çekilme alanı YOK, bilerek** (kullanıcı kararı): geri çekilme hareketten
+SONRA çalışır, yani operasyonun ulaşmak için var olduğu konumu hemen bozardı.
+
+### Kanonik/makine X tuzağı
+
+`resolve_point_target(op, center_x=, side=)` — `resolve_tool_change_point` ile
+BİREBİR aynı numara: sim kanonik +X'te kurar ve sonda aynalar, emitter zaten
+gerçek çerçevededir. Yanlış yapılsaydı pozitif taraflı makinede TAMAMEN sessiz,
+negatif taraflıda `2*(x-center)` kadar yanlış olurdu. Test bunu iki tarafta da
+kilitliyor.
+
+### Yan düzeltme (Point'in ortaya çıkardığı)
+
+`generate_gcode` başındaki `if not self.last_calculated_paths: return ""` artık
+Point op'larını da sayıyor. Eskiden "hesaplanmış yol yok" = "söyleyecek bir şey
+yok" demekti; Point bu eşitliği bozdu — sadece Point'lerden oluşan bir program
+(jog/kurulum rutini) SESSİZCE boş dosya üretirdi.
+
+### Dosyalar
+
+`path_generator.py` (4 saf yardımcı + sim dalı + emitter dalı + marker aynalama),
+`pass_colors.py`, `pass_table.py`, `pass_compare.py`, `view_customizer.py`,
+`machine_adapter.py`, `program_tab.py` (evren/etiket/bölüm/editör/fabrika/menü +
+`_NO_PASS_OP_TYPES` ile 6 guard), `main.py` (`update_point_markers` — gri üçgen),
+`i18n.py` (15 anahtar × EN/TR/ES), `help_window.py` (EN + TR).
+
+### Test
+
+`_test_point_op.py` (15) + `_test_point_op_gui.py` (6). En önemlisi:
+**Point'siz program byte-aynı** (regresyon kilidi) ve **çevresindeki pasların
+kesme hareketleri değişmiyor**.
+
+`_test_program_tab_toolbar.py`'daki sabit "9 menü girdisi" beklentisi adapter'dan
+TÜRETİLİR hale getirildi — 5. op tipi eklendiği için kırılmıştı, araç çubuğunda
+bir regresyon yoktu. (O test HEAD'de zaten `btn_batch` yüzünden kırık.)
+
+**Geri alma:** `machine_adapter.get_available_op_types()`'tan `"point"` çıkar —
+tip UI'dan kaybolur, mevcut programlar etkilenmez.
+
+---
+
+## 2026-09-03 (e) — SÜRÜM 1.026
+
+`version.py` 1.025 → **1.026**, `changelog.py` operatör girdisi eklendi.
+
+Bu sürümün kapsadığı iş (hepsi bugünkü a–d girdileri + `1351c34` commit'i):
+
+| Ne | Nerede | Görünürlük |
+|---|---|---|
+| Tahmini sac kenarı halkaları (3B) | commit `1351c34` | GÖRSEL — tek bir koordinat değişmez |
+| follow-blank eğik strok uzunluğu | 2026-09-03 (c) | MOTOR — çarpan 1.0 artık gerçekten sac kenarı |
+| Önerici sacı ~%20 büyüdü | 2026-09-03 (d) | **SAYI DEĞİŞTİ** — aşağıdaki uyarıya bak |
+| Flanşı tükenmiş pas halka çizmiyor | 2026-09-03 (d) | GÖRSEL |
+
+**⚠ Sürümü yükseltirken bilinmesi gereken:** Öner ✨ artık ~%20 daha büyük sac
+öneriyor ve β oranı büyüdüğü için spinnability uyarısı DAHA SIK çıkacak. Bu
+regresyon değil, düzeltmenin beklenen sonucu. Mevcut programlar etkilenmez —
+`params["blank_radius"]` .ssp'de saklı, önerici sadece yeni bir sayı teklif eder.
+
+**Bu sürümde OLMAYAN (sadece doküman):** `PROPOSAL_point_op_and_axis_order.md`
+("Point" operasyonu + eksen sırası) yazıldı, HİÇBİR kod değişmedi. Onay bekliyor.
+
+**Geri alma:** `version.py`'de `APP_VERSION = "1.025"`, `changelog.py`'den
+`"1.026"` bloğunu sil. Motor düzeltmeleri için (c) ve (d) girdilerine bak.
+
+---
+
+## 2026-09-03 (d) — ÖNERİCİ sacı ~%20 KÜÇÜK öneriyordu (iki alan modeli birbirini tutmuyordu)
+
+**Kullanıcı raporu:** "öneri düğmesini denedim, operasyonlar doğru görünmüyor; tahmini
+sac halkaları da bu operasyonlarda tuhaf ama kendi programımda normaldi."
+
+**Kök neden:** `process_planner.py` içindeki İKİ fonksiyon da "sabit kalınlık alan
+eşitliği" iddiasında ama KAPALI DİSK olarak farklı uçları alıyordu:
+
+| Fonksiyon | Kullandığı disk | Varsayılan koni sonucu |
+|---|---|---|
+| `analyze_profile` (öneri sacı) | `r_min` = profildeki EN KÜÇÜK yarıçap (10) | **89.03** |
+| `estimate_flange_reach` (halkalar + follow-blank) | tabandaki (min-Z) yarıçap (60) | **106.89** |
+
+Kullanıcı doğruladı (2026-09-03): **kapalı dip program SIFIRINDA**, yani min-Z'de.
+Dolayısıyla `estimate_flange_reach` DOĞRU, `analyze_profile` YANLIŞTI.
+
+**Sonucu:** önerilen sac yarıçapta ~%17, alanda ~%30 küçüktü. Flanş modeli o sacın
+mandrelin YARISINDA tükendiğini söylüyordu:
+
+| sac R | z=0.5 | 25 | 50 | 75 | 99.5 |
+|---|---|---|---|---|---|
+| 89.03 (önerilen) | 28.74 | 12.42 | **0.00** | 0.00 | 0.00 |
+| 106.89 (doğru) | 46.69 | 36.71 | 26.32 | 15.36 | 1.06 |
+
+Bu yüzden önerilen operasyonlarda halkalar kayboluyor / mandrele yapışıyordu. Kullanıcının
+kendi programında sac çapı ELLE girildiği için sorun görünmüyordu.
+
+**Düzeltme:** `analyze_profile` artık tabandaki yarıçapı kullanıyor (`z` artan sıraya
+getirilerek). Doğru sac TAM TEPEDE tükenir — testi bunu doğruluyor.
+
+**⚠ Önerilen sac çapı ~%20 BÜYÜDÜ.** β = D_sac / D_mandrel oranı da büyüyor, yani
+spinnability uyarısı artık daha sık çıkabilir — bu DOĞRU davranış, sac gerçekten o kadar
+büyük. Eski (küçük) sacla üretilmiş programlar etkilenmez; `params["blank_radius"]`
+programda saklı, öneri sadece yeni bir sayı teklif eder.
+
+**Test kilidi:** `_test_flange_reach.py` artık iki modelin AYNI sacı vermesini ve önerilen
+sacın yarı yolda değil TEPEDE tükenmesini zorunlu kılıyor. Bir daha ayrışamazlar.
+
+**Ayrıca (görsel):** flanşı tükenmiş pas artık halka ÇİZMİYOR. Eskiden mandrel yüzeyine
+oturan bir halka çiziliyordu — "sac kenarı burada" diye okunuyordu, oysa serbest sac YOK.
+Eşik: kaydedicide `_fr_e > 0.5`.
+
+**ÖNERİCİDE HÂLÂ AÇIK (bu oturumda DEĞİŞTİRİLMEDİ):**
+- 100 mm duvar için sadece 3 kaba paso; pas ankrajları 50 mm atlıyor (0.5 → 50.25 → 100).
+- Son paso mandrel burnunda (`end_z = z_max`), şekillendirilecek malzeme yok.
+- `reach_follow_blank` açılmıyor → reach sabit |p3| ≈ 44.7 mm, kalan saca bakmıyor.
+- Paso sayısı bükülme açısından geliyor (63°/25° = 3), sonra o 3 paso TÜM yüksekliğe
+  yayılıyor — bunlar iki ayrı şey.
+
+---
+
+## 2026-09-03 (c) — MOTOR DÜZELTMESİ: follow-blank artık gerçekten sac kenarına ulaşıyor
+
+**Kullanıcı raporu:** "sac çarpanını 1 yaptım; ilk paslar halkaları azıcık geçiyor ama
+son paslar halkalara ULAŞAMIYOR."
+
+**İki ayrı sebep vardı:**
+
+1. **İlk pasların azıcık taşması NORMAL.** 3B'de görünen çizgi makara MERKEZİ, halka ise
+   sac KENARI. Aradaki fark sabit: `r_tool + sac kalınlığı + clearance`. Hata değil.
+
+2. **Son pasların kısa kalması GERÇEK HATA.** `estimate_flange_reach` sacın YANA ne kadar
+   taştığını verir (düz disk varsayımı), ama strok yana değil ÇIKIŞ YÖNÜNDE gider ve aynı
+   malzeme eğik dururken DAHA UZUNDUR. Eksik uzunluk hiç eklenmiyordu:
+
+   | çıkış açısı | verilen | gereken | eksik |
+   |---|---|---|---|
+   | 0° | 61.25 | 61.25 | %0.0 |
+   | 40° | 61.25 | 64.82 | %5.8 |
+   | 60° | 61.25 | 69.98 | %14.2 |
+   | 90° | 61.25 | 86.37 | %41.0 |
+
+**Düzeltme:** `_follow_reach` artık `process_planner.flange_slant_length()` üzerinden
+geçiyor — halkaların kullandığı AYNI koni matematiği. `Sac çarpanı = 1.0` nihayet
+"sacın ucuna değ" anlamına geliyor.
+
+**⚠ DAVRANIŞ DEĞİŞİKLİĞİ — sadece follow-blank AÇIK operasyonlarda.** Düz çıkışlı paslar
+bit-bit aynı kalır (test ediyor). Eğik paslar UZAR. Meksika operatörünün 1.2/1.5 çarpanları
+tam olarak bu eksiği elle kapatıyordu; o programlarda çarpan 1.0'a geri çekilmeli.
+**Kaçış kapağı:** operasyona `reach_blank_flat_legacy: true` → eski kısa strok. (UI yok,
+kasıtlı: makinede kanıtlanmış bir programı dondurmak için acil valf.)
+
+**AYNA DA GÜNCELLENDİ.** `ui/dialogs/pass_table.py` motoru birebir yansıtır; sadece motoru
+düzeltmek tabloyu makineden ayırıyordu (`_test_recipe_explain` bunu anında yakaladı:
+tablo 28.34, motor 28.93). İkisinde de çıkış yönü artık reach'ten ÖNCE çözülüyor.
+
+**Yan fayda — tekrar eden kod silindi:** θ_A/θ_B hem motorda hem aynada iki kez
+hesaplanıyordu; artık tek yerde, follow-blank bloğunun üstünde.
+
+**HÂLÂ AÇIK (bu düzeltmenin parçası DEĞİL):** follow-blank flanşı hâlâ `target_z`'de
+ölçüyor, `contact_z` olmalı — [[project_follow_blank_wrong_height]]. Motor ve ayna bu
+konuda birbiriyle TUTARLI, o yüzden sürüklenme yok; ama Extend kullanan programlarda
+tahmin hâlâ donuyor. Halkalar `contact_z` kullandığı için orada hâlâ ayrışıklar.
+
+**Doğrulama:** TÜM `_test_*.py` dosyaları HEAD ile karşılaştırıldı (ekransız,
+`pv.OFF_SCREEN=True` ile — bu olmadan 127 ile çöküyorlar). Tek fark:
+`_test_reach_follow.py` HEAD'de 3 HATA ile düşüyordu (2026-07-22'de eklenen
+`reach_follow_min` tabanını modellemiyordu), şimdi 17/17 geçiyor. Diğer 11 düşen dosya
+HEAD'de de düşüyor, bu çalışmayla ilgisiz. Uygulama içinde HENÜZ GÖRSEL DOĞRULANMADI.
+
+---
+
+## 2026-09-03 (b) — Tahmini sac kenarı artık DÜZ yatmıyor: P2→P3 çıkış yönünü izliyor
+
+**Kullanıcı geri bildirimi:** "halkalar temas noktasına göre çizilmiş görünüyor ama
+gerçekte sac P2 ile P3 arasındaki eğriyle de şekilleniyor." Doğru — ilk kaplama flanşı
+temas noktasından DÜZ (yatay) uzanan bir daire varsayıyordu. Makara sacı P2→P3 çıkış
+çizgisi boyunca sürüklüyor, bu yüzden flanş pas açısıyla birlikte YÜKSELİR.
+
+**Yeni fonksiyon:** `process_planner.flange_edge_along_exit(r_contact, contact_z,
+flange_reach, exit_dx, exit_dz) → (edge_radius, edge_z)`.
+Aynı sabit-kalınlık alan eşitliği, düz halka yerine KONİK KUŞAK için çözüldü:
+`exit_dx*L² + 2*r1*L − A/π = 0`. Düz çıkışta (`exit_dx = 1`) sonuç tam olarak eski
+`fr` değeridir → mevcut (Extend kullanmayan, düz çıkışlı) programlarda görsel DEĞİŞMEZ.
+
+**BOUND (önemli):** 90°'nin üstündeki pas açılarında çıkış vektörü İÇERİ bakar. Sınırsız
+bırakılınca model flanşı parçanın üstüne katlıyordu — 128°'lik bir pasta 97 mm'lik flanş
+r=15 mm'ye iniyordu, gerçek dışı. Artık YÖN dikeyde kırpılıyor (`dx = max(dx, 0)`);
+uzunluk kırpılmadığı için malzeme korunumu bozulmuyor (test ediyor).
+
+**YÖN NEREDEN GELİYOR — operatör kuralı (2026-09-03):** "pas DÜZ ÇİZGİ ise sac genelde
+makara yolunu izler; pasta EĞRİ varsa sac kenarlarda bükülür — ki bu rijitlik için
+zaten İSTENEN şeydir; pas 90°'ye yakınsa şekil de dikey olur."
+Bu yüzden yön P2→P3 kirişinden değil, **üretilmiş yolun UÇ TEĞETİNDEN** okunuyor:
+YENİ `path_generator.exit_end_direction(path_pts, span=5.0)`. Düz pasta teğet = kiriş
+(fark yok), eğri çıkışta teğet daha dik → serbest kenar daha çok kıvrılıyor. Yolu okumak
+auto-align dönmesini ve elle çizilen çıkış kuyruğunu da bedavaya kapsıyor.
+Uç teğeti son noktadan 5 mm geri yürüyerek ölçülür (yan yana iki ayrıklaştırma
+noktasından teğet okumamak için).
+
+**BİLİNEN SINIR:** flanşın gerçek açısı bir GEÇMİŞ — onu önceki pasların büktüğü açı.
+Model her pasa kendi çıkışını uyguluyor, bu yüzden hâlâ düz duran taze sacta ilk paslar
+en az güvenilir olanlar.
+
+Dokunulan yerler:
+- `process_planner.py` — YENİ `flange_edge_along_exit` (saf fonksiyon, yan etkisiz)
+- `path_generator.py` — YENİ `exit_end_direction` (modül düzeyi, saf); kaydedici ikiye
+  bölündü: NE KADAR sac kaldığı `contact_z`'de (eskisi gibi), NEREYE baktığı ise pas
+  üretildikten SONRA uç teğetinden. Kaydedici `(edge_z, edge_r)` yazıyor.
+- `main.py`, `ui/dialogs/help_window.py` — açıklama metinleri
+- `_test_blank_edge.py` — 8 → 21 test (alan korunumu, dikey kırpma, katlanma sınırı,
+  düz-vs-eğri uç teğeti)
+
+**Motor davranışı yine DEĞİŞMEDİ.** Kaydedici hâlâ YALNIZCA YAZAR; `last_blank_edge`
+kaynak taraması testi geçiyor. `main.py` demeti hâlâ `(z, r)` — çizim tarafı değişmedi.
+
+**Geri alma:** pas sonrası append bloğunu kaldır ve kaydediciyi eski tek satırına döndür:
+`self.last_blank_edge.append((float(contact_z), float(r_contact + _edge_fr)))`
+(`_edge_pending` ile `exit_end_direction` çağrısı da gider).
+
+**Doğrulama:** `_test_blank_edge` 21/21, `_test_blank_edge_gui` 3/3,
+`_test_flange_reach` / `_test_planner` / `_test_reach` / `_test_progressive_reach` /
+`_test_planner_e2e` hepsi geçiyor. Uygulama içinde HENÜZ GÖRSEL OLARAK DOĞRULANMADI.
+
+---
+
 ## 2026-09-03 — Tahmini sac kenarı 3B kaplaması (+ follow-blank yükseklik BUG'ı tespit edildi)
 
 **BULGU (henüz DÜZELTİLMEDİ):** follow-blank flanş tahminini `target_z` (ankraj)

@@ -17,6 +17,138 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.030": [
+        ("You can hide the rapid (G0) lines",
+         "The orange dashed lines showing the roller travelling between passes "
+         "can now be switched off. On a program with many passes they cover the "
+         "cutting paths you are actually trying to look at. The roller's line to "
+         "the first pass goes with them. Hiding is a VIEW change only — the "
+         "moves still happen, and the G-code and recipe are untouched.",
+         "Process tab ▸ Show Rapid (G0) Moves"),
+        ("\"Draw at roller tip\" now moves everything, not just the passes",
+         "It used to move only the cutting lines, leaving the rapid moves and "
+         "the Point triangles at the roller centre — so the rapids no longer met "
+         "the passes they connect, and a Point sat a tool-radius away from the "
+         "lines you were reading it against. All three now move together. A "
+         "Point measured from the mandrel surface lands exactly on the sheet, "
+         "which makes it easy to check at a glance.",
+         "Process tab ▸ Draw passes at roller tip"),
+        ("Your view settings stay yours when you open someone's program",
+         "A saved program carries every setting, including how the 3D view was "
+         "set up the day it was saved. Opening a colleague's file could "
+         "therefore hide your rapid lines or shift every drawn path, with "
+         "nothing on screen saying why. These two view switches are now kept as "
+         "you have them, the same way your pass colours already were.",
+         "File ▸ Open"),
+    ],
+    "1.029": [
+        ("A Point can follow the part, like a pass does",
+         "You give a pass its Zone Start Z and the software works the X out from "
+         "the mandrel — so passes move when the mandrel or the sheet thickness "
+         "changes. A Point used to be a fixed pair of numbers that never moved. "
+         "It now has a \"Measured from\" setting: pick \"The mandrel surface\" and "
+         "you type only the Z plus a standoff, and the X follows the part exactly "
+         "as a pass would. Standoff 0 sits touching the sheet; the tool radius and "
+         "sheet thickness are already counted.",
+         "Program List ▸ select a Point ▸ Measured from"),
+        ("...or from the previous pass, or from Program Start",
+         "Two more choices, both an offset you type as ΔX / ΔZ. \"End of previous "
+         "pass\" measures from where that pass finished cutting. \"Program Start\" "
+         "measures from the machine's home point — handy for a park position that "
+         "should follow the home setting. ΔX keeps the sign you type: +20 always "
+         "raises X, whichever side the roller is on.",
+         "Program List ▸ select a Point ▸ Measured from"),
+        ("Nothing moves unless you ask it to",
+         "\"Fixed position\" is still the default and is exactly the old "
+         "behaviour, so every Point you have already placed stays where it is. "
+         "When you do use the mandrel surface, the resolved X is printed under "
+         "the field so you can check it against the DRO — and if the Z falls off "
+         "the end of the mandrel you get a warning, because the radius reading is "
+         "clamped there and the X would not be the number you meant.",
+         "Program List ▸ select a Point"),
+    ],
+    "1.028": [
+        ("The retract can move one axis at a time",
+         "After a pass the roller pulls away from the work. That has always been "
+         "one diagonal move; now every operation can choose \"X first, then Z\" "
+         "or \"Z first, then X\" instead. Nothing changes unless you ask for it — "
+         "the setting starts on \"Both together\", which is exactly the move your "
+         "existing programs already make.",
+         "Program List ▸ select an operation ▸ Retract order"),
+        ("Z first can scratch the part, and the program says so",
+         "The retract begins with the roller still ON the work. Moving Z first "
+         "drags it along the surface for the whole Z distance before lifting it "
+         "clear; X first lifts away and then travels. Choosing Z first shows a "
+         "standing warning next to the setting and a note in the status bar "
+         "after calculating, so it still reaches you if the setting came in with "
+         "an opened program. It is a warning, not a block — if you have measured "
+         "your setup and want it, you can have it.",
+         "Program List ▸ select an operation ▸ Retract order"),
+        ("Splitting the retract costs one recipe line per pass",
+         "Worth knowing before you turn it on across a long program: a split "
+         "retract writes two machine lines instead of one. With 250 passes that "
+         "is 250 extra lines against the machine's 1000-line limit. The capacity "
+         "figure in the SCL export dialog shows where you stand.",
+         "Export ▸ SCL"),
+    ],
+    "1.027": [
+        ("New operation: Point — just go to a position",
+         "Until now the axes only moved as a side effect of making a pass, so "
+         "there was no way to say \"put the roller here\" without inventing a "
+         "pass around it. A Point operation does only that: you type an X and a "
+         "Z and the machine goes there. Use it to park the roller, to clear a "
+         "fixture, or to change the tool at a place you choose rather than "
+         "wherever the last pass happened to end — give the Point a different "
+         "tool and the change happens there. Point X is the MACHINE X you read "
+         "on the DRO, the same as the cutting and bending fields.",
+         "Program List ▸ + Add ▾ ▸ Point"),
+        ("You can move one axis at a time instead of both together",
+         "A Point can travel both axes at once (one diagonal move, the "
+         "default), or X all the way and then Z, or Z and then X. Splitting the "
+         "move costs one extra line in the machine recipe, which is worth "
+         "knowing on a long program against the 1000-line limit.",
+         "Program List ▸ select a Point ▸ Axis order"),
+        ("A Point goes at rapid speed, or at your feed if you prefer",
+         "Rapid (G0) is the default, because that is what \"go there\" usually "
+         "means. Untick it and the move runs at the operation's Feed instead — "
+         "for easing into a fixture rather than arriving at full speed.",
+         "Program List ▸ select a Point ▸ Rapid (G0)"),
+        ("Point positions show as grey triangles in the 3D view",
+         "A Point draws no toolpath, so without a marker the roller would just "
+         "appear somewhere new between two passes with nothing to explain why. "
+         "A Point has no Retract field on purpose: a retract runs after the "
+         "move and would immediately undo the position you just asked for — to "
+         "leave a point in a controlled way, add a second Point.",
+         "3D view"),
+    ],
+    "1.026": [
+        ("The suggested blank was about 20% too small",
+         "Suggest ✨ worked out the blank from the profile's SMALLEST radius as "
+         "if that were the closed bottom, while the sheet-edge rings worked it "
+         "out from the radius at the base — the same claim, two different "
+         "answers. The base is the closed bottom, so the rings were right and "
+         "the suggestion was wrong: about 17% short across the diameter, 30% "
+         "short in area, and the flange model said that blank ran out halfway "
+         "up the mandrel. SUGGESTED BLANKS ARE NOW LARGER. The spinnability "
+         "warning may come up more often as a result — that is correct, the "
+         "sheet really is that big. Programs you have already made are "
+         "untouched; the blank size is saved with the program and Suggest only "
+         "offers a number.",
+         "Program List ▸ Suggest ✨"),
+        ("Follow-the-sheet-edge now measures the real stroke",
+         "When a pass is set to follow the blank edge, the reach it needs is "
+         "measured along the slanted stroke the roller actually travels, not as "
+         "a flat radial distance. A multiplier of 1.0 now genuinely lands on the "
+         "sheet edge instead of stopping short of it.",
+         "Program List ▸ select an operation ▸ Follow Blank Edge"),
+        ("The 3D view can show where the sheet edge is predicted to be",
+         "Rings mark the estimated free edge of the sheet at each pass, so you "
+         "can see how much material is still hanging out before you commit. It "
+         "is a prediction for the eye only — it does not change a single "
+         "coordinate. A pass with no flange left draws no ring rather than a "
+         "ring lying on the mandrel, which used to read as \"the edge is here\".",
+         "Process tab ▸ Show Predicted Sheet Edge"),
+    ],
     "1.025": [
         ("Compare two passes side by side",
          "When one pass behaves differently from another and you cannot see "

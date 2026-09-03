@@ -66,8 +66,30 @@ check(ops[0]["type"] == "roughing" and ops[1]["type"] == "finishing", "op types"
 check(ops[0]["count"] == math.ceil(a["max_bend_deg"] / al["angle_per_pass_deg"]),
       "pass count = ceil(bend/angle_per_pass)")
 check(ops[0]["progressive_angle_enabled"] is True, "progressive fan on (multi-pass)")
-check(ops[0]["progressive_angle_end"] == 180.0, "fan end angle explicit 180 (editable)")
-check(60.0 <= ops[0]["pass_angle"] <= 170.0, "pass_angle in range")
+# The fan ends where the sheet lies ON THE WALL: 90 deg is flat, so the last pass is
+# 90 + the wall angle. It used to be a flat 180 regardless, which is right only for a
+# cylinder; on this 63 deg cone it aimed the last exit BACK OVER the part (engine log
+# "p3_x<0", exit X -27.9 mm). 180 stays reachable — a cylinder gives exactly 180.
+check(abs(ops[0]["progressive_angle_end"] - (90.0 + a["max_bend_deg"])) < 0.11,
+      "fan ends at 90 + wall angle, not a fixed 180")
+check(ops[0]["progressive_angle_end"] <= 180.0, "fan never exceeds vertical")
+check(abs(ops[0]["pass_angle"] - (90.0 + al["angle_per_pass_deg"])) < 0.11,
+      "first pass bends the flat sheet by one material increment")
+check(ops[0]["pass_angle"] <= ops[0]["progressive_angle_end"],
+      "fan does not run backwards")
+# Arm geometry + shape copied from the shop's own programs (dev file and the
+# operator's 020926.ssp): linear_approach, arm X0/Z3, step 0.5. linear_approach is
+# also what pins theta_A to -90, which is what makes the angles above mean anything.
+check(ops[0]["pass_shape"] == "linear_approach", "roughing uses linear_approach")
+check(ops[0]["p1_x"] == 0.0 and ops[0]["p1_z"] == 3.0, "roughing arm X0 / Z3")
+check(ops[0]["step"] == 0.5 and ops[1]["step"] == 0.5, "step 0.5 on both ops")
+check(ops[1]["p1_x"] == 0.0 and ops[1]["p1_z"] == 5.0 and ops[1]["p3_z"] == 0.0,
+      "finishing arm X0 / Z5 / P3 Z0")
+# Reach comes from the sheet actually left. Correct only since the flat->slant fix
+# (2026-09-03); before that a factor of 1.0 fell short, which is why the field files
+# carry 1.2 / 1.5. Off, reach froze at |p3| ~ 44.7 for every pass.
+check(ops[0]["reach_follow_blank"] is True, "follow the sheet is on")
+check(ops[0]["reach_blank_factor"] == 1.0, "follow factor 1.0")
 check(ops[0]["tool_id"] == "T0101" and ops[0]["r_tool"] == 30.0, "rough tool calibrated r_tool")
 check(ops[1]["tool_id"] == "T0202" and ops[1]["r_tool"] == 22.5, "finish tool falls back to radius (r_tool None)")
 check(ops[0]["speed"] <= min(2000, PLC_MAX_RPM), "rpm within machine limit")

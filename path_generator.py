@@ -348,6 +348,274 @@ def retract_x_offset_real(retract_x, side):
     return abs(float(retract_x)) * (1.0 if side >= 0 else -1.0)
 
 
+# ── Axis motion order (2026-09-03) ───────────────────────────────────────────
+# How a two-axis move travels: one coordinated diagonal, or one axis at a time.
+# Shared vocabulary for the Point operation and the pass retract so the operator
+# meets ONE set of words, and the two features cannot drift into describing the
+# same shape differently.
+#
+# Not a new machine capability: the tool-change block has emitted separate
+# single-axis G0 lines since 2026-07-21 (`tool_change_simultaneous`), so the PLC
+# already runs them in production.
+AXIS_MOTION_MODES = ("synchronized", "x_first", "z_first")
+
+
+def _norm_motion(value):
+    """Normalise a stored motion mode. Unknown values -> "synchronized".
+
+    Falls back to the coordinated diagonal because that is what every move in
+    this program did before the feature existed: an unreadable value must not
+    silently turn one move into two, which is a different path through the part.
+    """
+    mode = str(value or "synchronized").lower()
+    return mode if mode in AXIS_MOTION_MODES else "synchronized"
+
+
+def motion_waypoints(from_pt, target, motion):
+    """Waypoints for a two-axis move, ``[from, ...corner..., target]``.
+
+    Two points for a coordinated diagonal, three when one axis leads. Pure — the
+    3D sim and the G-code emitter both call this so the picture and the machine
+    cannot describe different shapes.
+
+    The corner point is the ONLY thing that differs between the modes:
+      x_first -> corner at (target.x, from.z)   move X across, then Z
+      z_first -> corner at (from.x, target.z)   move Z along, then X
+    """
+    from_pt = np.asarray(from_pt, dtype=float)
+    target = np.asarray(target, dtype=float)
+    mode = _norm_motion(motion)
+    if mode == "x_first":
+        corner = np.array([target[0], from_pt[1], from_pt[2]])
+    elif mode == "z_first":
+        corner = np.array([from_pt[0], from_pt[1], target[2]])
+    else:
+        return [from_pt, target]
+    return [from_pt, corner, target]
+
+
+def resolve_retract_motion(op):
+    """Motion order for this op's PASS RETRACT. Default "synchronized".
+
+    The default matters more here than anywhere else in this feature: every
+    recipe ever written by this program retracts with a single diagonal G0, and
+    that must stay byte-identical for anyone who does not opt in.
+
+    ``z_first`` is offered but is the dangerous one — see
+    ``retract_motion_is_risky``.
+    """
+    return _norm_motion(op.get("retract_motion", "synchronized"))
+
+
+def retract_motion_is_risky(motion):
+    """True when this retract order drags the roller ALONG the part before
+    pulling it clear.
+
+    A retract starts ON the work. ``z_first`` therefore travels the whole Z
+    offset while the roller is still in contact — a scratch or a gouge down the
+    length of that move — and only then lifts in X. ``x_first`` pulls clear
+    first and is the safe split; ``synchronized`` leaves immediately.
+
+    Note the TOOL-CHANGE block uses Z-then-X and is fine, because by then the
+    pass retract has already lifted the roller off the work. Same order, totally
+    different starting condition — which is exactly why this is warned about
+    here and not there.
+
+    Warn-only by user decision (2026-09-03): metal-spinning setups vary and an
+    operator who has measured their fixture may legitimately want it.
+    """
+    return _norm_motion(motion) == "z_first"
+
+
+def resolve_point_motion(op):
+    """The Point op's motion mode, normalised. Unknown values -> "synchronized"."""
+    return _norm_motion(op.get("point_motion", "synchronized"))
+
+
+# What a Point op's position is measured FROM (2026-09-03b).
+#
+# "absolute" is the original behaviour and stays the default, so every Point op
+# written before this existed lands exactly where it did.
+#
+# The others exist because a pass does NOT work this way: you give a pass its
+# Z and the engine derives its X from the mandrel (`p2_x = center + radius(z) +
+# r_tool + blank + clearance`). A pass therefore follows the part when the
+# mandrel or the sheet thickness changes; an absolute Point does not. "surface"
+# gives a Point the same behaviour.
+POINT_MODES = ("absolute", "surface", "relative", "home")
+
+
+def resolve_point_mode(op):
+    """The Point op's reference mode, normalised. Unknown values -> "absolute".
+
+    Falls back to absolute because that is the mode that needs no context: it
+    cannot silently resolve against a mandrel or a previous pass that is not
+    what the operator had in mind.
+    """
+    mode = str(op.get("point_mode", "absolute") or "absolute").lower()
+    return mode if mode in POINT_MODES else "absolute"
+
+
+def point_surface_x(op, params, mandrel_mgr, z, mandrel_center):
+    """REAL-frame radial distance for a "surface" Point: how far the tool
+    reference sits from the mandrel axis at height ``z``.
+
+    Deliberately the SAME stack a forming pass uses (see the ``total_off`` line
+    in ``calculate_paths``), so "standoff 0" on a Point puts the roller exactly
+    where a pass with zero clearance would put it:
+
+        radius(z) + shell + sheet thickness + r_tool + standoff
+
+    Returns the radial distance only — the caller adds the mandrel centre and
+    the roller side.
+    """
+    def _f(v, dflt):
+        try:
+            return float(v) if v not in (None, "") else float(dflt)
+        except (TypeError, ValueError):
+            return float(dflt)
+
+    params = params or {}
+    r_contact = 0.0
+    if mandrel_mgr is not None:
+        try:
+            r_contact = float(mandrel_mgr.get_radius_fast(z))
+        except Exception:
+            r_contact = 0.0
+    r_contact += _f(params.get("shell_thickness"), 0.0)
+    return (r_contact
+            + _f(params.get("final_part_thickness_on_mandrel"), 2.0)
+            + _f(op.get("r_tool"), 0.0)
+            + _f(op.get("point_standoff"), 0.0))
+
+
+def resolve_point_target(op, center_x=None, side=1.0, params=None,
+                         mandrel_mgr=None, prev_end=None, home_pt=None):
+    """Return the Point op's target ``[x, y, z]`` in the CALLER's frame.
+
+    Four modes (``point_mode``):
+
+    absolute  ``point_x`` / ``point_z`` verbatim. ``point_x`` is the REAL
+              machine X the operator reads off the DRO — the same convention as
+              cutting/bending ``plunge_*`` — used with its literal sign, never
+              abs()'d. This is a position somebody aimed at, not a "get clear"
+              move like the pass retract.
+    surface   ``point_z`` plus ``point_standoff``; X follows the mandrel exactly
+              the way a pass does. See ``point_surface_x``.
+    relative  ``point_dx`` / ``point_dz`` from ``prev_end``.
+    home      ``point_dx`` / ``point_dz`` from ``home_pt``.
+
+    FRAMES — the part that is silent when wrong:
+
+    center_x / side  Pass these ONLY from the 3D sim, which builds in the
+                     canonical positive-X frame and mirrors around ``center_x``
+                     at the end. ``center_x=None`` means the caller (the G-code
+                     emitter) is already in the real frame. Same trick, and same
+                     reason, as ``resolve_tool_change_point``.
+
+    ``prev_end`` and ``home_pt`` must arrive ALREADY in the caller's frame — the
+    offset then only needs the X-direction flip, exactly like the tool-change
+    "relative" mode. ``point_x`` and the surface geometry are real-frame and go
+    through the conversion.
+
+    Note ``side`` is needed even by the emitter for "surface": the radial
+    distance has to be added on the roller's side of the axis. Getting that
+    wrong is invisible on a positive-side machine.
+    """
+    def _num(key, dflt):
+        v = op.get(key, None)
+        try:
+            if v not in (None, ""):
+                return float(v)
+        except (TypeError, ValueError):
+            pass
+        return float(dflt)
+
+    def to_frame_x(real_x):
+        return real_x if center_x is None else center_x + side * (real_x - center_x)
+
+    # TWO different uses of `side`, and conflating them is silent on a
+    # positive-side machine:
+    #
+    #   side       the ROLLER side. Geometry ("surface") needs it, in both
+    #              callers, to add the radial distance on the correct side.
+    #   frame_flip the FRAME conversion factor. An offset added to an anchor that
+    #              is already in the caller's frame must flip only when that
+    #              frame is mirrored — i.e. never in the emitter. This is why
+    #              resolve_tool_change_point is called from the emitter without a
+    #              `side` argument at all; here the emitter has to pass one for
+    #              the geometry, so the distinction must be explicit.
+    frame_flip = 1.0 if center_x is None else side
+
+    mode = resolve_point_mode(op)
+    # The mandrel axis. Same number as `center_x` when the sim calls, but a
+    # SEPARATE role: this positions geometry, `center_x` decides whether a frame
+    # conversion happens at all.
+    m_center = float((params or {}).get("mandrel_pos_x_offset", 0.0))
+
+    if mode == "surface":
+        z = _num("point_z", 0.0)
+        d = point_surface_x(op, params, mandrel_mgr, z, m_center)
+        return np.array([to_frame_x(m_center + side * d), 0.0, z])
+
+    if mode in ("relative", "home"):
+        anchor = prev_end if mode == "relative" else home_pt
+        if anchor is None:
+            # No previous pass (a Point as the first op) / no home supplied:
+            # fall back to absolute rather than resolving against nothing.
+            anchor = np.array([to_frame_x(_num("point_x", 0.0)), 0.0,
+                               _num("point_z", 0.0)])
+            return anchor
+        anchor = np.asarray(anchor, dtype=float)
+        return np.array([anchor[0] + frame_flip * _num("point_dx", 0.0), 0.0,
+                         anchor[2] + _num("point_dz", 0.0)])
+
+    # absolute (default)
+    return np.array([to_frame_x(_num("point_x", 0.0)), 0.0, _num("point_z", 0.0)])
+
+
+def retract_segments(end_pt, dx, dz, motion):
+    """Rapid segments for a pass retract from ``end_pt`` by ``(dx, dz)``.
+
+    Returns a list of ``[[from], [to]]`` numpy pairs — one for a coordinated
+    diagonal, two when an axis leads. Zero-length legs are dropped, so a retract
+    with no Z offset never emits a second line whatever the mode says.
+
+    ``dx`` must ALREADY carry its machine direction (``retract_x_offset_real``
+    in the emitter, ``abs()`` in the canonical sim frame). This function only
+    decides the SHAPE of the move, never which way it goes.
+
+    Single source of truth for five call sites — two in ``generate_gcode``
+    (forward pass, back pass) and three in ``calculate_paths`` (forward pass,
+    back pass, cutting/bending). They must agree or the 3D view shows a path the
+    machine does not run.
+    """
+    end_pt = np.asarray(end_pt, dtype=float)
+    target = np.array([end_pt[0] + float(dx), end_pt[1], end_pt[2] + float(dz)])
+    pts = motion_waypoints(end_pt, target, motion)
+    return [np.array([a, b]) for a, b in zip(pts, pts[1:])
+            if np.linalg.norm(np.asarray(b) - np.asarray(a)) > 1e-9]
+
+
+def resolve_point_feed(op, params):
+    """``(is_rapid, feed_mm_min)`` for a Point op.
+
+    Default is a rapid: a positioning move is what this op is for, and a rapid is
+    what the operator means by "go there". Unticking ``point_rapid`` runs the
+    move at the op's own feed instead — for easing into a fixture rather than
+    slamming at G0 speed.
+
+    The feed is only meaningful when ``is_rapid`` is False; the recipe format
+    requires F=0 on every command except LINEAR (CAM_INTERFACE_SPEC §5).
+    """
+    is_rapid = bool(op.get("point_rapid", True))
+    try:
+        feed = float(op.get("feed", params.get("feed_rate_mm_min", 300.0)))
+    except (TypeError, ValueError):
+        feed = float(params.get("feed_rate_mm_min", 300.0))
+    return is_rapid, feed
+
+
 def resolve_bend_points(op, retract_x_abs=50.0, default_end_x=50.0):
     """Start and end point of a cutting / bending move: ``((sx, sz), (ex, ez))``.
 
@@ -388,6 +656,34 @@ def resolve_bend_points(op, retract_x_abs=50.0, default_end_x=50.0):
     return (start_x, start_z), (end_x, end_z)
 
 
+def exit_end_direction(path_pts, span=5.0):
+    """Direction the pass is travelling AT ITS TIP, as ``(dx, dz)`` in the X/Z plane.
+
+    Used only by the predicted sheet-edge overlay, to decide which way the leftover
+    flange points. The tip is what matters: the operator's rule is that a STRAIGHT pass
+    leaves the sheet lying along the roller line, while a CURVED exit bends the free edge
+    further than the P2→P3 chord would suggest. Reading the built path captures the curve,
+    any auto-align rotation, and a hand-drawn exit tail, without re-deriving any of them.
+
+    Walks back ``span`` mm from the last point before measuring, so the tangent is not
+    taken from two adjacent, near-coincident discretisation points. Falls back to the
+    whole path when it is shorter than that. Returns ``None`` when there is nothing
+    measurable (fewer than 2 points, or a degenerate zero-length path).
+
+    Points are ``[x, y, z]``; this reads the CANONICAL +X frame, i.e. it must be called
+    inside ``calculate_paths`` before the final machine-X mirroring.
+    """
+    pts = np.asarray(path_pts, dtype=float)
+    if pts.ndim != 2 or len(pts) < 2 or pts.shape[1] < 3:
+        return None
+    end = pts[-1]
+    j = len(pts) - 2
+    while j > 0 and math.hypot(end[0] - pts[j][0], end[2] - pts[j][2]) < span:
+        j -= 1
+    dx, dz = float(end[0] - pts[j][0]), float(end[2] - pts[j][2])
+    return None if math.hypot(dx, dz) < 1e-9 else (dx, dz)
+
+
 class PathGenerator:
     def __init__(self):
         self.last_calculated_paths = []
@@ -399,6 +695,9 @@ class PathGenerator:
         self.last_op_end_z = {}            # op-index → CAM Z the op's last forming pass reaches (incl. p2_z_extend)
         self.last_blank_edge = []          # per forming pass: (contact_z, edge_radius) — see calculate_paths
         self.last_tool_change_warnings = []  # custom tool-change points near the turret swing envelope
+        self.last_retract_motion_warnings = []  # ops whose retract drags along the part before lifting (z_first)
+        self.last_point_warnings = []      # surface-mode Point ops whose Z falls off the mandrel profile
+        self.last_point_markers = []       # Point ops: {op_index, x, z, motion, rapid, mode} for the 3D triangle marker
         self.last_point_cap_warnings = []  # #99/#101: fillet or exit caps refused because they would cost clearance
         self.last_waypoint_warnings = []   # #100: hand-drawn exit tails closer than the op clearance
         self.last_waypoint_ignored = []    # #100: tails that are stored but this op cannot use
@@ -538,6 +837,12 @@ class PathGenerator:
         self.last_clamp_warnings = []  # ops whose start_z sits inside the clamp zone (#62)
         self.last_flatness_warnings = []  # straight-line finishing ops over a non-constant-angle surface
         self.last_tool_change_warnings = []  # custom tool-change points near the turret swing envelope
+        self.last_retract_motion_warnings = []  # z_first retracts (drag along the part) — warn-only
+        self.last_point_warnings = []  # surface-mode Points whose Z falls off the mandrel
+        # Point ops (2026-09-03). Stored in CANONICAL X — mirrored with everything
+        # else at the end of this function, so the marker lands where the move
+        # actually goes on a negative-side machine.
+        self.last_point_markers = []
 
         props = mandrel_mgr.props
         top_z = props["top_z"]
@@ -613,6 +918,19 @@ class PathGenerator:
             # un-migrated op. abs() keeps X in the canonical positive frame.
             op_retract_x_raw, op_retract_z = resolve_pass_retract(op, params)
             op_retract_x_can = abs(op_retract_x_raw)
+            # Motion order for this op's retract (2026-09-03). Default
+            # "synchronized" reproduces the single diagonal every recipe has
+            # always used. z_first drags the roller ALONG the part before
+            # lifting — warn-only, never clipped (user decision).
+            op_retract_motion = resolve_retract_motion(op)
+            if retract_motion_is_risky(op_retract_motion):
+                self.last_retract_motion_warnings.append({
+                    "op_index": op_index,
+                    "op_type": op.get("type", "op"),
+                    "op_name": op.get("name") or "",
+                    "motion": op_retract_motion,
+                    "dz": float(op_retract_z),
+                })
             # Unified clearance = gap between the roller contact and the blank surface.
             # Single source of truth for EVERY pass type (roughing & finishing alike), so
             # the same value always yields the same contact standoff. Legacy recipes (no
@@ -707,10 +1025,76 @@ class PathGenerator:
 
             current_tool = op_tool_id
 
+            op_type_str = op.get("type", "roughing")
+
+            # --- Point: go to ONE typed position and stop ---------------------
+            # Contributes NO toolpath and does NOT advance global_pass_idx — see
+            # the module comment on AXIS_MOTION_MODES. generate_gcode skips it
+            # the same way, so the shared path index stays aligned.
+            #
+            # No retract: a retract runs after the move and would immediately
+            # undo the position the operator just asked for. Leaving a point in a
+            # controlled way is a second Point op, visible in the list rather
+            # than hidden in a field (user decision 2026-09-03).
+            if op_type_str == "point":
+                # "relative" measures from the previous pass's FORMING end
+                # (toolpaths[-1][-1]), NOT from current_pt. current_pt includes
+                # the retract, and the emitter has no equivalent of it — using
+                # it here would make the 3D view and the .nc disagree. This is
+                # the same anchor, chosen for the same reason, as the
+                # tool-change "relative" mode.
+                _pt_prev = (np.asarray(toolpaths[-1][-1], dtype=float)
+                            if len(toolpaths) > 0 else None)
+                pt_target = resolve_point_target(
+                    op, center_x=center_x, side=side, params=params,
+                    mandrel_mgr=mandrel_mgr, prev_end=_pt_prev,
+                    home_pt=np.array([home_x_can, 0.0, home_z]))
+                pt_mode = resolve_point_mode(op)
+
+                # Surface mode with a Z off the end of the mandrel would read a
+                # clamped radius and drive somewhere the operator did not mean.
+                # Warn-only, like every other advisory here.
+                if pt_mode == "surface":
+                    _mz = float(props.get("min_z", 0.0))
+                    _tz = float(props.get("top_z", 0.0))
+                    _pz = float(pt_target[2])
+                    if not (min(_mz, _tz) - 1e-6 <= _pz <= max(_mz, _tz) + 1e-6):
+                        self.last_point_warnings.append({
+                            "op_index": op_index,
+                            "z": _pz, "min_z": _mz, "top_z": _tz,
+                        })
+                pt_motion = resolve_point_motion(op)
+                pt_rapid, pt_feed = resolve_point_feed(op, params)
+                waypoints = motion_waypoints(current_pt, pt_target, pt_motion)
+
+                for a, b in zip(waypoints, waypoints[1:]):
+                    seg = np.array([a, b])
+                    if np.linalg.norm(b - a) <= 1e-6:
+                        continue
+                    if pt_rapid:
+                        rapids.append(seg)
+                        sequence.append(("rapid", seg))
+                    else:
+                        # A fed Point still is not a toolpath — it removes no
+                        # material and must not be coloured or counted as a pass.
+                        # The sim gets it as a "cut" only so playback runs it at
+                        # the commanded feed instead of rapid speed.
+                        sequence.append(("cut", seg, r_tool, op_tool_id, pt_feed))
+
+                current_pt = pt_target
+                self.last_point_markers.append({
+                    "op_index": op_index,
+                    "x": float(pt_target[0]), "z": float(pt_target[2]),
+                    "motion": pt_motion, "rapid": bool(pt_rapid),
+                    "mode": pt_mode,
+                })
+                # "Where this op ended" for the Real End Z column / Continue⤵.
+                self.last_op_end_z[op_index] = float(pt_target[2])
+                continue
+
             # --- Cutting / Bending: one feed line from START to END, single pass ---
             # Both ends are typed by the user (resolve_bend_points); the retract
             # below is the plain per-op retract, same as any roughing pass.
-            op_type_str = op.get("type", "roughing")
             if op_type_str in ("cutting", "bending"):
                 (start_x, start_z), (end_x, end_z) = resolve_bend_points(
                     op, op_retract_x_can, center_x + 50.0)
@@ -731,11 +1115,11 @@ class PathGenerator:
                         sequence.append(("rapid", seg))
                     sequence.append(("cut", path, r_tool, op_tool_id,
                                      representative_feed_mm_min(op, path, params, center_x)))
-                    retract_pt = np.array([end_pt[0] + op_retract_x_can, 0, end_pt[2] + op_retract_z])
-                    r_seg2 = np.array([end_pt, retract_pt])
-                    rapids.append(r_seg2)
-                    sequence.append(("rapid", r_seg2))
-                    current_pt = retract_pt
+                    for r_seg in retract_segments(end_pt, op_retract_x_can,
+                                                  op_retract_z, op_retract_motion):
+                        rapids.append(r_seg)
+                        sequence.append(("rapid", r_seg))
+                        current_pt = r_seg[-1]
 
                 while len(self._path_op_map) < len(toolpaths):
                     self._path_op_map.append(op)
@@ -877,16 +1261,71 @@ class PathGenerator:
                 if _reach_v is not None and _reach_v <= 0:
                     _reach_v = None
 
+                # ── Exit DIRECTION for this pass, settled BEFORE any length is chosen.
+                # Direction and length are independent (#61 Option B). It moved up here
+                # because follow-blank now needs the direction to work out how long the
+                # leaning flange is. Nothing between here and the pass-angle block below
+                # touches p1_x/p1_z/p3_x/p3_z or _edit_angle, so the block reuses these
+                # instead of recomputing them — one derivation, not two.
+                # θ_A = angle of P2→P1 from +X in XZ. θ_B = θ_A + pass_angle.
+                # linear_approach/linear_full: θ_A is always -90° (pure -Z entry).
+                _pa_deg = op.get("pass_angle", None)
+                _eff_angle = _theta_B = None
+                if _pa_deg is not None:
+                    _eff_angle = float(_pa_deg)
+                    if op.get("progressive_angle_enabled", False) and count > 1:
+                        # Fan target: last pass reaches progressive_angle_end (default
+                        # 180° = laid along the surface). Any end value is allowed —
+                        # smaller than 180 stops the fan early, smaller than pass_angle
+                        # fans downward.
+                        try:
+                            _prog_end = float(op.get("progressive_angle_end", 180.0))
+                        except (TypeError, ValueError):
+                            _prog_end = 180.0
+                        _eff_angle += i * (_prog_end - _eff_angle) / (count - 1)
+                    if _edit_angle is not None:
+                        _eff_angle = _edit_angle   # pinned pass: manual beats auto (R2)
+                    _shape = op.get("pass_shape", "spline")
+                    if _shape in ("linear_approach", "linear_full"):
+                        _theta_A = -math.pi / 2
+                    else:
+                        _px, _pz = abs(p1_x), abs(p1_z)
+                        _theta_A = math.atan2(-_pz, _px) if _px > 0.001 else -math.pi / 2
+                    _theta_B = _theta_A + math.radians(_eff_angle)
+                    _exit_dir = (math.cos(_theta_B), math.sin(_theta_B))
+                else:
+                    # Raw exit mode: direction is the p3_x/p3_z ratio, untouched.
+                    _exit_dir = (p3_x, p3_z)
+
                 _follow_reach = None
                 if not is_finish and op.get("reach_follow_blank", False):
                     _R_blank = float(params.get("blank_radius", 0.0) or 0.0)
                     if _R_blank > 0:
                         try:
-                            from process_planner import estimate_flange_reach
+                            from process_planner import (estimate_flange_reach,
+                                                         flange_slant_length)
                             _fr = estimate_flange_reach(mandrel_mgr, _R_blank, target_z)
                         except Exception:
                             _fr = 0.0
                         if _fr > 0:
+                            # FLAT → SLANT. estimate_flange_reach answers "how far does
+                            # the sheet stick out SIDEWAYS". The stroke does not travel
+                            # sideways, it travels along the EXIT, and the same material
+                            # leaning that way is LONGER. Without this the pass stops
+                            # short of the sheet edge, and the shortfall grows with the
+                            # pass angle: 0% flat, ~6% at 40°, ~14% at 60°, ~41% at 90°.
+                            # That is what operators were cancelling out by hand when they
+                            # typed 1.2 / 1.5 into the blank factor. Flat exits return the
+                            # identical number, so those programs do not move.
+                            # `reach_blank_flat_legacy` restores the old short stroke for
+                            # a program already proven on the machine.
+                            if not op.get("reach_blank_flat_legacy", False):
+                                try:
+                                    _fr = flange_slant_length(
+                                        mandrel_mgr.get_radius_fast(target_z) + shell_offset,
+                                        _fr, *_exit_dir)[0]
+                                except Exception:
+                                    pass
                             try:
                                 _fb_fac = float(op.get("reach_blank_factor") or 1.0)
                             except (TypeError, ValueError):
@@ -921,23 +1360,9 @@ class PathGenerator:
                                 _follow_reach = None
 
                 # Pass Angle override — Option B: L3 = |P2→P3| preserved, only direction rotates.
-                # θ_A = angle of P2→P1 from +X in XZ. θ_B = θ_A + pass_angle. p3 = L3 * (cos θ_B, sin θ_B).
-                # linear_approach/linear_full: θ_A is always -90° (pure -Z entry).
-                _pa_deg = op.get("pass_angle", None)
+                # p3 = L3 * (cos θ_B, sin θ_B). θ_B (and the progressive fan and the pin
+                # that feed it) is resolved once, above the follow-blank block.
                 if _pa_deg is not None:
-                    _eff_angle = float(_pa_deg)
-                    if op.get("progressive_angle_enabled", False) and count > 1:
-                        # Fan target: last pass reaches progressive_angle_end
-                        # (default 180° = laid along the surface). Any end value
-                        # is allowed — smaller than 180 stops the fan early,
-                        # smaller than pass_angle fans downward.
-                        try:
-                            _prog_end = float(op.get("progressive_angle_end", 180.0))
-                        except (TypeError, ValueError):
-                            _prog_end = 180.0
-                        _eff_angle += i * (_prog_end - _eff_angle) / (count - 1)
-                    if _edit_angle is not None:
-                        _eff_angle = _edit_angle   # pinned pass: manual beats auto (R2)
                     _L3 = _reach_v if _reach_v is not None else math.sqrt(p3_x ** 2 + abs(p3_z) ** 2)
                     # Progressive reach: sweep the P2→P3 stroke length across passes,
                     # independent of the direction sweep (progressive_angle). First pass
@@ -954,13 +1379,6 @@ class PathGenerator:
                     if _edit_reach is not None:
                         _L3 = _edit_reach          # pinned pass: manual beats all (R2)
                     if _L3 > 0.001:
-                        _shape = op.get("pass_shape", "spline")
-                        if _shape in ("linear_approach", "linear_full"):
-                            _theta_A = -math.pi / 2
-                        else:
-                            _px, _pz = abs(p1_x), abs(p1_z)
-                            _theta_A = math.atan2(-_pz, _px) if _px > 0.001 else -math.pi / 2
-                        _theta_B = _theta_A + math.radians(_eff_angle)
                         p3_x = _L3 * math.cos(_theta_B)
                         p3_z = _L3 * math.sin(_theta_B)
                         _dbg_warn = " ← p3_x<0: clearance correction will dominate, further angle increase has diminishing effect" if p3_x < 0 else ""
@@ -1028,18 +1446,21 @@ class PathGenerator:
 
                 # Predicted unformed blank EDGE for this pass — RECORD ONLY, read by the
                 # 3D overlay (main.update_blank_edge). Nothing here feeds the toolpath.
-                # Measured at contact_z (where the roller actually forms), NOT at the
-                # anchor target_z, so it stays correct when Extend is used.
+                # HOW MUCH sheet is left over is settled here, at contact_z (where the
+                # roller actually forms), NOT at the anchor target_z, so it stays correct
+                # when Extend is used. WHERE that sheet points is settled after the pass
+                # is built, from the real exit curve — see the append below.
+                _edge_pending = None
                 if not is_finish:
                     try:
                         _R_bl = float(params.get("blank_radius", 0.0) or 0.0)
                         if _R_bl > 0:
                             from process_planner import estimate_flange_reach
-                            _edge_fr = estimate_flange_reach(mandrel_mgr, _R_bl, contact_z)
-                            self.last_blank_edge.append((float(contact_z),
-                                                         float(r_contact + _edge_fr)))
+                            _edge_pending = (r_contact, contact_z,
+                                             estimate_flange_reach(mandrel_mgr, _R_bl,
+                                                                   contact_z))
                     except Exception:
-                        pass
+                        _edge_pending = None
 
                 total_off = r_tool + blank_thick + eff_clearance
                 # Per-op conformal flag: normal-projected P2 placement. Falls back to global conformal_clearance_all_operations.
@@ -1169,7 +1590,29 @@ class PathGenerator:
                     # a program saved before this feature cuts identically.
                     _brk = exit_breaks.get_breaks(op, i)
                     self._create_and_store_pass(p1_x, effective_p1_z, p3_z, p3_x, gp_Pnt(p2_x, 0, p2_z), base_rot, auto_align, toolpaths, projections, control_points, deviations, mandrel_mgr, center_x, r_tool, blank_thick, shell_offset, pass_label, params, debug_lines, op=op, op_clearance=eff_clearance, exit_points=_wp, exit_shape=exit_waypoints.get_shape(op, i), breaks=_brk)
-                
+
+                # Lay the leftover flange along the exit the roller ACTUALLY drove, taken
+                # as the END tangent of the generated path rather than the P2→P3 chord.
+                # Operator's rule (2026-09-03): a STRAIGHT pass leaves the sheet following
+                # the roller line — chord and tangent agree, so those are unchanged — but a
+                # CURVED exit bends the free edge FURTHER, which is deliberate (it stiffens
+                # the sheet). Reading the built path also picks up auto-align rotation and
+                # any hand-drawn exit tail for free. Still RECORD ONLY.
+                if _edge_pending is not None and len(toolpaths) > prev_paths_len:
+                    try:
+                        from process_planner import flange_edge_along_exit
+                        _dir = exit_end_direction(toolpaths[-1])
+                        _r_c, _c_z, _fr_e = _edge_pending
+                        # A used-up flange has no free EDGE to draw. Without this the ring
+                        # collapses onto the mandrel surface and reads as "the sheet edge
+                        # is here", when the truth is that there is no loose sheet left —
+                        # which is what a pass anchored at the mandrel nose produces.
+                        if _dir is not None and _fr_e > 0.5:
+                            _e_r, _e_z = flange_edge_along_exit(_r_c, _c_z, _fr_e, *_dir)
+                            self.last_blank_edge.append((float(_e_z), float(_e_r)))
+                    except Exception:
+                        pass
+
                 # Check newly added path for Rapids
                 if len(toolpaths) > prev_paths_len:
                     new_path = toolpaths[-1]
@@ -1360,17 +1803,18 @@ class PathGenerator:
                             sequence.append(("cut", bck_path, r_tool, op_tool_id,
                                              representative_feed_mm_min({**op, "feed": bck_feed},
                                                                         bck_path, params, center_x)))
-                            bp_ret = np.array([bp_e[0] + op_retract_x_can, 0, bp_e[2] + op_retract_z])
-                            rapids.append(np.array([bp_e, bp_ret]))
-                            sequence.append(("rapid", np.array([bp_e, bp_ret])))
-                            current_pt = bp_ret
+                            for r_seg in retract_segments(bp_e, op_retract_x_can,
+                                                          op_retract_z, op_retract_motion):
+                                rapids.append(r_seg)
+                                sequence.append(("rapid", r_seg))
+                                current_pt = r_seg[-1]
                         else:
                             # No back pass: retract after the forward pass as usual.
-                            retract_pt = np.array([end_pt[0] + op_retract_x_can, 0, end_pt[2] + op_retract_z])
-                            r_seg2 = np.array([end_pt, retract_pt])
-                            rapids.append(r_seg2)
-                            sequence.append(("rapid", r_seg2))
-                            current_pt = retract_pt
+                            for r_seg in retract_segments(end_pt, op_retract_x_can,
+                                                          op_retract_z, op_retract_motion):
+                                rapids.append(r_seg)
+                                sequence.append(("rapid", r_seg))
+                                current_pt = r_seg[-1]
 
                 # Keep the path→op map in sync with everything appended during
                 # this pass (forward + optional back pass), whatever the branch.
@@ -1444,6 +1888,12 @@ class PathGenerator:
                     mirrored_seq.append(item)
             sequence = mirrored_seq
 
+            # Point markers were stored canonical, like every other X above. The
+            # triangle has to land where the move actually goes, or the 3D view
+            # points at the mirror image of the operator's own setpoint.
+            for _m in self.last_point_markers:
+                _m["x"] = 2.0 * center_x - _m["x"]
+
         # ── Per-point tilt angles (tilt-arm machines only, e.g. ID112) ──────
         # Built AFTER mirroring: tilt derives from each point's Z in both modes
         # (mirror-invariant, direction-invariant — back passes need no special
@@ -1475,6 +1925,20 @@ class PathGenerator:
                 f"over a non-constant-angle surface; first: op #{_f['op_index'] + 1} "
                 f"Z {_f['start_z']:.1f}->{_f['end_z']:.1f} max_dev={_f['max_dev']:+.2f}mm "
                 f"(tol {_f['tol']:.2f})")
+
+        if self.last_point_warnings:
+            _pw = self.last_point_warnings[0]
+            logger.warning(
+                f"[POINT] {len(self.last_point_warnings)} surface-mode Point op(s) "
+                f"with a Z off the mandrel; first: op #{_pw['op_index'] + 1} "
+                f"Z={_pw['z']:.1f} (profile {_pw['min_z']:.1f}..{_pw['top_z']:.1f})")
+
+        if self.last_retract_motion_warnings:
+            _rm = self.last_retract_motion_warnings[0]
+            logger.warning(
+                f"[RETRACT] {len(self.last_retract_motion_warnings)} op(s) retract "
+                f"Z-first, dragging the roller along the part before it lifts; "
+                f"first: op #{_rm['op_index'] + 1} dz={_rm['dz']:+.1f}mm")
 
         if self.last_tool_change_warnings:
             _tc = self.last_tool_change_warnings[0]
@@ -2964,8 +3428,15 @@ class PathGenerator:
         controlled by params["plc_tolerance"] (mm, default 0.5).
         The CNC path (gcode_resolution) is NOT affected.
         """
-        if not self.last_calculated_paths: return ""
         if params is None: return ""
+        # "Nothing calculated" USED to mean "no toolpaths". Point ops broke that
+        # equivalence: they emit real machine moves but append no toolpath, so a
+        # program made only of Point ops (a jog or setup routine) would have
+        # silently produced an empty file. Emit when there is anything to say.
+        if not self.last_calculated_paths and not any(
+                o.get("type") == "point" and o.get("enabled", True)
+                for o in (params.get("operations") or [])):
+            return ""
 
         # --- PLC Mode: decimated path list ---
         plc_mode = bool(params.get("plc_mode", False))
@@ -3298,6 +3769,53 @@ class PathGenerator:
                      gcode.append(f"(Spindle already at {code_speed} S{int(val_speed)})")
                  gcode.append(f"{code_feed}")
 
+            # --- Point: go to ONE typed position and stop ---------------------
+            # calculate_paths contributes NO toolpath for a Point, so this MUST
+            # NOT touch global_path_idx — advancing it here would hand this op
+            # the next op's pass. The tool-change and spindle block above has
+            # already run, which is what makes "change the tool at this exact
+            # place" work: put a Point op carrying the new tool_id where you want
+            # the change to happen.
+            #
+            # Single-axis G0 lines are safe in the recipe: parse_gcode carries X
+            # and Z modally (recipe_to_scl.py:472), so the omitted word keeps its
+            # previous value — the same mechanism the tool-change retract has
+            # always relied on.
+            if op.get("type", "roughing") == "point":
+                # center_x=None: the emitter is already in the real frame, so no
+                # mirror conversion. `side` is still required — "surface" mode
+                # adds a radial distance and must add it on the roller's side.
+                # Anchors are supplied in this frame, mirroring the sim's use of
+                # the previous pass's FORMING end (paths_to_use[idx-1][-1]) —
+                # the same array both sites read, so they cannot disagree.
+                _pt_prev = (np.asarray(paths_to_use[global_path_idx - 1][-1], dtype=float)
+                            if global_path_idx > 0 else None)
+                _pt = resolve_point_target(
+                    op, center_x=None, side=ret_side, params=params,
+                    mandrel_mgr=getattr(self, "last_mandrel_mgr", None),
+                    prev_end=_pt_prev,
+                    home_pt=np.array([home_x, 0.0, home_z]))
+                _pt_x_m, _pt_z_m = _xf_pt(float(_pt[0]), float(_pt[2]))
+                _pt_motion = resolve_point_motion(op)
+                _pt_rapid, _pt_feed = resolve_point_feed(op, params)
+                _g = "G0" if _pt_rapid else "G1"
+                # F only on a LINEAR move — the recipe format requires F=0 on
+                # every other command (CAM_INTERFACE_SPEC section 5), and the
+                # PLC clamps it to 1..3000.
+                _f = "" if _pt_rapid else f" F{max(1.0, min(3000.0, _pt_feed)):.3f}"
+                _tag = f"(Point Op{op_idx+1})"
+                gcode.append(f"(--- OP {op_idx+1}: {op_type} ---)")
+                if _pt_motion == "x_first":
+                    gcode.append(f"{_g} X{_pt_x_m:.3f}{_f} {_tag}")
+                    gcode.append(f"{_g} Z{_pt_z_m:.3f}{_f} {_tag}")
+                elif _pt_motion == "z_first":
+                    gcode.append(f"{_g} Z{_pt_z_m:.3f}{_f} {_tag}")
+                    gcode.append(f"{_g} X{_pt_x_m:.3f}{_f} {_tag}")
+                else:
+                    gcode.append(f"{_g} X{_pt_x_m:.3f} Z{_pt_z_m:.3f}{_f} {_tag}")
+                gcode.append("")
+                continue
+
             # calculate_paths emits exactly ONE path for a cutting/bending op and
             # ignores its `count` — so the emitter must too, or a stray count>1
             # (hand-edited .ssp, imported preset) makes this op swallow the NEXT
@@ -3431,12 +3949,24 @@ class PathGenerator:
                 if len(path) > 0 and not _back_follows:
                     last_pt = path[-1]
                     ret_x_off, ret_z_off = resolve_pass_retract(op, params)  # #90 per-op
+                    _ret_motion = resolve_retract_motion(op)
 
-                    raw_ret_x = last_pt[0] + retract_x_offset_real(ret_x_off, ret_side)
-                    raw_ret_z = last_pt[2] + ret_z_off
-
-                    rx, rz = transform_pt([raw_ret_x, 0, raw_ret_z])
-                    gcode.append(f"G0 X{rx:.3f} Z{rz:.3f} (Retract Op{op_idx+1} P{i+1})")
+                    # Same helper the 3D sim uses, so the picture and the machine
+                    # agree on the SHAPE. "synchronized" yields exactly one
+                    # segment, i.e. the single diagonal G0 this has always been —
+                    # that is what keeps existing recipes byte-identical.
+                    #
+                    # BOTH axis words on every leg, including the one that does
+                    # not move. A recipe line carries absolute X and Z regardless
+                    # (CAM_INTERFACE_SPEC section 4), so naming both costs
+                    # nothing and the .nc stops depending on modal state to be
+                    # read correctly.
+                    for _rs in retract_segments(
+                            last_pt, retract_x_offset_real(ret_x_off, ret_side),
+                            ret_z_off, _ret_motion):
+                        rx, rz = transform_pt([_rs[-1][0], 0, _rs[-1][2]])
+                        gcode.append(f"G0 X{rx:.3f} Z{rz:.3f} "
+                                     f"(Retract Op{op_idx+1} P{i+1})")
 
                 gcode.append("")
                 _fwd_last_pt = path[-1] if len(path) > 0 else None
@@ -3482,9 +4012,12 @@ class PathGenerator:
                     if len(bp_path) > 0:
                         bl = bp_path[-1]
                         _bp_rx_off, _bp_rz_off = resolve_pass_retract(op, params)  # #90 per-op
-                        rx, rz = transform_pt([bl[0] + retract_x_offset_real(_bp_rx_off, ret_side), 0,
-                                               bl[2] + _bp_rz_off])
-                        gcode.append(f"G0 X{rx:.3f} Z{rz:.3f} (Retract Op{op_idx+1} BP{i+1})")
+                        for _rs in retract_segments(
+                                bl, retract_x_offset_real(_bp_rx_off, ret_side),
+                                _bp_rz_off, resolve_retract_motion(op)):
+                            rx, rz = transform_pt([_rs[-1][0], 0, _rs[-1][2]])
+                            gcode.append(f"G0 X{rx:.3f} Z{rz:.3f} "
+                                         f"(Retract Op{op_idx+1} BP{i+1})")
                     gcode.append("")
                     global_path_idx += 1
 
