@@ -56,7 +56,19 @@ CMD_SPINDLE_OFF = 21    # M5 - Spindle off
 CMD_DWELL = 30          # G4 P - Dwell/pause
 CMD_CYLINDER_GOTO = 40  # M40 Pnnn - Cylinder GOTO; Param = P exactly as typed,
                         # scaling/units are the PLC's business (2026-08-07)
+CMD_OP_MARKER = 50      # Operation start; Param = op no, F = total ops  (opt-in)
+CMD_PASS_MARKER = 51    # Pass start;      Param = pass no, F = passes in op (opt-in)
 CMD_PROGRAM_END = 99    # M30 - Program end
+
+# Pass markers (letter_spinningcam_pass_markers.md, PLC team 2026-09-06).
+# Zero-motion lines so the HMI can show "Op 2 of 5 / Pass 3 of 10" instead of a
+# line number nobody can read. OFF by default and the export is byte-identical
+# when off — the PLC treats 0 as "no pass information" and blanks the display,
+# so an unmarked recipe is a permanently supported state, not a legacy one.
+#
+# Param is a Byte on the PLC side: an op or pass number above this cannot be
+# sent without wrapping to a silently wrong number, so we refuse instead.
+MAX_MARKER_NUMBER = 255
 
 # Constraints from spec
 MAX_LINES = 1000
@@ -121,6 +133,78 @@ def normalize_turret(params: dict):
         for i in range(MAX_TURRET_SLOTS):
             angles[i] = round(i * 360.0 / n, 3) if i < n else 0.0
     return codes, angles, auto, tool_count
+
+
+# Comment forms generate_gcode writes, and the ONLY source of the marker numbers.
+# Reusing them rather than recomputing is deliberate: whatever the file says in
+# "[Op1 P2]" is what the operator sees on the HMI, so the two can never disagree.
+_OP_LIST_RE   = re.compile(r'^\(Op(\d+):')                        # header block, ALL rows
+_OP_START_RE  = re.compile(r'^\(--- OP (\d+) START:')             # for_recipe only
+_PASS_HDR_RE  = re.compile(r'^\(--- OP (\d+): \w+ - PASO (\d+) ---\)')
+
+
+def scan_pass_markers(gcode: str):
+    """Read the op/pass structure out of the G-code comments.
+
+    Returns ``(total_ops, {op_no: passes_in_that_op})``.
+
+    ``total_ops`` counts the rows in the operation LIST, including ones switched
+    off, because the numbers we emit are row numbers (an op tagged ``[Op5 …]`` is
+    the 5th row). Counting only the rows that run would produce "Op 5 of 4" the
+    moment somebody disables a middle row — which is why we do NOT follow the
+    letter's ``TotalOps`` instruction here. See the reply letter.
+
+    A BACK PASS gets no entry of its own: the ``[OpN PM]`` tag on a return pass
+    is the one from its forward pass, so the two stay in step.
+    """
+    total_ops = 0
+    passes = {}
+    for raw in gcode.split('\n'):
+        line = raw.strip()
+        if not line.startswith('('):
+            continue
+        m = _OP_LIST_RE.match(line)
+        if m:
+            total_ops = max(total_ops, int(m.group(1)))
+            continue
+        m = _PASS_HDR_RE.match(line)
+        if m:
+            op_no, pass_no = int(m.group(1)), int(m.group(2))
+            passes[op_no] = max(passes.get(op_no, 0), pass_no)
+            total_ops = max(total_ops, op_no)
+            continue
+        m = _OP_START_RE.match(line)
+        if m:
+            total_ops = max(total_ops, int(m.group(1)))
+    return total_ops, passes
+
+
+def count_pass_markers(gcode: str) -> int:
+    """How many extra recipe lines markers would cost this program.
+
+    Independent of decimation tolerance — thinning removes points *inside* a
+    pass and never changes how many ops or passes there are. That property is
+    what makes the cost predictable, and it is why the auto-tune can simply
+    count markers on every probe (``auto_fit_plc_tolerance``) instead of
+    subtracting an estimate from the target afterwards.
+
+    Answering "what would markers cost me?" without running a conversion —
+    reporting, or a UI preview. The export path does NOT call this; it counts
+    the real lines it just built, so the two cannot drift.
+    """
+    ops = set()
+    n_pass = 0
+    for raw in gcode.split('\n'):
+        line = raw.strip()
+        if not line.startswith('(--- OP '):
+            continue
+        m = _OP_START_RE.match(line)
+        if m:
+            ops.add(int(m.group(1)))
+            continue
+        if _PASS_HDR_RE.match(line):
+            n_pass += 1
+    return len(ops) + n_pass
 
 
 def recipe_checksum(lines, line_count: int = None) -> int:
@@ -393,6 +477,8 @@ class RecipeLineData:
             # Param is passed through verbatim from the M40 you typed — this
             # comment must NOT invent a unit the PLC may not agree with.
             CMD_CYLINDER_GOTO: f"Cylinder GOTO P{self.param}",
+            CMD_OP_MARKER: f"OPERATION {self.param} of {self.f}",
+            CMD_PASS_MARKER: f"PASS {self.param} of {self.f}",
             CMD_PROGRAM_END: "Program END"
         }
         if self.cmd in cmd_names:
@@ -414,16 +500,20 @@ class GCodeToSCLConverter:
     - Supports RAPID, LINEAR, TOOL_CHANGE, SPINDLE_ON/OFF, DWELL, PROGRAM_END
     """
     
-    def __init__(self, default_spindle_rpm: int = 1000, default_feedrate: int = 300):
+    def __init__(self, default_spindle_rpm: int = 1000, default_feedrate: int = 300,
+                 emit_pass_markers: bool = False):
         """
         Initialize converter.
-        
+
         Args:
             default_spindle_rpm: Default spindle speed if not specified in G-code
             default_feedrate: Default feed rate if not specified in G-code
+            emit_pass_markers: Insert CMD=50/51 op and pass markers. Default False
+                keeps the output byte-identical to a build without this feature.
         """
         self.default_spindle_rpm = min(default_spindle_rpm, MAX_SPINDLE_RPM)
         self.default_feedrate = min(default_feedrate, MAX_FEEDRATE)
+        self.emit_pass_markers = bool(emit_pass_markers)
         self.lines: List[RecipeLineData] = []
         
         # Bounding box tracking
@@ -476,7 +566,18 @@ class GCodeToSCLConverter:
         spindle_started = False
         current_pass_label = ""
         _pass_header_re = re.compile(r'\(--- OP (\d+): \w+ - PASO (\d+) ---\)')
-        
+
+        # Pass markers: totals come from one pre-scan of the same comments the
+        # per-line labels come from, so screen and file cannot drift apart.
+        _marker_total_ops, _marker_passes = (
+            scan_pass_markers(gcode) if self.emit_pass_markers else (0, {}))
+        if self.emit_pass_markers:
+            _too_big = [n for n in ([_marker_total_ops] + list(_marker_passes.values()))
+                        if n > MAX_MARKER_NUMBER]
+            if _too_big:
+                raise ValueError(
+                    f"MARKER_RANGE:{max(_too_big)}:{MAX_MARKER_NUMBER}")
+
         # Regex patterns
         g_pattern = re.compile(r'G(\d+)', re.IGNORECASE)
         x_pattern = re.compile(r'X([+-]?\d*\.?\d+)', re.IGNORECASE)
@@ -495,6 +596,27 @@ class GCodeToSCLConverter:
                 m = _pass_header_re.match(line)
                 if m:
                     current_pass_label = f"Op{m.group(1)} P{m.group(2)}"
+                    if self.emit_pass_markers:
+                        # AFTER the setup lines (cylinder / tool change / spindle),
+                        # which is where this comment already sits in the stream —
+                        # the operator's pass number changes when the pass does.
+                        _op_no = int(m.group(1))
+                        self.lines.append(RecipeLineData(
+                            x=0.0, z=0.0,
+                            f=_marker_passes.get(_op_no, int(m.group(2))),
+                            cmd=CMD_PASS_MARKER, param=int(m.group(2)),
+                            pass_label=current_pass_label
+                        ))
+                elif self.emit_pass_markers:
+                    m = _OP_START_RE.match(line)
+                    if m:
+                        # BEFORE the setup lines, so nothing on the HMI is blank
+                        # while the turret is indexing and the spindle spins up.
+                        self.lines.append(RecipeLineData(
+                            x=0.0, z=0.0, f=_marker_total_ops,
+                            cmd=CMD_OP_MARKER, param=int(m.group(1)),
+                            pass_label=f"Op{m.group(1)}"
+                        ))
 
             # Skip empty lines and comments
             if not line or line.startswith('(') or line.startswith(';') or line.startswith('%'):
@@ -988,6 +1110,8 @@ class GCodeToSCLConverter:
             'linear_moves': linear_count,
             'tool_changes': tool_count,
             'spindle_operations': spindle_ops,
+            'pass_markers': sum(1 for line in self.lines
+                                if line.cmd in (CMD_OP_MARKER, CMD_PASS_MARKER)),
             'db_name': db_name,
             'scl_size_bytes': len(scl_code.encode('utf-8')),
             'estimated_plc_bytes': len(self.lines) * 12,  # 12 bytes per line
@@ -1036,6 +1160,10 @@ TIA Portal Import:
     parser.add_argument('--no-checksum', action='store_true',
                        help='Do not write Header.ProvidesChecksum / Header.Checksum. '
                             'Use only while the PLC RecipeHeader UDT still lacks the fields.')
+    parser.add_argument('--pass-markers', action='store_true',
+                       help='Insert CMD=50 operation and CMD=51 pass markers so the HMI '
+                            'can show "Op 2 of 5 / Pass 3 of 10". Costs one recipe line '
+                            'per op and per pass; off by default.')
     parser.add_argument('--name', '-n', default='DB_RecipeProgram1',
                        help='Data Block name (default: DB_RecipeProgram1)')
     parser.add_argument('--title', '-t', default='SpinningCam Program',
@@ -1067,7 +1195,8 @@ TIA Portal Import:
     try:
         converter = GCodeToSCLConverter(
             default_spindle_rpm=args.spindle,
-            default_feedrate=args.feedrate
+            default_feedrate=args.feedrate,
+            emit_pass_markers=args.pass_markers
         )
 
         output_path, stats = converter.convert_file(
@@ -1097,6 +1226,8 @@ TIA Portal Import:
         print(f"Linear (G1): {stats['linear_moves']}")
         print(f"Tool Changes: {stats['tool_changes']}")
         print(f"Spindle Ops: {stats['spindle_operations']}")
+        if stats.get('pass_markers'):
+            print(f"Pass Markers: {stats['pass_markers']} (CMD 50/51)")
         print(f"SCL File Size: {stats['scl_size_bytes']:,} bytes")
         print(f"Est. PLC Memory: {stats['estimated_plc_bytes']:,} bytes")
         print(f"\n--- Bounding Box ---")

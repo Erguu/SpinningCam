@@ -152,6 +152,7 @@ class SpinningApp:
             "plc_tolerance": 0.5,
             "plc_auto_tune": False,     # auto-fit tolerance to a PLC line budget
             "plc_target_lines": 1000,   # target max recipe lines when auto_tune is on
+            "plc_pass_markers": False,  # emit CMD=50/51 op+pass markers for the HMI
             # SCL recipe DB layout: lines per declared array (Lines1..LinesN).
             # The PLC copies the recipe out of load memory one declared array at a
             # time (READ_DBL silently truncates a 12 KB block), so this must match

@@ -5,6 +5,80 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-09-06 — v1.031: PASO İŞARETLERİ: reçetede CMD=50 / CMD=51 (opt-in)
+
+Meksika PLC ekibinin mektubu: `letter_spinningcam_pass_markers.md`.
+Cevabımız: `reply_spinningcam_pass_markers.md`. HMI operatöre sadece "Satır 47 /
+99" gösterebiliyordu; iş ise pas cinsinden anlatılıyor. Reçeteye **hareketsiz**
+iki satır tipi eklendi:
+
+```
+CMD=50  Param=operasyon no   F=toplam operasyon   X=Z=0
+CMD=51  Param=paso no        F=bu op'taki paso    X=Z=0
+```
+
+**Anahtar `plc_pass_markers` (varsayılan False, `MACHINE_PROFILE_KEYS`).
+KAPALIYKEN ÇIKTI BAYT BAYT ESKİSİYLE AYNI** — test bunu kilitliyor
+(`_test_pass_markers.py`, 22 paket). PLC 0'ı "paso bilgisi yok" sayıp ekranı
+boş bırakıyor, yani işaretsiz reçete KALICI olarak desteklenen bir durum.
+
+### Numaralar YENİDEN HESAPLANMIYOR — dosyadaki yorumlardan okunuyor
+
+`scan_pass_markers()` `(Op7: …)` başlık bloğunu ve `(--- OP n: TIP - PASO m ---)`
+satırlarını tarar. Ekran ile dosyadaki `[Op1 P2]` etiketleri BU YÜZDEN
+çelişemez. İki sonuç kendiliğinden çıktı:
+- **Geri pas kendi numarasını ALMAZ** — döndüğü ileri pasın numarasını taşır
+  (etiketler zaten öyle; "Paso 2 / 3" kullanıcının yazdığı sayıyla da uyuşur).
+- **Pas üretmeyen op** (Nokta) CMD=50 alır, CMD=51 ALMAZ.
+
+### ⚠ MEKTUPTAN BİLEREK SAPILDI — `TotalOps`
+
+Mektup "`TotalOps` = satır ÜRETEN op sayısı" istiyordu. Biz **op listesindeki
+SATIR sayısını** (kapalı satırlar dâhil) gönderiyoruz, çünkü `Param` bir SATIR
+numarası (`op_idx+1`). Mektubun kuralı + satır numarası = ortadaki bir op
+kapatılınca ekranda **"Op 5 / 4"**. Bizimkinde numara ATLAR (Op 2 → Op 4) ama
+toplamı AŞMAZ. Kullanıcı kararı 2026-09-06. Geri alma: `scan_pass_markers`'ta
+`total_ops`'u üreten op sayısına çevir + `Param`'ı da sırayla yeniden numarala —
+**İKİSİ BİRDEN, yoksa yine "Op 5 / 4"**.
+
+### Satır bütçesi: işaretler auto-tune'un İÇİNDE ayrılıyor
+
+`auto_fit_plc_tolerance(..., emit_pass_markers=)` — sonda çıkarma YOK. İşaret
+sayısı toleranstan BAĞIMSIZ (seyreltme pas İÇİNDEKİ noktaları atar, pasın
+kendisini asla), o yüzden her denemede sayılması tam olarak "önden slot ayırma"
+demek ve export'un yazdığıyla ayrışamaz. Bu olmadan fit 999'a oturur, sonra
+export `LIMIT_EXCEEDED` fırlatırdı. Auto-tune KAPALIYKEN davranış mektubun
+istediği gibi: 1000'i aşarsa REDDET (kesme/sessiz düşürme YOK).
+
+### 255 sınırı
+
+`Param` bir Byte. Op veya paso no > 255 → `ValueError('MARKER_RANGE:n:255')` →
+export REDDEDİLİR (`msg_marker_range`, kutuyu kapatmayı söyler). Sarma YOK.
+Pratikte 1000 satır tavanı zaten çok önce bağlıyor.
+
+### Dokunulan yerler
+
+| Dosya | Ne |
+|---|---|
+| `recipe_to_scl.py` | `CMD_OP_MARKER/CMD_PASS_MARKER`, `MAX_MARKER_NUMBER`, `scan_pass_markers()`, `count_pass_markers()`, `GCodeToSCLConverter(emit_pass_markers=)`, `parse_gcode` ekleme, CLI `--pass-markers` |
+| `path_generator.py` | `generate_gcode` op döngüsü başına `(--- OP n START: TIP ---)` — **SADECE `for_recipe`**, çünkü mektup .nc'nin değişmemesini istiyor |
+| `export_manager.py` | `export_scl(emit_pass_markers=)`, `auto_fit_plc_tolerance(emit_pass_markers=)`, `marker_range_error` |
+| `ui/main_window.py` | `_markers` (tek okuma noktası), ön kontrol + auto-tune + iki export çağrısı, başarı kutusunda satır sayısı |
+| `ui/tabs/machine_tab.py` | `cb_marks` (PLC modu kapalıyken disabled) |
+| `machine_loader.py`, `main.py` | `plc_pass_markers` |
+| `i18n.py` | `cb_plc_pass_markers`, `msg_scl_markers_line`, `msg_marker_range` (EN/TR/ES) |
+| `CAM_INTERFACE_SPEC.md` | CMD tablosu + "OP_MARKER / PASS_MARKER" bölümü (F'in kural istisnası olduğu YAZILI) |
+
+**`_test_program_start_recipe.py` GÜNCELLENDİ:** ham metin satırı yerine
+HAREKET satırı sayıyor. Yeni `(--- OP n START ---)` yorumu reçete yoluna satır
+ekliyor; testin derdi "2 hareket düştü", yorum değil.
+
+**ÖLÇÜM:** 5 op (2'si kapalı), 6 pas → 44 satır → **53** (3 op + 6 pas işareti).
+Örnek dosyalar reply mektubunda; ikisi de geometry self-check'ten ve kendi
+checksum'ından geçiyor.
+
+---
+
 ## 2026-09-04 — ÖNERİCİ atölyenin KENDİ programlarına hizalandı (kısmi)
 
 Kullanıcı önericinin çıktısını "doğru görünmüyor" dedi. İki gerçek program açıldı:

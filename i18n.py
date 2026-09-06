@@ -631,6 +631,18 @@ STRINGS = {
     "msg_scl_checksum_line":    {"EN": "Checksum: {ck}  (the PLC re-checks this after loading)",
                                  "TR": "Sağlama: {ck}  (PLC yükledikten sonra bunu yeniden doğrular)",
                                  "ES": "Suma de verificación: {ck}  (el PLC la reverifica al cargar)"},
+    "msg_scl_markers_line":     {"EN": "Pass markers: {n} lines (the operator sees op and pass on the HMI)",
+                                 "TR": "Paso işaretleri: {n} satır (operatör ekranda op ve pasoyu görür)",
+                                 "ES": "Marcadores de pasada: {n} líneas (el operador ve op y pasada en el HMI)"},
+    "msg_marker_range":         {"EN": "This program has {n} operations or passes, and a pass-marker number "
+                                       "must fit 0-{max} (the PLC Param field is one byte).\n\n"
+                                       "Turn off \"Emit pass markers\" in the Machine tab to export it.",
+                                 "TR": "Bu programda {n} operasyon veya paso var; paso işareti numarası "
+                                       "0-{max} aralığına sığmalı (PLC Param alanı tek bayt).\n\n"
+                                       "Dışa aktarmak için Makine sekmesinde \"Paso işaretleri ekle\"yi kapatın.",
+                                 "ES": "Este programa tiene {n} operaciones o pasadas, y el número de marcador "
+                                       "debe caber en 0-{max} (el campo Param del PLC es un byte).\n\n"
+                                       "Desactive \"Emitir marcadores de pasada\" en la pestaña Máquina."},
     "msg_slot_mismatch_title":  {"EN": "Program Slot Mismatch",      "TR": "Program Slotu Uyuşmuyor",    "ES": "Discrepancia de Ranura"},
     "msg_slot_mismatch":        {"EN": "The data block is named \"{db}\" but the file is being saved as \"{file}\".\n\n"
                                        "Importing it would overwrite recipe program {dbnum}, not {filenum}.\n\n"
@@ -863,6 +875,9 @@ STRINGS = {
                              "TR": "Toleransı satır limitine otomatik ayarla",
                              "ES": "Autoajustar tolerancia al límite de líneas"},
     "lbl_plc_target":       {"EN": "Target Max Lines",              "TR": "Hedef Azami Satır",          "ES": "Líneas Máx. Objetivo"},
+    "cb_plc_pass_markers":  {"EN": "Emit pass markers (show op/pass on the HMI)",
+                             "TR": "Paso işaretleri ekle (operatör ekranında op/paso göster)",
+                             "ES": "Emitir marcadores de pasada (mostrar op/pasada en el HMI)"},
     "msg_autotune_title":   {"EN": "PLC Auto-tune",                 "TR": "PLC Otomatik Ayar",          "ES": "Autoajuste PLC"},
     "msg_autotune_clearance": {"EN": "Auto-tune reached {lines} lines (target {target}), but the roller clearance drops to {cl} mm — below the {floor} mm of the full-resolution path. The simplified path cuts closer to the mandrel here. Export anyway?",
                              "TR": "Otomatik ayar {lines} satıra indi (hedef {target}), ancak rulo boşluğu {cl} mm'ye düşüyor — tam çözünürlükteki {floor} mm'nin altında. Sadeleştirilen yol burada mandrel'e daha çok yaklaşıyor. Yine de dışa aktarılsın mı?",

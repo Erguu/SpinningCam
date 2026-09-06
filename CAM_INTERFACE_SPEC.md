@@ -234,7 +234,45 @@ Each line is exactly 12 bytes:
 | 21  | SPINDLE_OFF | No | No | 0 | M5 |
 | 30  | DWELL | No | No | Time = Param × 100 ms | G4 P |
 | 40  | CYLINDER_GOTO | No | No | Param = the P value as written in the custom command (0–255); the PLC defines what it means | M40 P |
+| 50  | OP_MARKER | No (0.0) | Yes — total operations | Operation number, 1-based (0–255) | *(none — recipe only)* |
+| 51  | PASS_MARKER | No (0.0) | Yes — passes in this operation | Pass number within the operation, 1-based (0–255) | *(none — recipe only)* |
 | 99  | PROGRAM_END | No | No | 0 | M30 |
+
+### OP_MARKER / PASS_MARKER (CMD=50, CMD=51)
+
+Opt-in, zero-motion lines that let the HMI display "Op 2 of 5 / Pass 3 of 10"
+instead of a line number. Spec: `letter_spinningcam_pass_markers.md` (PLC team,
+2026-09-06). Emitted only when Machine ▸ PLC ▸ "Emit pass markers" is ticked;
+with it off the export is byte-identical to a build without the feature.
+
+- `X := 0.0`, `Z := 0.0`. Neither command moves an axis or waits for anything.
+- **`F` carries the total** (an `Int`), which is the one place these commands
+  depart from the "F=0 on every non-LINEAR command" rule in section 5.
+- Ordinary recipe lines otherwise: counted in `LineCount`, folded into the
+  header checksum, and subject to the 1000-line maximum.
+- `Param = 0` means "no pass information" — the HMI blanks the display, which is
+  what an unmarked recipe produces. That is a permanently supported state.
+
+**Numbering.** Both numbers come from the `[OpN PM]` comments the CAM already
+writes, so the file and the operator's screen can never disagree:
+
+- The operation number is its **row in the operation list**. A switched-off row
+  keeps its number rather than closing the gap, so `TotalOps` (in `F`) counts
+  list rows, *including* disabled ones. This deliberately differs from the
+  letter's request that `TotalOps` count only the operations that emit lines —
+  see the reply. Counting emitted ops while numbering by row would display
+  "Op 5 of 4" as soon as anyone disables a middle row.
+- A **back pass carries the number of the forward pass it returns from**; it
+  does not get one of its own. So "Pass 2 of 3" matches the pass count the
+  programmer typed.
+- An operation that produces no passes (Point, and any op with no toolpath) gets
+  a CMD=50 marker and no CMD=51.
+
+**Cost.** One line per operation plus one per pass — about 19 on a short program,
+32 on a long one. When auto-tune is on, the marker lines are reserved *inside*
+the line budget before the tolerance is fitted, so a program that fits during the
+fit still fits when written. An op or pass number above 255 will not fit the
+Param byte; the export is refused rather than wrapped.
 
 ### RAPID (CMD=0)
 - Both axes move simultaneously at maximum rapid speed (50 mm/s = 3000 mm/min).

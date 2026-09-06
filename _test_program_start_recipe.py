@@ -67,8 +67,15 @@ check("G0 Z0.000 (Program Start Z)" in nc and "G0 X0.000 (Program Start X)" in n
 rec = gen(p_off, for_recipe=True)
 check(start_lines(rec) == [], "recipe output emits neither Program Start line")
 removed = [l for l in nc.splitlines() if l not in rec.splitlines()]
-check(len(nc.splitlines()) - len(rec.splitlines()) == 2,
-      f"exactly 2 lines fewer ({len(nc.splitlines())} → {len(rec.splitlines())})")
+# Count MOTION lines, not raw text: the recipe path also adds comment-only
+# markers the .nc does not carry (the "(--- OP n START: ... ---)" line the pass
+# markers are built on, 2026-09-06). Comments are skipped by the recipe parser,
+# so they are not what this test is about — two moves leaving the program is.
+def _motion(txt):
+    return [l for l in txt.splitlines()
+            if l.strip() and not l.strip().startswith("(")]
+check(len(_motion(nc)) - len(_motion(rec)) == 2,
+      f"exactly 2 motion lines fewer ({len(_motion(nc))} → {len(_motion(rec))})")
 check(all("Program Start" in l for l in removed),
       f"the ONLY lines dropped are the two home moves (dropped: {removed})")
 check("(Program Start: X=-400.0, Z=-150.0)" in rec,

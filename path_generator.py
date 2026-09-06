@@ -3678,7 +3678,20 @@ class PathGenerator:
             count = int(op.get("count", 1))
             op_tool = op.get("tool_id", "T0101")
             op_type = op.get("type", "Process").upper()
-            
+
+            # Operation-start marker for the recipe's CMD=50 (pass markers,
+            # letter_spinningcam_pass_markers.md). It sits BEFORE the tool
+            # change and spindle block on purpose: that is where the operation
+            # begins as far as an operator is concerned, so the HMI is never
+            # blank while the turret indexes.
+            #
+            # RECIPE PATH ONLY — a comment is still a byte, and the letter is
+            # explicit that the .nc output must not change. The number is the
+            # ROW in the op list (op_idx+1), matching the "[Op5 P2]" tags below;
+            # switched-off rows keep their number rather than closing the gap.
+            if for_recipe:
+                gcode.append(f"(--- OP {op_idx+1} START: {op_type} ---)")
+
             # Velocity Params
             s_mode = resolve_speed_mode(op)  # CSS or RPM (CSS currently disabled)
             f_mode = op.get("feed_mode", "mm_min") # mm_min or mm_rev

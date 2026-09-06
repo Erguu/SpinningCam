@@ -17,6 +17,30 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.031": [
+        ("The operator can see which pass is running",
+         "The machine screen could only say \"Line 47 of 99\", which tells the "
+         "person standing at it nothing — the job is described in passes. Tick "
+         "this box and the recipe carries the operation and pass numbers too, so "
+         "the screen reads \"Op 2 of 5, Pass 3 of 10\". Most useful while proving "
+         "out a new part, which is exactly when someone is watching.",
+         "Machine tab ▸ PLC ▸ Emit pass markers"),
+        ("It costs recipe lines, so it is your choice per program",
+         "One line per operation and one per pass — about 19 on a short program, "
+         "32 on a long one. On a program near the machine's 1000-line limit that "
+         "has to come out of the toolpath. Auto-tune already allows for it: the "
+         "marker lines are set aside before the tolerance is chosen, so a program "
+         "that fits still fits. Leave the box off for production programs where "
+         "you want every line spent on the path.",
+         "Machine tab ▸ PLC ▸ Emit pass markers"),
+        ("Nothing changes unless you tick the box",
+         "With it off the exported recipe is identical to before, and a recipe "
+         "without markers runs on the machine exactly as it does today. The "
+         "numbers shown are the ones already written in the file: an operation "
+         "keeps its row number from the list even if a row above it is switched "
+         "off, and a return pass carries the number of the pass it returns from.",
+         "Machine tab ▸ PLC"),
+    ],
     "1.030": [
         ("You can hide the rapid (G0) lines",
          "The orange dashed lines showing the roller travelling between passes "

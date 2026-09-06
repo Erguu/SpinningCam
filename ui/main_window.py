@@ -1528,8 +1528,13 @@ class SpinningCamWindow(tk.Tk):
             messagebox.showerror(t("msg_export_error_title"), t("msg_gcode_gen_error").format(e))
             return
 
+        # Pass markers (letter_spinningcam_pass_markers.md): opt-in, machine-level,
+        # and counted from here on so the line-count preview, the auto-tune budget
+        # and the file that ships all agree on the same number.
+        _markers = bool(_xp.get("plc_pass_markers", False)) and bool(_xp.get("plc_mode", False))
+
         try:
-            _pre_converter = GCodeToSCLConverter()
+            _pre_converter = GCodeToSCLConverter(emit_pass_markers=_markers)
             _pre_converter.parse_gcode(gcode_str)
             _parsed_line_count = len(_pre_converter.lines)
         except ValueError as _pe:
@@ -1544,6 +1549,11 @@ class SpinningCamWindow(tk.Tk):
                     f"{_mc} P{_pv}: P must be a whole number between 0 and 255 "
                     f"(the PLC Param field is one byte).\n\n"
                     f"Fix the custom command in the Machine tab.")
+                return
+            if _pe_msg.startswith("MARKER_RANGE:"):
+                _, _n, _mx = _pe_msg.split(":", 2)
+                messagebox.showerror(t("msg_export_error_title"),
+                                     t("msg_marker_range").format(n=_n, max=_mx))
                 return
             _parsed_line_count = None
         except Exception:
@@ -1603,7 +1613,11 @@ class SpinningCamWindow(tk.Tk):
             pg = self.app.path_gen
             target = int(_xp.get("plc_target_lines", 1000) or 1000)
             floor_cl = pg.measure_min_clearance(pg.last_calculated_paths, _xp)
-            result = ExportManager.auto_fit_plc_tolerance(pg, _xp, target, floor_cl)
+            # Markers are inside the budget, not added after it: the fit comes back
+            # already paying for them, so a program that fits here still fits when
+            # written. Without this the fit lands on 999 and the export then throws.
+            result = ExportManager.auto_fit_plc_tolerance(
+                pg, _xp, target, floor_cl, emit_pass_markers=_markers)
             st = result.get("status")
             fit_tol   = result.get("tolerance")
             fit_lines = result.get("lines", 0)
@@ -1742,7 +1756,8 @@ class SpinningCamWindow(tk.Tk):
             params=_xp,
             custom_array_size=custom_array_size,
             chunk_size=chunk_size,
-            gcode_string=gcode_str
+            gcode_string=gcode_str,
+            emit_pass_markers=_markers
         )
 
         if not success and stats.get('limit_exceeded'):
@@ -1765,7 +1780,8 @@ class SpinningCamWindow(tk.Tk):
                     params=_xp,
                     custom_array_size=custom_array_size,
                     chunk_size=chunk_size,
-                    gcode_string=gcode_str
+                    gcode_string=gcode_str,
+                    emit_pass_markers=_markers
                 )
             else:
                 messagebox.showinfo(t("msg_cancelled_title"), t("msg_cancelled"))
@@ -1781,6 +1797,13 @@ class SpinningCamWindow(tk.Tk):
         # Turret/tool-table validation failed inside the writer (backstop — the
         # pre-check above normally catches this first).
         if not success and stats.get('tool_table_error'):
+            messagebox.showerror(t("msg_export_error_title"),
+                                 stats.get('message', t("msg_scl_error")))
+            return
+
+        # Op/pass number past the PLC's Param byte (backstop — the pre-check above
+        # normally catches this first).
+        if not success and stats.get('marker_range_error'):
             messagebox.showerror(t("msg_export_error_title"),
                                  stats.get('message', t("msg_scl_error")))
             return
@@ -1803,6 +1826,10 @@ class SpinningCamWindow(tk.Tk):
             # so it is what to quote when a load is refused with 16#0316.
             if stats.get('checksum') is not None:
                 msg += "\n" + t("msg_scl_checksum_line").format(ck=stats['checksum'])
+            # Say how many slots the markers took — this is the number to weigh
+            # against the toolpath resolution when the program is near the ceiling.
+            if stats.get('pass_markers'):
+                msg += "\n" + t("msg_scl_markers_line").format(n=stats['pass_markers'])
             if autofit_note:
                 msg = f"{autofit_note}\n\n{msg}"
             messagebox.showinfo(t("msg_scl_complete_title"), msg)

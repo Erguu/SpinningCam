@@ -580,11 +580,29 @@ class MachineTab(ScrollableTabBase):
         e_target.bind("<Button-1>", lambda event: event.widget.focus_force())
         self.helper.bind_tooltip(e_target, "Hedef azami PLC satır sayısı (PLC bellek limiti, örn. 1000).")
 
+        # Pass markers: zero-motion CMD=50/51 lines so the HMI can show
+        # "Op 2 of 5 / Pass 3 of 10" instead of a line number (opt-in).
+        f_marks = ttk.Frame(f_plc)
+        f_marks.pack(fill="x", padx=5, pady=2)
+        var_marks = tk.BooleanVar(value=bool(self.app.params.get("plc_pass_markers", False)))
+        def on_marks_toggle():
+            self.app.on_param_change("plc_pass_markers", var_marks.get(), "none")
+        cb_marks = ttk.Checkbutton(f_marks, text=t("cb_plc_pass_markers"), variable=var_marks,
+                                   command=on_marks_toggle)
+        cb_marks.pack(anchor="w")
+        self.helper.bind_tooltip(cb_marks,
+            "Operatör ekranında 'Op 2 / 5, Paso 3 / 10' gösterilsin diye reçeteye\n"
+            "hareketsiz işaret satırları eklenir (CMD=50 / CMD=51).\n"
+            "MALİYET: her operasyon ve her paso için BİR satır — 1000 satır\n"
+            "sınırına yakın programlarda takım yolu çözünürlüğünden gider.\n"
+            "Kapalıyken dosya bu özellik hiç yokmuş gibi üretilir.")
+
         def _sync_plc_states():
             plc_on  = var_plc.get()
             auto_on = var_auto.get() and plc_on
             # Auto-tune is only selectable when PLC mode is on.
             cb_auto.config(state="normal" if plc_on else "disabled")
+            cb_marks.config(state="normal" if plc_on else "disabled")
             e_target.config(state="normal" if auto_on else "disabled")
             # When auto-tune drives the tolerance, the manual fields are read-only.
             man_state = "normal" if (plc_on and not auto_on) else "disabled"

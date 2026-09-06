@@ -19,7 +19,7 @@ MACHINE_PROFILE_KEYS = [
     "cylinder_enabled", "cylinder_show", "cylinder_position_mm",
     "cylinder_x_pos", "cylinder_z_base",
     "plc_mode", "plc_tolerance", "plc_exit_tolerance",
-    "plc_auto_tune", "plc_target_lines",
+    "plc_auto_tune", "plc_target_lines", "plc_pass_markers",
     # Recipe DB layout — belongs to the PLC on the other end, not to one program,
     # so both halves live on the machine profile. `scl_capacity` used to be
     # re-derived (and re-asked) on every export; remembering it is what lets the

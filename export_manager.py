@@ -215,7 +215,8 @@ class ExportManager:
                    custom_array_size: int = None,
                    gcode_string: Optional[str] = None,
                    chunk_size: int = None,
-                   emit_checksum: bool = True) -> Tuple[bool, dict]:
+                   emit_checksum: bool = True,
+                   emit_pass_markers: bool = False) -> Tuple[bool, dict]:
         """
         Export G-code as SCL Data Block for TIA Portal.
         
@@ -239,13 +240,17 @@ class ExportManager:
                 None/0 = legacy single Lines array. Must match the PLC loader.
             emit_checksum: Write the RecipeHeader integrity fields. Escape hatch
                 only — the PLC UDT must carry them before such a file imports.
+            emit_pass_markers: Insert CMD=50/51 op and pass markers so the HMI can
+                show "Op 2 of 5 / Pass 3 of 10". Costs one recipe line per op and
+                per pass. Off by default; off is byte-identical to a build without
+                the feature. See letter_spinningcam_pass_markers.md.
 
         Returns:
             Tuple of (success: bool, stats: dict with conversion statistics)
             If line limit exceeded and force=False, stats will contain 'limit_exceeded' key
         """
         try:
-            converter = GCodeToSCLConverter()
+            converter = GCodeToSCLConverter(emit_pass_markers=emit_pass_markers)
             if gcode_string is not None:
                 # In-memory path: no file read needed
                 converter.parse_gcode(gcode_string)
@@ -269,6 +274,7 @@ class ExportManager:
                     'rapid_moves': rapid_count,
                     'linear_moves': linear_count,
                     'tool_changes': tool_count,
+                    'pass_markers': sum(1 for l in converter.lines if l.cmd in (50, 51)),
                     'db_name': db_name,
                     'scl_size_bytes': len(scl_code.encode('utf-8')),
                     'estimated_plc_bytes': len(converter.lines) * 12,
@@ -328,6 +334,18 @@ class ExportManager:
                                 f"between 0 and 255 (the PLC Param is one byte). "
                                 f"Fix the custom command in the Machine tab.")
                 }
+            if error_msg.startswith("MARKER_RANGE:"):
+                # An op or pass number above 255 cannot be sent in the PLC's Param
+                # byte. Wrapping it would put a confidently wrong number on the
+                # operator's screen, so refuse and let them switch markers off.
+                _, _n, _max = error_msg.split(":", 2)
+                return False, {
+                    'marker_range_error': True,
+                    'message': (f"This program has {_n} operations or passes, and the "
+                                f"pass-marker number must fit 0-{_max} (the PLC Param "
+                                f"is one byte).\n\nTurn off 'Emit pass markers' in the "
+                                f"Machine tab to export this program.")
+                }
             print(f"SCL Export Error: {e}")
             return False, {}
         except Exception as e:
@@ -336,7 +354,8 @@ class ExportManager:
 
     @staticmethod
     def auto_fit_plc_tolerance(path_gen, params, target_lines, floor_clearance,
-                               tol_min=0.001, tol_max=8.0, iters=18):
+                               tol_min=0.001, tol_max=8.0, iters=18,
+                               emit_pass_markers=False):
         """Find the SMALLEST plc_tolerance whose emitted SCL recipe line count is
         <= target_lines, then verify the decimated path's clearance is no worse
         than the full-resolution path (floor_clearance).
@@ -398,7 +417,12 @@ class ExportManager:
             # writes, or the fitted tolerance is measured against a program two
             # lines longer than the one that ships.
             gcode = path_gen.generate_gcode(params=p, for_recipe=True)
-            conv = GCodeToSCLConverter()
+            # Markers are counted here, not subtracted from the target afterwards.
+            # Their number does not depend on the tolerance (thinning removes
+            # points INSIDE a pass, never a whole pass), so counting them on every
+            # probe reserves exactly the right number of slots up front — and it
+            # cannot drift out of step with what the export actually writes.
+            conv = GCodeToSCLConverter(emit_pass_markers=emit_pass_markers)
             conv.parse_gcode(gcode)
             if not with_clearance:
                 return len(conv.lines), None

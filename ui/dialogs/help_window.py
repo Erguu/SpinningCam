@@ -2825,6 +2825,32 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  lowers clearance below the normal G-code path
                  (it warns if the target can't be met safely).
 
+                 PASS MARKERS (Machine tab, PLC section): the
+                 operator's screen normally shows only "Line 47 of
+                 99", which says nothing about the job. Tick "Emit
+                 pass markers" and the recipe carries the operation
+                 and pass numbers too, so the screen reads
+                 "Op 2 of 5, Pass 3 of 10". Most useful when you are
+                 proving out a new part and someone is standing at
+                 the machine watching.
+
+                 IT COSTS LINES: one per operation and one per pass
+                 (about 19 on a typical program, 32 on a long one).
+                 On a program near the 1000-line limit that has to
+                 come out of the toolpath, so the path is thinned a
+                 little more. Auto-tune already allows for this - it
+                 reserves the marker lines before it picks the
+                 tolerance, so a program that fits still fits.
+                 Leave the box off for production programs where
+                 you want every line spent on the path.
+
+                 The numbers shown are the ones already written in
+                 the file as "[Op1 P2]" comments: an operation keeps
+                 its row number from the operation list even if a
+                 row above it is switched off, and a return pass
+                 carries the same number as the pass it returns
+                 from.
+
                  WAYPOINTS (per pass, from the Pass Table - this
                  button was called "Exit tail"): lets
                  you place the points the roller passes THROUGH
@@ -3310,6 +3336,31 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   tolerans dışa aktarımda bütçenize otomatik oturtulur —
                   clearance normal G-code yolunun altına asla düşürülmez
                   (hedef güvenle karşılanamazsa uyarır).
+
+                  PASO İŞARETLERİ (Makine sekmesi, PLC bölümü):
+                  operatör ekranı normalde yalnızca "Satır 47 / 99"
+                  gösterir; bu, iş hakkında hiçbir şey söylemez.
+                  "Paso işaretleri ekle" kutusunu işaretleyin;
+                  reçete operasyon ve paso numaralarını da taşır ve
+                  ekranda "Op 2 / 5, Paso 3 / 10" yazar. En çok yeni
+                  bir parçayı denerken, başında biri dururken işe
+                  yarar.
+
+                  SATIR MALİYETİ VAR: her operasyon ve her paso için
+                  bir satır (tipik programda ~19, uzun programda 32).
+                  1000 satır sınırına yakın bir programda bu, takım
+                  yolundan gider; yol biraz daha seyreltilir.
+                  Otomatik ayar bunu zaten hesaba katar — toleransı
+                  seçmeden ÖNCE işaret satırlarını ayırır, yani sığan
+                  program sığmaya devam eder. Üretim programlarında,
+                  her satırın yola harcanmasını istiyorsanız kutuyu
+                  kapalı bırakın.
+
+                  Gösterilen numaralar dosyada zaten "[Op1 P2]"
+                  yorumlarında yazan numaralardır: üstündeki bir
+                  satır kapatılsa bile operasyon, operasyon
+                  listesindeki sıra numarasını korur; geri pas ise
+                  döndüğü pasın numarasını taşır.
 
                   ARA NOKTALAR (pas başına, Pas Tablosundan; bu
                   düğmenin eski adı "Çıkış yolu" idi): P2'den
