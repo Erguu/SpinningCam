@@ -909,13 +909,19 @@ control of every pass. That single pass then gets described twice:
 the operation says "Clearance 1.0" and the pass table says "0.5".
 The machine runs 0.5, the operation editor keeps showing 1.0, and it
 is not obvious which number is real.
-Tick "One pass = operation settings" on the Process tab and:
-  • on a single-pass ROUGHING operation, what you type in the pass
-    table does NOT become a separate pass value — it is written
-    straight into the operation's own field (Clearance, Extend,
-    Angle, Reach, Zone Start Z);
+Every ROUGHING operation set to 1 pass has its own tickbox for this,
+"1 pass = op values", right under Pass Count. It is ON by default,
+and while it is on:
+  • what you type in the pass table does NOT become a separate pass
+    value — it is written straight into the operation's own field
+    (Clearance, Extend, Angle, Reach, Zone Start Z);
   • opening the pass table also moves any EXISTING pass values on
     that operation up into it, and the footer says how many moved.
+The tickbox is PER OPERATION, so one program can hold operations
+that behave both ways. Untick it on an operation where you really do
+want a separate pass value; the other operations are unaffected. It
+only appears on operations with 1 pass, because that is the only
+place it can mean anything.
 THE TOOLPATH DOES NOT CHANGE: the value that moves is the one the
 engine was already using — only the second, disagreeing number
 disappears. The move is a single Ctrl+Z step.
@@ -927,7 +933,7 @@ change the path. Both are named in the footer with the reason:
     — the engine ignores an angle value there anyway.
 Hand-drawn exit tails and break points are left alone; multi-pass
 and finishing operations are not affected at all. With the box
-unticked the behaviour is exactly what it is today.
+unticked that operation behaves exactly as it did before.
 
 
 COMPARE PASSES (Compare ⇄ — why is THAT one different?)
@@ -1873,12 +1879,17 @@ aynı tek pas iki yerde tarif edilir: operasyon "Klerens 1.0" der,
 pas tablosu "0.5" der. Tezgah 0.5'i koşar, operasyon ekranı 1.0
 göstermeye devam eder — hangisinin gerçek olduğu belli değilse
 program "yine tuhaf" görünür.
-İşlem sekmesindeki "Tek pas = operasyon ayarları" kutusunu açarsan:
-  • tek paslı KABA bir operasyonda pas tablosuna yazdığın değer AYRI
-    bir pas değeri (pin) oluşturmaz — doğrudan operasyonun alanına
-    yazılır (Klerens, Uzatma, Açı, Reach, Bölge Başlangıç Z);
+1 pasa ayarlı her KABA operasyonun kendi kutusu var: Pas Sayısı'nın
+hemen altında "1 pas = op değeri". VARSAYILAN AÇIK ve açıkken:
+  • pas tablosuna yazdığın değer AYRI bir pas değeri (pin) oluşturmaz
+    — doğrudan operasyonun alanına yazılır (Klerens, Uzatma, Açı,
+    Reach, Bölge Başlangıç Z);
   • pas tablosunu açtığında o operasyondaki MEVCUT pas değerleri de
     operasyona taşınır ve alt satırda kaç tanesinin taşındığı yazar.
+Kutu OPERASYON BAŞINA'dır: aynı programda iki türlü davranan
+operasyonlar bir arada olabilir. Gerçekten pasa özel bir değer
+tutmak istediğin operasyonda kutuyu kapat; diğerleri etkilenmez.
+Kutu sadece 1 paslı operasyonlarda görünür — anlamlı olduğu tek yer.
 TAKIM YOLU DEĞİŞMEZ: taşınan değer motorun zaten kullandığı
 değerdir, sadece ikinci (çelişen) sayı ortadan kalkar. Taşıma tek
 bir Ctrl+Z adımıdır.
@@ -1890,7 +1901,7 @@ de alt satırda gerekçesiyle yazılır:
     açı değerini zaten yok sayıyor.
 Elle çizilen çıkış yolu ve kırılma noktalarına dokunulmaz; çok paslı
 operasyonlar ve bitirme operasyonları hiç etkilenmez. Kutu kapalıyken
-davranış bugünküyle birebir aynıdır.
+O OPERASYON eskisi gibi davranır.
 
 
 PASLARI KARŞILAŞTIR (Karşılaştır ⇄ — şu pas neden farklı?)

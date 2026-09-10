@@ -93,6 +93,26 @@ check('count "1" as text still counts', sps.applies(base_op(count="1")))
 check("count missing → treated as 1", sps.applies({"type": "roughing"}))
 check("empty op → no", not sps.applies({}) and not sps.applies(None))
 
+# The per-operation tickbox (#106). DEFAULT ON, and absent means on — every
+# existing .ssp has to get the behaviour without a migration step.
+print("\n[1b] the per-operation tickbox — default ON, off is honoured")
+check("absent key = ON", sps.enabled(base_op()) is True)
+check("explicit True = ON", sps.enabled(base_op(single_pass_sync=True)) is True)
+check("explicit False = OFF", sps.enabled(base_op(single_pass_sync=False)) is False)
+check("blank / None fall back to ON",
+      sps.enabled(base_op(single_pass_sync=None)) is True and
+      sps.enabled(base_op(single_pass_sync="")) is True)
+check("ticked off → the rule does not apply",
+      not sps.applies(base_op(single_pass_sync=False)))
+op = base_op(single_pass_sync=False)
+op.update(pins(clearance=0.35))
+snapshot = copy.deepcopy(op)
+check("ticked off → nothing is lifted", sps.merge_op(op) == [] and op == snapshot)
+check("ticked off → scan ignores it", sps.scan([op]) == [])
+check("...and the flag is per OPERATION, not global: the op beside it still lifts",
+      [i for i, _m in sps.merge_all([copy.deepcopy(op),
+                                     dict(base_op(), **pins(clearance=0.35))])] == [1])
+
 
 # ── 2. THE CLAIM: lifting does not move the machine ─────────────────────────
 print("\n[2] toolpath neutrality — measured, not argued")

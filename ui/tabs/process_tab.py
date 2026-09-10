@@ -596,28 +596,6 @@ class ProcessTab(ScrollableTabBase):
         self.helper.bind_tooltip(btn_rreset, "Mandrel rotasyonunu sıfırla (tüm eksenler 0°). "
                                              "Model orijinal STEP yönüne döner.")
 
-        # --- Editing behaviour (#105) ---
-        # Not a toolpath setting: it changes where the pass table WRITES, and
-        # lifts existing single-pass pins into the operation. The lift is
-        # toolpath-neutral by construction (see single_pass_sync's docstring),
-        # so turning this on never moves the machine.
-        self.helper.add_section_header(self.content, t("section_editing"), color="darkblue")
-        self.helper.add_checkbox(self.content, self.app, "single_pass_op_sync",
-                                 t("cb_single_pass_sync"),
-                                 "TEK PASLI operasyonlarda iki ayrı sayı olmasın diye.\n"
-                                 "Bir operasyonda sadece 1 pas varsa, o pas zaten operasyonun kendisidir. "
-                                 "Açıkken pas tablosunda yazdığın değer AYRI bir pas değeri (pin) oluşturmaz, "
-                                 "doğrudan operasyonun alanına yazılır — Klerens, Uzatma, Açı, Reach ve "
-                                 "Bölge Başlangıç Z. Pas tablosunu açtığında o operasyondaki mevcut pas "
-                                 "değerleri de operasyona TAŞINIR.\n"
-                                 "TAKIM YOLU DEĞİŞMEZ: taşınan değer motorun zaten kullandığı değerdir; "
-                                 "sadece iki yerde birden aynı sayı görünür. Ctrl+Z ile geri alınır.\n"
-                                 "İKİ İSTİSNA taşınmaz (taşınsa yol değişirdi): operasyonda 'sac kenarını "
-                                 "takip et' açıkken Reach, ve operasyon HAM X/Z modundayken (Pass Angle boş) Açı.\n"
-                                 "Yalnızca kaba (roughing) operasyonlar için — motor pas pinlerini zaten "
-                                 "sadece orada okuyor. Elle çizilen çıkış yolu ve kırılma noktalarına "
-                                 "DOKUNULMAZ. Kapalı = bugünkü davranış birebir.")
-
         # --- Actions section removed (2026-07-30) ---
         # Calculate moved to the action bar above the 3D view: it applies to the
         # whole program, and living in this tab meant the Machine tab had no way

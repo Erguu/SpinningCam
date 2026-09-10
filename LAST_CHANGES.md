@@ -24,15 +24,22 @@ REDDEDİLDİ çünkü mevcut müşteri programlarının takım yolunu sessizce
 değiştirirdi. Pas değeri motorun zaten kullandığı değer olduğu için yukarı
 kopyalamak yolu DEĞİŞTİRMEZ.
 
-Anahtar: `single_pass_op_sync` — İşlem sekmesi ▸ Düzenleme, **varsayılan KAPALI**,
-kapalıyken bugünkü davranış birebir.
+**KULLANICI KARARI 2 (aynı gün, ilk tasarım düzeltildi):** *"this feature should
+be enabled for default use. also it should be selected differently in every
+operation so can we placed that tickbox to operation parameters"* →
+İşlem sekmesindeki GENEL kutu KALDIRILDI (`params["single_pass_op_sync"]` yok).
+Yerine **operasyon alanı `single_pass_sync`, VARSAYILAN AÇIK**, op editöründe
+Pas Sayısı'nın hemen altında, sadece 1 paslı kaba op'ta görünür.
+
+Anahtar YOKSA AÇIK sayılır → eski .ssp'ler migrasyonsuz davranışı alır.
 
 | Ne | Nerede |
 |---|---|
-| Saf kurallar + taşıma (Tk YOK) | `single_pass_sync.py` |
+| Saf kurallar + taşıma (Tk YOK) | `single_pass_sync.py` — `OP_FLAG_KEY`, `enabled()`, `applies()` |
 | Diyalog bağlama | `ui/dialogs/pass_table.py` — `_lift_pins`, `_sync_target`, `_stage`, `_preview_op` |
-| Ayar | `main.py` `load_settings` + `_VIEW_ONLY_PREF_KEYS`; UI `ui/tabs/process_tab.py` |
-| Test | `_test_single_pass_sync.py` (69), `_test_single_pass_sync_gui.py` (28) |
+| Kutu + sütun | `ui/tabs/program_tab.py` — `on_op_select` (Pas Sayısı altı), `_cell_value` |
+| Karşılaştır kaydı | `pass_compare.py` — `_BOOLS` + `_IMPLIED_DEFAULTS` (dördüncü `True`) |
+| Test | `_test_single_pass_sync.py` (76), `_test_single_pass_sync_gui.py` (38) |
 
 **Eşleme** (pin → operasyon alanı): `clearance`→`clearance`,
 `p2_z_extend`→`p2_z_extend`, `pass_angle`→`pass_angle`, `reach`→`reach`,
@@ -59,11 +66,18 @@ okuyor; bitirme op'undaki pin ölü veridir, taşınsa yol DEĞİŞİRDİ). Elle
 çıkış yolu (`exit_points`) ve kırılma noktalarına (`exit_breaks`) DOKUNULMUYOR.
 1..n artık slotları (op eskiden çok paslıyken kalanlar) OLDUĞU GİBİ bırakılıyor.
 
-**GERİ ALMA:** kutuyu kapat → yeni düzenlemeler eskisi gibi pin üretir. Taşıma
-program sekmesinin geri-al yığınına TEK adım olarak giriyor (Ctrl+Z pini geri
-getirir). Kod tarafında: `process_tab.py`'deki kutuyu ve
+**GERİ ALMA:** o operasyonun kutusunu kapat → yeni düzenlemeler eskisi gibi pin
+üretir (operasyon başına, diğerlerini etkilemez). Taşıma program sekmesinin
+geri-al yığınına TEK adım olarak giriyor (Ctrl+Z pini geri getirir). Tümünü
+kapatmak için: `single_pass_sync.DEFAULT_ENABLED = False`. Kod tarafında
 `pass_table.py`'deki `self._sync` dalını kaldırmak yeter; `single_pass_sync.py`
 kendi başına hiçbir şey yapmaz.
+
+**⚠ VARSAYILAN AÇIK OLMASININ BEDELİ:** pas tablosunu 1 paslı bir kaba op'ta
+AÇMAK artık o op'un pinlerini kendiliğinden operasyona taşıyor. Taşıma
+toolpath-nötr ve tek Ctrl+Z adımı — ama yine de kullanıcının istemeden
+tetiklediği bir VERİ değişikliği. Nötrlük iddiası bozulursa (bkz. yukarıdaki
+test §2) bu varsayılan bozukluğu sessiz ve evrensel yapar.
 
 **TUZAK (yaşandı, çözüldü):** taşımadan sonra operasyon editörünün Tk
 değişkenleri hâlâ ESKİ sayıyı tutuyor ve bir sonraki focus-out'ta taşımanın

@@ -25,15 +25,22 @@ because the pass value is the one the engine already used — so existing custom
 programs keep their exact toolpath. The two rejected options were "operation wins"
 (silently changes existing programs) and "warn only" (leaves both numbers alive).
 
-Opt-in: `single_pass_op_sync`, Process tab ▸ Editing, **default OFF**, and OFF is
-byte-for-byte today.
+**DECIDED (user, same day — the first design was corrected):** *"this feature
+should be enabled for default use. also it should be selected differently in
+every operation so can we placed that tickbox to operation parameters"*. The
+global Process-tab checkbox was REMOVED (`params["single_pass_op_sync"]` is
+gone). It is now an OPERATION field, `single_pass_sync`, **default ON**, shown
+directly under Pass Count and only on a 1-pass roughing op.
+
+Absent key = on, so old .ssp files get the behaviour with no migration.
 
 | Piece | Where |
 |---|---|
-| Pure rules + the lift | `single_pass_sync.py` |
+| Pure rules + the lift | `single_pass_sync.py` — `OP_FLAG_KEY`, `enabled()`, `applies()` |
 | Dialog wiring (lift at open, edit routing, staged op fields) | `ui/dialogs/pass_table.py` — `_lift_pins`, `_sync_target`, `_stage`, `_preview_op` |
-| Setting | `main.py` `load_settings` + `_VIEW_ONLY_PREF_KEYS`; UI `ui/tabs/process_tab.py` |
-| Test | `_test_single_pass_sync.py` (69), `_test_single_pass_sync_gui.py` (28) |
+| Tickbox + op-list column | `ui/tabs/program_tab.py` — `on_op_select` (under Pass Count), `_cell_value` |
+| Compare-window registration | `pass_compare.py` — `_BOOLS` + `_IMPLIED_DEFAULTS` (the fourth `True`) |
+| Test | `_test_single_pass_sync.py` (76), `_test_single_pass_sync_gui.py` (38) |
 
 **THE WHOLE FEATURE RESTS ON ONE CLAIM — and it is measured, not argued:**
 `_test_single_pass_sync.py` §2 generates the toolpath before and after the lift and
@@ -50,9 +57,21 @@ by doing the forbidden lift and measuring the difference):
 
 Both are reported in the pass-table footer with the reason, never silently skipped.
 
+**⚠ THE PRICE OF DEFAULT-ON:** merely OPENING the pass table on a 1-pass roughing
+op now lifts that op's pins by itself. The lift is toolpath-neutral and is one
+Ctrl+Z step, but it is still a DATA change the operator did not ask for. If the
+neutrality claim above ever breaks, this default makes the breakage silent and
+universal instead of opt-in and rare. `single_pass_sync.DEFAULT_ENABLED = False`
+turns the whole thing off in one line.
+
 **AGENT'S PICKS (not asked):**
 - ROUGHING only, because the engine reads these pins on roughing only. A pin on a
   finishing op is dead data and lifting it WOULD change the path.
+- The tickbox is only RENDERED on a 1-pass op (it can mean nothing on a
+  multi-pass one), and is seeded BASIC rather than Advanced — hiding it would
+  leave default-on behaviour with no visible way back.
+- Ticking it stores an explicit `True` rather than removing the key, so
+  "deliberately on" and "never asked" stay distinguishable on disk.
 - `target_z` maps to `start_z` (a 1-pass op takes its contact Z from Zone Start Z
   verbatim). It is the only pin whose op twin has a different name.
 - The lift runs when the pass table is OPENED, as one undo step — not on load, and

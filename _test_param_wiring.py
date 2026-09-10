@@ -79,6 +79,7 @@ PARAMS = {
 
 BASE_ROUGH = {
     "type": "roughing", "enabled": True, "name": "probe", "count": 3,
+    "single_pass_sync": True,
     "tool_id": "T0101", "r_tool": 25.0, "direction": "forward",
     "speed_mode": "RPM", "speed": 200, "feed_mode": "mm_min", "feed": 300,
     "start_z": MIN_Z + 10, "end_z": MIN_Z + 40, "p2_z_extend": 2.0,
@@ -191,6 +192,13 @@ INERT = {
     "tilt_start": "B-axis only — see tilt_mode.",
     "tilt_end": "B-axis only — see tilt_mode.",
     "tilt_offset": "B-axis only — see tilt_mode.",
+    "single_pass_sync": "#106. An EDITING rule, not a path setting: on a 1-pass "
+                        "roughing op it decides whether the pass table writes a "
+                        "per-pass pin or the operation's own field. The engine "
+                        "never reads it. Being inert is the POINT — the values "
+                        "it moves are proved toolpath-neutral field by field in "
+                        "_test_single_pass_sync.py section [2]. If this key ever "
+                        "shows up as 'wired', something has gone badly wrong.",
 }
 
 # ── failed the sweep and NOT yet explained ────────────────────────────────

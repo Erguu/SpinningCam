@@ -427,14 +427,15 @@ class PassTableDialog(tk.Toplevel):
         self.staged = {}          # {pass_i: {"pass_angle": v, "reach": v}}
         op = app.params["operations"][op_index]
 
-        # #105 — single-pass mode. When this operation has exactly ONE pass and
-        # the operator opted in, the pass IS the operation: edits are staged
-        # against the OPERATION fields (self.staged_op) instead of becoming
-        # per-pass pins, so the two-numbers-for-one-pass confusion cannot even
-        # be created. Any pins already sitting on that single pass are lifted
-        # into the operation right now — toolpath-neutral, see single_pass_sync.
+        # #106 — single-pass mode. When this operation has exactly ONE pass and
+        # its own "one pass = operation settings" tickbox is on (the default),
+        # the pass IS the operation: edits are staged against the OPERATION
+        # fields (self.staged_op) instead of becoming per-pass pins, so the
+        # two-numbers-for-one-pass confusion cannot even be created. Any pins
+        # already sitting on that single pass are lifted into the operation
+        # right now — toolpath-neutral, see single_pass_sync.
         self.staged_op = {}       # {op_key: value}  (single-pass mode only)
-        self._sync = bool(app.params.get("single_pass_op_sync", False)) and _sps.applies(op)
+        self._sync = _sps.applies(op)
         self._sync_notes = []
         if self._sync:
             self._lift_pins(op)

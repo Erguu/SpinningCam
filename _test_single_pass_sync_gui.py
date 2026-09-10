@@ -44,7 +44,8 @@ mgr = MandrelManager(); mgr.create_default_cone(); mgr.update_geometry(0, 0, 0, 
 min_z = float(mgr.props["min_z"])
 
 
-def make_app(sync, extra_op0=None):
+def make_app(sync=True, extra_op0=None):
+    """``sync`` is the OPERATION's own tickbox (#106), not a global setting."""
     app = MagicMock()
     app.mandrel_mgr = mgr
     app.gui_pass_overrides = {}
@@ -56,6 +57,7 @@ def make_app(sync, extra_op0=None):
            "r_tool": 25.0, "clearance": 1.0, "p1_x": 40.0, "p1_z": 50.0,
            "p3_x": 30.0, "p3_z": -25.0, "start_z": min_z + 10, "end_z": min_z + 40,
            "pass_angle": 20.0, "reach": 40.0, "feed": 300.0,
+           "single_pass_sync": sync,
            "pass_edits": {"0": {"clearance": 0.5}}}
     op0.update(extra_op0 or {})
     app.params = {
@@ -70,7 +72,6 @@ def make_app(sync, extra_op0=None):
              "pass_angle": 20.0, "reach": 40.0, "feed": 300.0,
              "pass_edits": {"0": {"clearance": 0.5}}},
         ],
-        "single_pass_op_sync": sync,
         "blank_radius": 0.0, "target_clearance": 0.0, "min_safety_gap": -999.0,
         "final_part_thickness_on_mandrel": 0.0, "shell_thickness": 0.0,
         "auto_calc_angle": False,
@@ -84,8 +85,8 @@ def make_app(sync, extra_op0=None):
     return app, tab
 
 
-# ── 1. OFF = today's behaviour, exactly ─────────────────────────────────────
-print("\n[1] setting OFF — nothing changes")
+# ── 1. tickbox OFF on this op = today's behaviour, exactly ─────────────────
+print("\n[1] operation's tickbox OFF — nothing changes")
 app, tab = make_app(sync=False)
 dlg = PassTableDialog(root, app, tab, 0)
 root.update_idletasks()
@@ -207,47 +208,75 @@ dlg.staged = {}
 dlg.destroy()
 
 
-# ── 6. the Process-tab checkbox is really wired ─────────────────────────────
-print("\n[6] the setting exists on the Process tab and writes the param")
-import types
-
-from ui.helpers_ui import UIHelper
-from ui.tabs.process_tab import ProcessTab
+# ── 6. the tickbox lives in the OPERATION parameters ────────────────────────
+# User decision 2026-09-10: "it should be selected differently in every
+# operation so can we placed that tickbox to operation parameters".
+print("\n[6] the tickbox is in the operation editor, per operation, default ON")
 
 
-def _walk_checkbuttons(w):
-    for c in w.winfo_children():
+def _sps_row(tab):
+    """The editor row for single_pass_sync, or None when it is not rendered."""
+    for w in tab.f_prop_editor.winfo_children():
+        if getattr(w, "_pkey", None) == "single_pass_sync":
+            return w
+    return None
+
+
+def _box_in(row):
+    for c in row.winfo_children():
         if isinstance(c, (tk.Checkbutton, ttk.Checkbutton)):
-            yield c
-        yield from _walk_checkbuttons(c)
+            return c
+    return None
 
 
-written = {}
-papp = types.SimpleNamespace()
-papp.params = {"show_deformed_blank": True, "show_blank_edge": True,
-               "deformed_blank_offset": 0.0, "shell_thickness": 0.0,
-               "operations": [], "pass_colors": {}, "single_pass_op_sync": False}
-noop = lambda *a, **k: None
-papp.update_deformed_blank = noop
-papp.update_blank_edge = noop
-papp.save_settings_json = noop
-papp.update_scene = noop
-papp.on_param_change = lambda k, v, *a, **kw: written.__setitem__(k, v)
-ui_root = types.SimpleNamespace(load_step_prompt=noop, run_sim=noop, stop_sim=noop,
-                                ui_program=types.SimpleNamespace(refresh_ops_tree=noop))
-ptab = ProcessTab(tk.Frame(root), papp, ui_root, UIHelper(tk.Label(root)))
+app, tab = make_app()
+del app.params["operations"][0]["single_pass_sync"]   # untouched op: key absent
+tab.refresh_ops_tree()
+tab.tree_ops.selection_set("0")
+tab.on_op_select(None)
 root.update_idletasks()
 
-boxes = [c for c in _walk_checkbuttons(ptab.content)
-         if str(c.cget("text")) == t("cb_single_pass_sync")]
-check("the checkbox is built on the Process tab", len(boxes) == 1, f"{len(boxes)} found")
-if boxes:
-    boxes[0].invoke()
-    check("ticking it writes single_pass_op_sync=True",
-          written.get("single_pass_op_sync") is True, str(written))
-    boxes[0].invoke()
-    check("unticking it writes False again",
-          written.get("single_pass_op_sync") is False, str(written))
+row = _sps_row(tab)
+check("the tickbox is rendered on a 1-pass roughing op", row is not None)
+check("it is ON even though the op has no key (default ON)",
+      row is not None and "selected" in _box_in(row).state(),
+      str(_box_in(row).state()) if row else "no row")
+
+# Untick it → written on THIS op only, and the rule stops applying to it.
+_box_in(row).invoke()
+root.update_idletasks()
+op0 = app.params["operations"][0]
+check("unticking writes the flag on the operation",
+      op0.get("single_pass_sync") is False, str(op0.get("single_pass_sync")))
+check("...and the rule now skips this op", not sps.applies(op0))
+check("...while its multi-pass neighbour is untouched",
+      "single_pass_sync" not in app.params["operations"][1])
+
+# Re-tick: stored as an explicit True, not popped — "deliberately on" and
+# "never asked" must survive a round trip as different things.
+tab.on_op_select(None)
+root.update_idletasks()
+_box_in(_sps_row(tab)).invoke()
+root.update_idletasks()
+check("re-ticking stores an explicit True",
+      app.params["operations"][0].get("single_pass_sync") is True)
+
+# Not offered where it can do nothing.
+tab.tree_ops.selection_set("1")
+tab.on_op_select(None)
+root.update_idletasks()
+check("not rendered on a multi-pass op", _sps_row(tab) is None)
+
+# The op-list column resolves the default rather than showing a blank cell.
+check("the column says ✓ for an untouched 1-pass op",
+      tab._cell_value({"type": "roughing", "count": 1}, "single_pass_sync",
+                      "roughing") == "✓")
+check("the column says — on a multi-pass op",
+      tab._cell_value({"type": "roughing", "count": 4}, "single_pass_sync",
+                      "roughing") == "—")
+check("the column is blank when the operator ticked it off",
+      tab._cell_value({"type": "roughing", "count": 1, "single_pass_sync": False},
+                      "single_pass_sync", "roughing") == "")
 
 
 print(f"\n{'='*66}\n  {len(PASS)} passed, {len(FAIL)} failed")

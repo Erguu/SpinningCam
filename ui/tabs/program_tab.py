@@ -124,7 +124,7 @@ _NO_PASS_OP_TYPES = ("cutting", "bending", "point")
 
 OP_PARAM_UNIVERSE = {
     "roughing": _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + [
-        "name", "tool_id", "count", "direction",
+        "name", "tool_id", "count", "single_pass_sync", "direction",
         "tilt_mode", "tilt_start", "tilt_end", "tilt_offset",
         "start_z", "end_z", "p2_z_extend",
         "proj_extend_bottom", "proj_extend_top",
@@ -168,6 +168,7 @@ OP_PARAM_LABELS = {
     "speed_mode": "lbl_speed_mode", "speed": "vp_speed",
     "feed_mode": "lbl_feed_mode",   "feed": "vp_feed",
     "tool_id": "lbl_tool_id", "count": "lbl_pass_count", "direction": "lbl_direction",
+    "single_pass_sync": "lbl_single_pass_sync",
     "tilt_mode": "lbl_tilt_mode", "tilt_start": "lbl_tilt_start",
     "tilt_end": "lbl_tilt_end", "tilt_offset": "lbl_tilt_offset",
     "tool_change_mode": "lbl_tc_mode",
@@ -249,7 +250,11 @@ SECTION_KEYS = {
 
 # Per-type "basic" seed (everything else in the universe is advanced by default).
 _DEFAULT_BASIC = {
+    # single_pass_sync is BASIC: it only ever shows on a 1-pass op, and on those
+    # it decides where the operator's own pass-table edits land. Hiding it
+    # behind Advanced would leave the behaviour on with no visible way back.
     "roughing":  {"name", "speed_mode", "speed", "feed_mode", "feed", "tool_id", "count",
+                  "single_pass_sync",
                   "direction", "start_z", "end_z", "clearance", "pass_shape"},
     "finishing": {"name", "speed_mode", "speed", "feed_mode", "feed", "tool_id", "count",
                   "direction", "start_z", "end_z", "clearance", "pass_shape",
@@ -1036,6 +1041,15 @@ class ProgramTab:
             # to agree with it, or the table and the field one inch away from it
             # would name different modes for the same operation.
             return resolve_speed_mode(op)
+        if key == "single_pass_sync":
+            # Absent = ON (#106), so this cell has to RESOLVE rather than read:
+            # a blank cell on an op that has never been touched would read as
+            # "off" for what is actually the default-on state. Shown as "—" on a
+            # multi-pass op, where the flag exists but can do nothing.
+            import single_pass_sync as _sps
+            if int(op.get("count", 1) or 1) != 1:
+                return "—"
+            return "✓" if _sps.enabled(op) else ""
         if key not in op:
             dv = OP_PARAM_DEFAULTS.get(key)
             return _fmt_num(dv) if isinstance(dv, (int, float)) and not isinstance(dv, bool) else ""
@@ -2602,6 +2616,46 @@ class ProgramTab:
                              tooltip="Bu operasyonda oluşturulacak pas sayısı. "
                                      "Kaba işlemde: malzemeyi mandrel'e adım adım yaklaştıran pas sayısı. "
                                      "Bitirmede: genellikle 1–3 pas yeterlidir.")
+
+        # #106 — "One pass = operation settings", per operation, DEFAULT ON.
+        # Only shown where it can actually do something: a roughing op with a
+        # single pass. It sits directly under Pass Count because that is the
+        # field that makes it appear (count is rebuild=True, so 2→1 reveals it
+        # and 1→2 hides it immediately). Out-of-universe keys are NOT hidden by
+        # _apply_field_visibility, so this gate has to be here.
+        if op_type == "roughing" and int(op.get("count", 1) or 1) <= 1:
+            import single_pass_sync as _sps
+            f_sps = ttk.Frame(self.f_prop_editor)
+            f_sps._pkey = "single_pass_sync"
+            f_sps.pack(fill="x", padx=10, pady=2)
+            ttk.Label(f_sps, text=t("lbl_single_pass_sync"), width=15).pack(side="left")
+            _sps_var = tk.BooleanVar(value=_sps.enabled(op))
+            def _toggle_sps(i=idx, v=_sps_var):
+                # Written literally (not popped when True) so the operator's
+                # choice survives a round trip through .ssp — an absent key
+                # means "never asked" and defaults ON, which is a different
+                # thing from "deliberately on".
+                self.app.params["operations"][i][_sps.OP_FLAG_KEY] = bool(v.get())
+                # No recalc: this changes where the PASS TABLE writes, never the
+                # toolpath. _schedule_auto_calc here would burn a full solve for
+                # nothing on every click.
+                self.refresh_ops_tree()
+            ttk.Checkbutton(f_sps, variable=_sps_var, command=_toggle_sps).pack(side="right")
+            self.helper.bind_tooltip(f_sps,
+                "TEK PASLI operasyonda iki ayrı sayı olmasın diye. VARSAYILAN AÇIK.\n"
+                "Bu operasyonda sadece 1 pas var, yani o pas zaten operasyonun kendisi. "
+                "Açıkken pas tablosuna yazdığın değer AYRI bir pas değeri (pin) OLUŞTURMAZ, "
+                "doğrudan bu operasyonun alanına yazılır — Klerens, Uzatma, Açı, Reach ve "
+                "Bölge Başlangıç Z. Pas tablosunu açtığında bu operasyondaki MEVCUT pas "
+                "değerleri de operasyona TAŞINIR.\n"
+                "TAKIM YOLU DEĞİŞMEZ: taşınan değer motorun zaten kullandığı değerdir; "
+                "sadece ikinci (çelişen) sayı ortadan kalkar. Ctrl+Z ile geri alınır.\n"
+                "İKİ İSTİSNA taşınmaz (taşınsa yol GERÇEKTEN değişirdi) ve alt satırda "
+                "gerekçesiyle yazılır: 'sac kenarını takip et' açıkken Reach, ve operasyon "
+                "HAM X/Z modundayken (Pass Angle boş) Açı.\n"
+                "KAPAT: bu operasyonda gerçekten pasa özel bir değer tutmak istiyorsan. "
+                "Her operasyon için ayrı ayrı seçilir; diğer operasyonları etkilemez.\n"
+                "Elle çizilen çıkış yolu ve kırılma noktalarına DOKUNULMAZ.")
 
         # Pass direction (Forward / Reverse) — roughing & finishing only.
         # Reverse flips only the cut traversal of each pass (geometry unchanged);

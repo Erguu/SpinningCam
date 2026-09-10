@@ -96,7 +96,7 @@ _BOOLS = frozenset((
     "reach_follow_blank", "back_pass_enabled", "back_pass_swapped",
     "conformal_clearance_operation_specific", "approach_follow_surface",
     "exit_bow_trim", "exit_mid_trim", "straight_line_mode",
-    "tool_change_simultaneous", "point_rapid",
+    "tool_change_simultaneous", "point_rapid", "single_pass_sync",
 ))
 
 _TEXTS = frozenset(("name",))
@@ -125,6 +125,12 @@ _IMPLIED_DEFAULTS = {
     # reason as the trims: reading it as False would report a difference between
     # two Point ops that both rapid.
     "point_rapid":      True,
+    # #106 — the FOURTH True, and again for the same reason: "one pass = op
+    # values" defaults ON when the key is absent (single_pass_sync.
+    # DEFAULT_ENABLED). Reading it as False would report a difference between
+    # an untouched op and one the operator explicitly ticked, when both behave
+    # identically.
+    "single_pass_sync": True,
 }
 
 # Every other boolean in _BOOLS is off when absent. conformal_clearance_

@@ -49,6 +49,9 @@ rather than quietly changing the path:
 
 Scope
 -----
+* Governed by the operation's OWN tickbox, ``single_pass_sync``, which defaults
+  to ON. Per-operation rather than global so one program can mix ops that
+  behave both ways (user decision 2026-09-10).
 * ROUGHING only, because the engine reads these pins on roughing only
   (``is_finish`` blanks all five in ``calculate_paths``). A pin sitting on a
   finishing op is dead data; lifting it into the op field WOULD change the
@@ -80,6 +83,20 @@ PIN_TO_OP = {
 # Mirrors pass_compare._PIN_OP_TYPES and the is_finish gate in calculate_paths.
 SYNC_OP_TYPES = ("roughing",)
 
+# PER-OPERATION switch (user decision 2026-09-10): "it should be selected
+# differently in every operation". It lives on the op, not in params, so one
+# program can hold single-pass ops that behave both ways — an operator who
+# wants a genuine per-pass value on one op unticks it there and nowhere else.
+#
+# DEFAULT ON, also by user decision ("this feature should be enabled for
+# default use"). Absent key = on, so every existing .ssp gets the behaviour
+# without a migration. That is only safe because the lift is toolpath-neutral;
+# if it ever stops being neutral, this default is the thing that makes the
+# breakage silent and universal. See the docstring and section [2] of
+# _test_single_pass_sync.py.
+OP_FLAG_KEY = "single_pass_sync"
+DEFAULT_ENABLED = True
+
 # i18n keys for the two refusals, so the UI can explain itself.
 BLOCK_FOLLOW_BLANK = "sps_block_follow"
 BLOCK_RAW_ANGLE = "sps_block_raw"
@@ -108,11 +125,25 @@ def _num(v):
         return None
 
 
+def enabled(op):
+    """The operation's own switch. Absent = on (DEFAULT_ENABLED).
+
+    Read separately from ``applies`` so the UI can show the tickbox in its real
+    state on an op the rule does not currently reach (a 4-pass op the operator
+    is about to set to 1 pass, say).
+    """
+    v = (op or {}).get(OP_FLAG_KEY, DEFAULT_ENABLED)
+    if v in (None, ""):
+        return DEFAULT_ENABLED
+    return bool(v)
+
+
 def applies(op):
     """True when ``op`` is the single-pass case this module governs."""
     if not op:
         return False
-    return op.get("type") in SYNC_OP_TYPES and _count(op) == 1
+    return (op.get("type") in SYNC_OP_TYPES and _count(op) == 1
+            and enabled(op))
 
 
 def pass_slot(op):
@@ -238,7 +269,8 @@ def merge_all(ops):
 
 
 __all__ = [
-    "PIN_TO_OP", "SYNC_OP_TYPES", "BLOCK_FOLLOW_BLANK", "BLOCK_RAW_ANGLE",
-    "applies", "pass_slot", "blocked_reason", "plan", "differs",
+    "PIN_TO_OP", "SYNC_OP_TYPES", "OP_FLAG_KEY", "DEFAULT_ENABLED",
+    "BLOCK_FOLLOW_BLANK", "BLOCK_RAW_ANGLE",
+    "enabled", "applies", "pass_slot", "blocked_reason", "plan", "differs",
     "merge_op", "scan", "merge_all",
 ]

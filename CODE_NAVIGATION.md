@@ -666,15 +666,23 @@ Operatör her operasyonda BİLEREK tek pas kullanınca o tek pas İKİ kez tarif
 oluyordu (op "Klerens 1.0", pas tablosu "0.5"). Çözüm: **pas değeri kazanır ve
 operasyon alanına YUKARI kopyalanır**, pin silinir.
 
+**Anahtar `op["single_pass_sync"]` — OPERASYON alanı, VARSAYILAN AÇIK**
+(kullanıcı kararı 2026-09-10: *"enabled for default use"* + *"selected
+differently in every operation"*). Genel (params) ayar YOK. Anahtar YOKSA
+AÇIK sayılır → eski .ssp'ler migrasyonsuz davranışı alır. Bu ancak taşıma
+toolpath-nötr olduğu için güvenli; nötrlük bozulursa varsayılan-AÇIK bozukluğu
+SESSİZ ve EVRENSEL yapar.
+
 | Ne | Dosya | Fonksiyon/Anahtar |
 |----|-------|-------------------|
-| **Saf kurallar — TEK doğruluk kaynağı** (Tk YOK) | `single_pass_sync.py` | `PIN_TO_OP`, `applies()`, `blocked_reason()`, `plan()`, `merge_op()`, `differs()`, `scan()`, `merge_all()` |
-| Açılışta taşıma (TEK undo adımı) | `ui/dialogs/pass_table.py` | `PassTableDialog._lift_pins()` |
+| **Saf kurallar — TEK doğruluk kaynağı** (Tk YOK) | `single_pass_sync.py` | `PIN_TO_OP`, `OP_FLAG_KEY`, `enabled()`, `applies()`, `blocked_reason()`, `plan()`, `merge_op()`, `differs()`, `scan()`, `merge_all()` |
+| Açılışta taşıma (TEK undo adımı) | `ui/dialogs/pass_table.py` | `PassTableDialog._lift_pins()`; kapı `self._sync = _sps.applies(op)` |
 | Düzenleme yönlendirme (pin mi op mu) | `ui/dialogs/pass_table.py` | `_sync_target()` + `_stage()` — çift tık VE "Hepsine ata" ikisi de buradan geçer |
 | Staged op önizlemesi | `ui/dialogs/pass_table.py` | `_preview_op()` (`compute_pass_rows`'a KOPYA op verilir), `_staged_pin_keys()` (✎ işareti) |
-| Ayar (varsayılan KAPALI) | `main.py` | `load_settings` `single_pass_op_sync` + `_VIEW_ONLY_PREF_KEYS` |
-| Kutu | `ui/tabs/process_tab.py` | `section_editing` bölümü |
-| Test | `_test_single_pass_sync.py` (69), `_test_single_pass_sync_gui.py` (28) | — |
+| **Kutu — OPERASYON alanı, varsayılan AÇIK** | `ui/tabs/program_tab.py` | `on_op_select` içinde Pas Sayısı'nın hemen ALTINDA, `if op_type == "roughing" and count <= 1` ile kapılı; `OP_PARAM_UNIVERSE`/`OP_PARAM_LABELS`/`_DEFAULT_BASIC` |
+| Sütun (varsayılanı ÇÖZER, boş göstermez) | `ui/tabs/program_tab.py` | `_cell_value()` `single_pass_sync` özel dalı — 1 pas: `✓`/boş, çok pas: `—` |
+| Karşılaştır penceresi kaydı | `pass_compare.py` | `_BOOLS` + `_IMPLIED_DEFAULTS["single_pass_sync"] = True` (DÖRDÜNCÜ `True`) |
+| Test | `_test_single_pass_sync.py` (76), `_test_single_pass_sync_gui.py` (38) | — |
 
 **EŞLEME:** `clearance`/`p2_z_extend`/`pass_angle`/`reach` aynı isimle,
 **`target_z` → `start_z`** (tek paslı op temas Z'sini Bölge Başlangıç Z'sinden
