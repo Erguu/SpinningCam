@@ -5,6 +5,66 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-09-10b — "Değiştirdim, hiçbir şey olmadı" sınıfı için 4 test
+
+Kullanıcının sorusu: *"testlerimiz yeterli mi? Operatör 'bu pasın reach'i neden
+bu kadar büyük' ya da 'clearance neden değişmiyor' diyor — parametreleri her
+olasılık için test ediyor muyuz?"*
+
+Cevap HAYIR'dı. Mevcut 91 dosya "bu özellik yazıldığında çalıştı mı"yı iyi
+test ediyor. Test EDİLMEYEN sınıf: **her düğme motora ULAŞIYOR mu, ve ekran
+makineyle AYNI ŞEYİ mi söylüyor.** F3 tam olarak bu sınıftandı ve HİÇ testi
+yoktu (hiçbir test dosyası "conformal" kelimesini içermiyordu).
+
+Bu kombinatorik bir problem DEĞİL — 76 parametrenin DEĞERLERİNİ değil
+KABLOLAMASINI test etmek yeterli, o da sonlu.
+
+| Test | Ne | Sonuç |
+|---|---|---|
+| `_test_conformal_resolve.py` | F3 regresyonu: 3×2 doğruluk tablosu, eğimli yüzeyde bayrağın ölü olmadığı kanıtı, kaynak taraması | 30 kontrol |
+| `_test_param_wiring.py` | 63 roughing parametresi tek tek değiştirilir → G-kodu değişmeli | 53 kablolu, 8 gerekçeli etkisiz, **2 AÇIK BULGU** |
+| `_test_reach_priority.py` | 32 vaka: pin > follow > fan > op reach > \|p3\| + motor = açıklama | 32 + eşik testleri |
+| `_test_engine_screen_agree.py` | 240 konfigürasyonda pas tablosu = motor; + her `resolve_*` hem hesaplayan hem gösteren taraftan çağrılmalı | 240 + 10 yapısal |
+
+### AÇIK BULGULAR — kök neden bulunamadı
+
+**`exit_arc_angle` denenen hiçbir konfigürasyonda takım yolunu değiştirmiyor.**
+3 pas şekli × −60°…+85° açılar, hem op alanında hem Process-tab genel ayarında,
+curl kapalı ve bow 0 (yani `path_generator.py:2986`'daki onu besleyen dal).
+**AYNI konfigürasyonda `exit_bow` yolu değiştiriyor** (20 → 22 → 29 nokta), yani
+dal çalışıyor; ve `_tangent_chord_arc` doğrudan çağrıldığında açıya duyarlı.
+
+**`exit_mid_trim` de hiçbir konfigürasyonda etkisiz** — canlı clearance
+zeminini kıracak kadar sıkı bir curl yarıçapıyla bile, üç pas şeklinde de.
+Kardeşi `exit_bow_trim` aynı koşullarda ısırıyor.
+
+İkisi de `KNOWN_FINDINGS`'te: testi KIRMAZLAR ama her koşuda ekrana basılırlar.
+Gizlenmesinler diye bilerek allow-list'e konulmadılar.
+
+### Yanlış alarm OLMAYAN ama bilinmesi gereken: `reach_follow_min`
+
+Ölçülen flanş `reach_follow_min`'in (varsayılan 10 mm) altındaysa follow-blank
+**kendini kapatır** ve operasyon paneli bunu göstermez. "Sac kenarını takip'i
+açtım, reach değişmedi"in gerçek cevabı bu olabilir.
+
+Üstelik **AÇIYA BAĞLI**: düz flanş tahmini eğik strok uzunluğuna çevrildiği
+için aynı sac 120°'de eşiğin ALTINDA, 140°'de ÜSTÜNDE kalıyor. Ölçüm (bu
+mandrel, ×1.5 sac, düz flanş 9.815 mm): 90–120° kapalı, 140°+ açık.
+2026-07-22'de iyi bir sebeple eklendi (dip yakınında tahmin çöküyor), ama
+görünmez. `_test_reach_priority.py` sonunda kilitlendi.
+
+### Test yazarken düşülen 6 tuzak (hepsi testin kendi hatasıydı)
+
+Bunları not ediyorum çünkü bir dahaki sefere aynısı olacak:
+1. Bağımlılık kapalıyken ölçmek (`reach_blank_factor` → follow KAPALI iken ölü görünür)
+2. Yanlış enum değeri (`tool_change_mode="custom"` diye bir mod YOK → global'e düşer)
+3. Aynı değeri "değiştirmek" (`speed_mode: RPM → RPM`)
+4. Clearance zorlamasını kapatmak (`min_safety_gap=-999`) → trim bayrakları ölü görünür
+5. Eşiğin üstünde duran baseline (×1.5 sac → flanş 9.815 mm, 10 mm zemininin kılpayı altında)
+6. Farklı büyüklükleri karşılaştırmak (`last_op_end_z` = temas Z'si, satırın `end_z`'si = çıkış ucu)
+
+---
+
 ## 2026-09-10 — "Geliştiricilere Rapor Gönder" + test altyapısı
 
 İki iş: sahadan sorun bildirmeyi tek tıka indirmek, ve test takımını

@@ -701,6 +701,23 @@ hâlde kanıtı silmiş oluyordu.
 | i18n bütünlüğü | `_test_i18n_complete.py` | anahtar var mı / üç dil dolu mu / `{placeholder}` tutuyor mu. BAZI dillerde boş = hata, HEPSİNDE boş = karar |
 | Ayna senkronu | `_test_no_pass_mirrors.py` | `cutting`/`bending`/`point` dört yerde tekrar yazılı; motorun GERÇEK yol sayısı ile `path_categories` karşılaştırılır |
 | Paketleme sapması | `_test_packaging_static.py` | `check_packaging.check_static()` + seed↔STEP + tembel import edilen modüller `CRITICAL_MODULES`'te mi. `.default.json` uyarısı bilinen yanlış pozitif |
+| **Parametre KABLOLAMASI** | `_test_param_wiring.py` | 63 roughing parametresi tek tek değiştirilip G-kodu değişti mi diye bakılır. `CONDITIONS` = her anahtarın canlı olması için gereken koşul (hepsi ÖLÇÜLDÜ). `INERT` = gerçekten etkisiz + GEREKÇE. `KNOWN_FINDINGS` = açıklanamayan, her koşuda BAĞIRIR |
+| **Reach öncelik zinciri** | `_test_reach_priority.py` | 32 vaka (2 mod × 2⁴ halka): pin > follow > fan > op reach > \|p3\|. Ayrıca **motorun reach'i = açıklamanın NAMED değeri** (operatörün aldığı cevap makineyle uyuşmalı) |
+| **Motor ↔ ekran** | `_test_engine_screen_agree.py` | 240 konfigürasyonda pas tablosu = motor (reach / contact_z / angle). Ayrıca YAPISAL: her `resolve_*` hem HESAPLAYAN hem GÖSTEREN dosyadan çağrılmalı; kimse ham anahtarı kendi varsayılanıyla okumamalı (F3'ün genelleştirilmiş hâli) |
+| **Konformal (F3) regresyonu** | `_test_conformal_resolve.py` | 3 op durumu × 2 genel ayar doğruluk tablosu + eğimli yüzeyde bayrağın ÖLÜ OLMADIĞI kanıtı + kaynak taraması |
+
+> **⚠ AÇIK BULGULAR (2026-09-10, `_test_param_wiring.KNOWN_FINDINGS`):**
+> `exit_arc_angle` ve `exit_mid_trim` denenen HİÇBİR konfigürasyonda takım yolunu
+> değiştirmiyor. Aynı konfigürasyonda kardeşleri (`exit_bow`, `exit_bow_trim`)
+> değiştiriyor, yani dal çalışıyor. Kök neden BULUNMADI. Testi kırmazlar, her
+> koşuda rapor edilirler.
+
+> **⚠ `reach_follow_min` TUZAĞI (varsayılan 10 mm):** ölçülen flanş bu eşiğin
+> altındaysa follow-blank KENDİNİ KAPATIR ve operasyon paneli bunu göstermez —
+> "sac kenarını takip'i açtım, hiçbir şey olmadı"ın gerçek cevabı. Üstelik
+> AÇIYA BAĞLI: düz tahmin eğik strok uzunluğuna çevrildiği için aynı flanş
+> 120°'de eşiğin altında, 140°'de üstünde kalıyor. `_test_reach_priority.py`
+> sonunda kilitli.
 
 **Ders (5 test, 2026-09-10):** "bilinen kırık" listesindeki hiçbiri ürün hatası
 değildi ama `_test_program_tab_toolbar.py` ilk hatada ölüyor ve **altındaki 10
