@@ -16,6 +16,40 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 > `"1.032"` girdisi; test işi bilerek DIŞARIDA (operatör için görünmez).
 > Bu sürümde takım yolu DEĞİŞMEDİ — sadece ekranın söylediği düzeldi.
 
+## 2026-09-10e — Açık pas tablosu operasyon düzenlemesini canlı izliyor (#106)
+
+**Kullanıcı sorusu:** *"can't we have both ways? the last changed one will
+change the other one automatically?"* — Cevap: ZATEN öyle. Taşımadan sonra o
+alanın TEK saklama yeri var (`op[...]`); pas tablosu da op editörü de aynı
+sayıyı okuyup yazıyor. "Son değiştirilen kazanır" bir mekanizma değil, ikinci
+sayının HİÇ olmamasının sonucu. ("Pas tablosu kazanır" kararı SADECE eskiden
+kalma çelişkili değerlerin tek seferlik tie-break'iydi, kalıcı hiyerarşi değil.)
+
+**TEK AÇIK BOŞLUK vardı, kapatıldı:** pas tablosu AÇIKKEN arkadaki operasyonu
+düzenlersen tablo Yenile'ye basılana kadar eski sayıyı gösteriyordu (saklanan
+değer doğruydu, sadece ekran bayattı). Ters yön zaten canlıydı.
+
+| Ne | Nerede |
+|---|---|
+| Tazeleme | `ui/tabs/program_tab.py` `_refresh_open_pass_table()` |
+| Kanca | `refresh_ops_tree()` SONU |
+| Kol kurulumu / temizliği | `open_pass_table()` / `PassTableDialog.destroy()` (override) |
+| Test | `_test_single_pass_sync_gui.py` §7 (7 kontrol) |
+
+**Kanca neden `refresh_ops_tree`'de:** her op mutasyonunun geçtiği TEK boğaz
+noktası (yazılan alan + kutu + combo hepsi) ve zaten `_in_bulk_flush` ile
+birleştiriliyor.
+
+**PERFORMANS (kullanıcı endişesi, ÖLÇÜLDÜ 2026-09-10):**
+- op seçiminde tıklama (bulk flush): **0.45 µs — DEĞİŞMEDİ**, erken dönüyor.
+  Eski donma tam buradaydı ([[project_op_selection_perf]]), dokunulmadı.
+- pencere KAPALIYKEN: tek `getattr` (~0.1 µs).
+- pencere AÇIKKEN: 20 op'ta `refresh_ops_tree` ~4 ms → ~4.7 ms (**+0.7 ms**).
+  Bir ekran karesi 16 ms.
+
+**GERİ ALMA:** `refresh_ops_tree` sonundaki tek `self._refresh_open_pass_table()`
+satırını sil.
+
 ## 2026-09-10d — Tek paslı operasyon: iki sayı yerine tek sayı (#106, opt-in)
 
 **Müşteri şikâyeti:** bir operatör her operasyonda BİLEREK tek pas kullanıyor

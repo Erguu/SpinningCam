@@ -279,6 +279,74 @@ check("the column is blank when the operator ticked it off",
                       "single_pass_sync", "roughing") == "")
 
 
+# ── 7. the mirror works in BOTH directions, live ────────────────────────────
+# On a single-pass op the pass table and the operation editor are two views of
+# ONE number, so "whichever I changed last" must show on the other side without
+# the operator doing anything. Pass table -> op was already covered in [3];
+# this is op -> pass table, including while the table is sitting open.
+print("\n[7] editing the operation updates an OPEN pass table")
+app, tab = make_app()
+op = app.params["operations"][0]
+# open_pass_table parents the dialog on ui_root and shows a modal info box when
+# nothing is selected — give it a real window and a real selection, or the test
+# hangs on a message box no one can click.
+tab.ui_root = root
+tab.refresh_ops_tree()
+tab.tree_ops.selection_set("0")
+root.update_idletasks()
+assert tab.tree_ops.selection() == ("0",), "op row 0 could not be selected"
+tab.open_pass_table()
+root.update_idletasks()
+dlg = tab._open_pass_table
+check("the program tab tracks the open pass table", dlg is not None)
+check("it lifted the pin on open, so op and table agree",
+      op["clearance"] == 0.5 and abs(float(dlg._last_rows[0]["clr"]) - 0.5) < 1e-9,
+      f"op={op['clearance']} table={dlg._last_rows[0]['clr']}")
+
+# Now change the OPERATION the way the editor's field saver does.
+op["clearance"] = 4.0
+tab.refresh_ops_tree()
+root.update_idletasks()
+check("the open table follows the operation with no Refresh press",
+      abs(float(dlg._last_rows[0]["clr"]) - 4.0) < 1e-9,
+      str(dlg._last_rows[0]["clr"]))
+
+# Staged, unapplied work must survive somebody else's refresh.
+dlg._stage(0, "clearance", 9.0)
+dlg.refresh()
+op["start_z"] = min_z + 12
+tab.refresh_ops_tree()
+root.update_idletasks()
+check("a staged edit is not lost when the table refreshes underneath it",
+      dlg.staged_op.get("clearance") == 9.0 and
+      abs(float(dlg._last_rows[0]["clr"]) - 9.0) < 1e-9,
+      f"staged={dlg.staged_op} shown={dlg._last_rows[0]['clr']}")
+dlg.staged_op = {}
+
+# Closing must drop the handle, or every later op edit pokes a dead widget.
+dlg.destroy()
+root.update_idletasks()
+check("closing the table clears the handle", tab._open_pass_table is None)
+op["clearance"] = 5.0
+tab.refresh_ops_tree()          # must not raise on a closed dialog
+check("editing the op after closing the table is harmless", True)
+
+# Deleting the operation while its table is open: refresh() self-destructs, and
+# that must clear the handle too rather than leave a dead widget behind.
+app, tab = make_app()
+tab.ui_root = root
+tab.refresh_ops_tree()
+tab.tree_ops.selection_set("0")
+root.update_idletasks()
+tab.open_pass_table()
+root.update_idletasks()
+app.params["operations"] = []
+tab.refresh_ops_tree()
+root.update_idletasks()
+check("deleting the operation closes its table and clears the handle",
+      tab._open_pass_table is None)
+
+
 print(f"\n{'='*66}\n  {len(PASS)} passed, {len(FAIL)} failed")
 if FAIL:
     for n in FAIL:

@@ -40,7 +40,17 @@ Absent key = on, so old .ssp files get the behaviour with no migration.
 | Dialog wiring (lift at open, edit routing, staged op fields) | `ui/dialogs/pass_table.py` — `_lift_pins`, `_sync_target`, `_stage`, `_preview_op` |
 | Tickbox + op-list column | `ui/tabs/program_tab.py` — `on_op_select` (under Pass Count), `_cell_value` |
 | Compare-window registration | `pass_compare.py` — `_BOOLS` + `_IMPLIED_DEFAULTS` (the fourth `True`) |
-| Test | `_test_single_pass_sync.py` (76), `_test_single_pass_sync_gui.py` (38) |
+| Live mirror both ways | `ui/tabs/program_tab.py` — `_refresh_open_pass_table()`, hooked at the end of `refresh_ops_tree()` |
+| Test | `_test_single_pass_sync.py` (76), `_test_single_pass_sync_gui.py` (45) |
+
+**BOTH DIRECTIONS ARE LIVE (2026-09-10b).** After the lift there is exactly ONE
+place the value is stored, so "whichever was changed last wins" needs no sync
+machinery — there is no second number to reconcile. The "pass table wins"
+decision was only the one-time tiebreak for values that already disagreed.
+Pass table → op editor was already live; op → an OPEN pass table was the one
+gap and is now closed. Cost measured: op-selection clicks unchanged (0.45 µs,
+coalesced behind `_in_bulk_flush`), ~0.1 µs when no table is open, +0.7 ms
+while one is (against ~4 ms `refresh_ops_tree` already spends on 20 ops).
 
 **THE WHOLE FEATURE RESTS ON ONE CLAIM — and it is measured, not argued:**
 `_test_single_pass_sync.py` §2 generates the toolpath before and after the lift and

@@ -1081,6 +1081,19 @@ class PassTableDialog(tk.Toplevel):
         self.staged_op = {}
         self.destroy()
 
+    def destroy(self):
+        """Drop the program tab's handle on us before going away.
+
+        Overridden rather than bound to <Destroy> because every close route
+        ends here — [Cancel], the window X, and the refresh() path that closes
+        the dialog when its operation has been deleted. A stale handle would
+        make refresh_ops_tree poke a dead widget on every later op edit.
+        """
+        ptab = getattr(self, "ptab", None)
+        if getattr(ptab, "_open_pass_table", None) is self:
+            ptab._open_pass_table = None
+        super().destroy()
+
     def _edit_exit_tail(self):
         """#100: open the waypoint editor for the SELECTED pass.
 

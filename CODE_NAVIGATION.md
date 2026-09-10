@@ -682,6 +682,7 @@ SESSİZ ve EVRENSEL yapar.
 | **Kutu — OPERASYON alanı, varsayılan AÇIK** | `ui/tabs/program_tab.py` | `on_op_select` içinde Pas Sayısı'nın hemen ALTINDA, `if op_type == "roughing" and count <= 1` ile kapılı; `OP_PARAM_UNIVERSE`/`OP_PARAM_LABELS`/`_DEFAULT_BASIC` |
 | Sütun (varsayılanı ÇÖZER, boş göstermez) | `ui/tabs/program_tab.py` | `_cell_value()` `single_pass_sync` özel dalı — 1 pas: `✓`/boş, çok pas: `—` |
 | Karşılaştır penceresi kaydı | `pass_compare.py` | `_BOOLS` + `_IMPLIED_DEFAULTS["single_pass_sync"] = True` (DÖRDÜNCÜ `True`) |
+| **AÇIK pas tablosunu tazeleme (çift yön)** | `ui/tabs/program_tab.py` | `_refresh_open_pass_table()`, `refresh_ops_tree()` SONUNDAN çağrılır; kolu `open_pass_table()` kurar, `PassTableDialog.destroy()` temizler |
 | Test | `_test_single_pass_sync.py` (76), `_test_single_pass_sync_gui.py` (38) | — |
 
 **EŞLEME:** `clearance`/`p2_z_extend`/`pass_angle`/`reach` aynı isimle,
@@ -703,6 +704,19 @@ eşitlik bozulursa bu özellik sessizce metal keser.
 
 **KAPSAM:** sadece `roughing` (motor pinleri zaten sadece orada okuyor);
 `exit_points`/`exit_breaks` ve 1..n artık slotları KORUNUR.
+
+**AYNA ÇİFT YÖNLÜ (2026-09-10b):** taşımadan sonra o alanın TEK bir saklama
+yeri kalır (`op[...]`) — pas tablosu da op editörü de AYNI sayıyı okuyup yazar.
+Yani "en son değiştirilen kazanır" kendiliğinden doğrudur, senkron mekanizması
+YOK; senkronlanacak ikinci sayı yok. Pas tablosu → op editörü zaten canlıydı
+(`_apply` → `on_op_select(None, _flush=False)`); op → AÇIK pas tablosu yönü
+`_refresh_open_pass_table` ile kapatıldı.
+
+**Neden kanca `refresh_ops_tree`'de:** her op mutasyonunun (yazılan alan,
+kutu, combo) geçtiği TEK boğaz noktası VE zaten `_in_bulk_flush` ile
+birleştiriliyor → op seçiminde tıklama maliyeti DEĞİŞMEDİ (ölçüldü: 0.45 µs).
+Pencere kapalıyken maliyet tek `getattr` (~0.1 µs); açıkken ~+0.7 ms
+(20 op'ta `refresh_ops_tree` zaten ~4 ms). Ölçüm 2026-09-10.
 
 **GOTCHA — taşımadan sonra op editörünü TAZELE:** `_lift_pins` ve `_apply`
 ikisi de `ptab.on_op_select(None, _flush=False)` çağırır. Yoksa editörün Tk

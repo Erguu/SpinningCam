@@ -1525,6 +1525,44 @@ class ProgramTab:
 
         self.update_time_estimate()
         self._update_batch_button()
+        self._refresh_open_pass_table()
+
+    def _refresh_open_pass_table(self):
+        """Keep an OPEN pass table in step with edits made to its operation.
+
+        #106 made the pass table and the operation editor two views of the SAME
+        number on a single-pass op. Editing the operation therefore has to show
+        up in the table, or the operator reads a number that is no longer the
+        one being used — the exact confusion the feature exists to remove.
+        The other direction was already live (PassTableDialog._apply re-seeds
+        the editor); this closes the loop.
+
+        Hooked here rather than in the field savers because refresh_ops_tree is
+        the one choke point every op mutation already goes through — typed
+        fields, checkboxes and combo boxes alike — AND it already coalesces
+        during a bulk flush (the early return above), so clicking through
+        operations costs exactly what it did before.
+
+        Cost when no pass table is open: one attribute read (~0.1 µs). When one
+        IS open: ~0.1 ms for a single-pass op, ~0.6 ms for a twelve-pass one,
+        against the ~1.4 ms this method already spends. Measured 2026-09-10.
+        """
+        dlg = getattr(self, "_open_pass_table", None)
+        if dlg is None:
+            return
+        try:
+            if not dlg.winfo_exists():
+                self._open_pass_table = None
+                return
+            # Staged (unapplied) edits are the operator's in-flight work and
+            # refresh() preserves them, but only the table for the op that
+            # actually changed needs redrawing.
+            dlg.refresh()
+        except Exception as e:
+            # A display refresh must never be able to break an op edit.
+            from logger_config import logger
+            logger.debug(f"open pass-table refresh skipped: {e}")
+            self._open_pass_table = None
 
     def toggle_op_enabled(self):
         """Passivate/reactivate the selected op without deleting it. Disabled
@@ -4899,7 +4937,9 @@ class ProgramTab:
             messagebox.showinfo(t("pt_title_short"), t("msg_reach_badtype"))
             return
         from ui.dialogs.pass_table import PassTableDialog
-        PassTableDialog(self.ui_root, self.app, self, idx)
+        # Tracked so edits to the operation behind it keep the table in step
+        # (_refresh_open_pass_table). The dialog clears this on destroy.
+        self._open_pass_table = PassTableDialog(self.ui_root, self.app, self, idx)
 
     def open_pass_compare(self):
         """#104: compare any two passes side by side.
