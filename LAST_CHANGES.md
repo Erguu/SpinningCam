@@ -10,6 +10,70 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 > `"1.032"` girdisi; test işi bilerek DIŞARIDA (operatör için görünmez).
 > Bu sürümde takım yolu DEĞİŞMEDİ — sadece ekranın söylediği düzeldi.
 
+## 2026-09-10d — Tek paslı operasyon: iki sayı yerine tek sayı (#106, opt-in)
+
+**Müşteri şikâyeti:** bir operatör her operasyonda BİLEREK tek pas kullanıyor
+(pasların üzerinde tam kontrol için) ve bazen üstüne pas tablosundan pas-başına
+değer giriyor. Sonuç: aynı TEK pas iki kez tarif ediliyor — operasyon "Klerens
+1.0" diyor, pas tablosu "0.5". Motor 0.5'i koşuyor, operasyon ekranı 1.0
+göstermeye devam ediyor. İkisi de yanlış değil; İKİSİNİN BİRDEN olması yanlış.
+
+**KULLANICI KARARI (2026-09-10'da soruldu):** PAS değeri kazanır ve operasyon
+alanına **yukarı kopyalanır**, pin silinir. "Operasyon kazansın" seçeneği
+REDDEDİLDİ çünkü mevcut müşteri programlarının takım yolunu sessizce
+değiştirirdi. Pas değeri motorun zaten kullandığı değer olduğu için yukarı
+kopyalamak yolu DEĞİŞTİRMEZ.
+
+Anahtar: `single_pass_op_sync` — İşlem sekmesi ▸ Düzenleme, **varsayılan KAPALI**,
+kapalıyken bugünkü davranış birebir.
+
+| Ne | Nerede |
+|---|---|
+| Saf kurallar + taşıma (Tk YOK) | `single_pass_sync.py` |
+| Diyalog bağlama | `ui/dialogs/pass_table.py` — `_lift_pins`, `_sync_target`, `_stage`, `_preview_op` |
+| Ayar | `main.py` `load_settings` + `_VIEW_ONLY_PREF_KEYS`; UI `ui/tabs/process_tab.py` |
+| Test | `_test_single_pass_sync.py` (69), `_test_single_pass_sync_gui.py` (28) |
+
+**Eşleme** (pin → operasyon alanı): `clearance`→`clearance`,
+`p2_z_extend`→`p2_z_extend`, `pass_angle`→`pass_angle`, `reach`→`reach`,
+**`target_z`→`start_z`** (tek paslı op temas Z'sini Bölge Başlangıç Z'sinden
+aynen alır — adı farklı olan tek eşleme).
+
+**TÜM ÖZELLİK TEK BİR İDDİAYA DAYANIYOR — ve o iddia ÖLÇÜLÜYOR, tartışılmıyor:**
+`_test_single_pass_sync.py` §2 takım yolunu taşımadan önce ve sonra üretip nokta
+nokta karşılaştırıyor (alan alan, beşi birlikte, geri pas ve ters pas dâhil).
+`path_generator`'ın çözüm zincirine ileride dokunan bir değişiklik eşitliği
+bozarsa o bölüm DÜŞER.
+
+**İKİ PİN TAŞINMIYOR** — taşınsa makine GERÇEKTEN hareket ederdi (§3 bunu yasak
+taşımayı yapıp farkı ölçerek kanıtlıyor):
+1. `reach` + operasyonda `reach_follow_blank` AÇIK — pin sac takibini yener,
+   `op["reach"]` yenmez. Testte strok 60.7 mm → 239.6 mm sıçrıyor.
+2. `pass_angle` + operasyon HAM çıkış modunda (`pass_angle` boş) — motor tüm
+   polar bloğu o alana bağlıyor, taşımak op'u ham→polar çevirirdi.
+
+İkisi de pas tablosu alt satırında GEREKÇESİYLE yazılıyor, sessizce atlanmıyor.
+
+**KAPSAM:** sadece KABA operasyonlar (motor pas pinlerini zaten sadece orada
+okuyor; bitirme op'undaki pin ölü veridir, taşınsa yol DEĞİŞİRDİ). Elle çizilen
+çıkış yolu (`exit_points`) ve kırılma noktalarına (`exit_breaks`) DOKUNULMUYOR.
+1..n artık slotları (op eskiden çok paslıyken kalanlar) OLDUĞU GİBİ bırakılıyor.
+
+**GERİ ALMA:** kutuyu kapat → yeni düzenlemeler eskisi gibi pin üretir. Taşıma
+program sekmesinin geri-al yığınına TEK adım olarak giriyor (Ctrl+Z pini geri
+getirir). Kod tarafında: `process_tab.py`'deki kutuyu ve
+`pass_table.py`'deki `self._sync` dalını kaldırmak yeter; `single_pass_sync.py`
+kendi başına hiçbir şey yapmaz.
+
+**TUZAK (yaşandı, çözüldü):** taşımadan sonra operasyon editörünün Tk
+değişkenleri hâlâ ESKİ sayıyı tutuyor ve bir sonraki focus-out'ta taşımanın
+üzerine bayat değeri geri yazıyor — bkz. [[project_ui_param_var_staleness]].
+Hem `_lift_pins` hem `_apply` bu yüzden `on_op_select(None, _flush=False)`
+çağırıyor.
+
+**Test durumu:** 98/98 dosya geçiyor (golden dosyalar dâhil — takım yolu
+değişmediğinin ikinci bağımsız kanıtı).
+
 ## 2026-09-10c — Golden dosyalar: gerçek saha programları regresyon ağı
 
 Diğer hiçbir test **"istemeden bir şey değişti mi"**yi sormuyordu. Artık 7

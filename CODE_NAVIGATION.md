@@ -660,6 +660,47 @@ sayıyı boğar. Uzun hâli yalnız alttaki açıklama çubuğunda.
 > koşuyordu. 2026-07-28'de düzeltildi (`_test_pass_table.py` #2 artık geçiyor).
 > Motorun çözüm zincirine dokunan HER değişikliği aynaya da taşı.
 
+### 23c. Tek paslı operasyon = tek sayı (#106) — 2026-09-10
+
+Operatör her operasyonda BİLEREK tek pas kullanınca o tek pas İKİ kez tarif
+oluyordu (op "Klerens 1.0", pas tablosu "0.5"). Çözüm: **pas değeri kazanır ve
+operasyon alanına YUKARI kopyalanır**, pin silinir.
+
+| Ne | Dosya | Fonksiyon/Anahtar |
+|----|-------|-------------------|
+| **Saf kurallar — TEK doğruluk kaynağı** (Tk YOK) | `single_pass_sync.py` | `PIN_TO_OP`, `applies()`, `blocked_reason()`, `plan()`, `merge_op()`, `differs()`, `scan()`, `merge_all()` |
+| Açılışta taşıma (TEK undo adımı) | `ui/dialogs/pass_table.py` | `PassTableDialog._lift_pins()` |
+| Düzenleme yönlendirme (pin mi op mu) | `ui/dialogs/pass_table.py` | `_sync_target()` + `_stage()` — çift tık VE "Hepsine ata" ikisi de buradan geçer |
+| Staged op önizlemesi | `ui/dialogs/pass_table.py` | `_preview_op()` (`compute_pass_rows`'a KOPYA op verilir), `_staged_pin_keys()` (✎ işareti) |
+| Ayar (varsayılan KAPALI) | `main.py` | `load_settings` `single_pass_op_sync` + `_VIEW_ONLY_PREF_KEYS` |
+| Kutu | `ui/tabs/process_tab.py` | `section_editing` bölümü |
+| Test | `_test_single_pass_sync.py` (69), `_test_single_pass_sync_gui.py` (28) | — |
+
+**EŞLEME:** `clearance`/`p2_z_extend`/`pass_angle`/`reach` aynı isimle,
+**`target_z` → `start_z`** (tek paslı op temas Z'sini Bölge Başlangıç Z'sinden
+AYNEN alır: `path_generator` `if count <= 1: target_z = start_h`).
+
+**⚠ TÜM ÖZELLİK TEK İDDİAYA DAYANIYOR: taşıma takım yolunu DEĞİŞTİRMEZ.**
+İddia `_test_single_pass_sync.py` §2'de takım yolu taşımadan önce/sonra üretilip
+nokta nokta karşılaştırılarak ÖLÇÜLÜYOR. `path_generator`'daki çözüm zincirine
+(23. bölümdeki öncelik tablosu) dokunan HER değişiklikten sonra o testi koştur —
+eşitlik bozulursa bu özellik sessizce metal keser.
+
+**⚠ İKİ PİN BİLEREK TAŞINMAZ** (`blocked_reason`), çünkü taşınsa yol değişirdi:
+1. `reach` + `reach_follow_blank` AÇIK — pin sac takibini YENER, `op["reach"]`
+   YENMEZ. Testte strok 60.7 → 239.6 mm sıçrıyor.
+2. `pass_angle` + op HAM modda (`pass_angle` boş) — motor polar bloğu o alana
+   bağlıyor, taşımak op'u ham→polar çevirirdi.
+İkisi de alt satırda gerekçesiyle gösterilir (`sps_block_*`).
+
+**KAPSAM:** sadece `roughing` (motor pinleri zaten sadece orada okuyor);
+`exit_points`/`exit_breaks` ve 1..n artık slotları KORUNUR.
+
+**GOTCHA — taşımadan sonra op editörünü TAZELE:** `_lift_pins` ve `_apply`
+ikisi de `ptab.on_op_select(None, _flush=False)` çağırır. Yoksa editörün Tk
+değişkenleri eski sayıyı tutar ve bir sonraki focus-out taşımanın üzerine bayat
+değeri yazar — bkz. `helpers_ui` GOTCHA'sı (bölüm 16).
+
 ### 24. Geliştiricilere Rapor Gönder (sorun paketi) — 2026-09-10
 
 Yardım ▸ Geliştiricilere Rapor Gönder… → tek `.zip`. **Gönderme YOK** —

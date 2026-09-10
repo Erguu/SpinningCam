@@ -24,7 +24,7 @@ from logger_config import logger
 # see the comment at that call site. Add a key here whenever a new view-only
 # toggle is introduced; anything that changes a path or a number does NOT
 # belong in this list.
-_VIEW_ONLY_PREF_KEYS = ("show_tip_paths", "show_rapids")
+_VIEW_ONLY_PREF_KEYS = ("show_tip_paths", "show_rapids", "single_pass_op_sync")
 
 
 class SpinningApp:
@@ -208,6 +208,18 @@ class SpinningApp:
             # always defaulted to on — keeping True here preserves that exactly.
             # Visual only: hiding them changes no path and no G-code.
             "show_rapids": True,
+
+            # #105 — operators who run ONE pass per operation kept ending up with
+            # two numbers for the same pass (the operation says Clearance 1.0, the
+            # pass table says 0.5). On: a single-pass roughing op has no separate
+            # pass value at all — the pass table writes the OPERATION field, and
+            # existing pins are lifted up into it. The lift is toolpath-neutral by
+            # construction (single_pass_sync's docstring proves it per field), so
+            # this never moves the machine; it only stops the two numbers existing.
+            # Off = today's behaviour exactly. Editing preference, not a path
+            # setting → listed in _VIEW_ONLY_PREF_KEYS so another operator's .ssp
+            # cannot flip it.
+            "single_pass_op_sync": False,
 
             # Clamp / counter-press zone (TODO #62). The base region of the part is
             # held between the counter-press and the mandrel and is NOT machined.

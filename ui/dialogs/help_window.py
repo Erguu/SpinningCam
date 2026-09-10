@@ -903,6 +903,32 @@ copy, move and split (split remaps them to the right chunk). NOTE: a
 pass carrying pins can't be reproduced by a single parametric
 operation, so Split/Unite of a pinned op is a summary — review it.
 
+SINGLE-PASS OPERATIONS — one number instead of two
+Some operators deliberately run ONE pass per operation, to keep full
+control of every pass. That single pass then gets described twice:
+the operation says "Clearance 1.0" and the pass table says "0.5".
+The machine runs 0.5, the operation editor keeps showing 1.0, and it
+is not obvious which number is real.
+Tick "One pass = operation settings" on the Process tab and:
+  • on a single-pass ROUGHING operation, what you type in the pass
+    table does NOT become a separate pass value — it is written
+    straight into the operation's own field (Clearance, Extend,
+    Angle, Reach, Zone Start Z);
+  • opening the pass table also moves any EXISTING pass values on
+    that operation up into it, and the footer says how many moved.
+THE TOOLPATH DOES NOT CHANGE: the value that moves is the one the
+engine was already using — only the second, disagreeing number
+disappears. The move is a single Ctrl+Z step.
+TWO EXCEPTIONS are not moved, because moving them really WOULD
+change the path. Both are named in the footer with the reason:
+  • Reach while "follow blank sheet" is on for the operation — the
+    pass value beats follow mode, the operation's Reach does not;
+  • Angle while the operation is in RAW X/Z mode (Pass Angle empty)
+    — the engine ignores an angle value there anyway.
+Hand-drawn exit tails and break points are left alone; multi-pass
+and finishing operations are not affected at all. With the box
+unticked the behaviour is exactly what it is today.
+
 
 COMPARE PASSES (Compare ⇄ — why is THAT one different?)
 ════════════════════════════════════════════════════════════════
@@ -1840,6 +1866,31 @@ yaşar: kopyala, taşı ve böl'de korunurlar (böl, pinleri doğru
 parçaya yeniden eşler). NOT: pin taşıyan bir pas tek bir parametrik
 operasyonla üretilemez → pinli op'un Böl/Birleştir'i bir özettir,
 sonucu gözden geçir.
+
+TEK PASLI OPERASYONLAR — iki sayı yerine tek sayı
+Bazı operatörler her operasyonda BİLEREK tek pas kullanır. O zaman
+aynı tek pas iki yerde tarif edilir: operasyon "Klerens 1.0" der,
+pas tablosu "0.5" der. Tezgah 0.5'i koşar, operasyon ekranı 1.0
+göstermeye devam eder — hangisinin gerçek olduğu belli değilse
+program "yine tuhaf" görünür.
+İşlem sekmesindeki "Tek pas = operasyon ayarları" kutusunu açarsan:
+  • tek paslı KABA bir operasyonda pas tablosuna yazdığın değer AYRI
+    bir pas değeri (pin) oluşturmaz — doğrudan operasyonun alanına
+    yazılır (Klerens, Uzatma, Açı, Reach, Bölge Başlangıç Z);
+  • pas tablosunu açtığında o operasyondaki MEVCUT pas değerleri de
+    operasyona taşınır ve alt satırda kaç tanesinin taşındığı yazar.
+TAKIM YOLU DEĞİŞMEZ: taşınan değer motorun zaten kullandığı
+değerdir, sadece ikinci (çelişen) sayı ortadan kalkar. Taşıma tek
+bir Ctrl+Z adımıdır.
+İKİ İSTİSNA taşınmaz, çünkü taşınsa yol GERÇEKTEN değişirdi; ikisi
+de alt satırda gerekçesiyle yazılır:
+  • operasyonda "sac kenarını takip et" açıkken Reach — pin sac
+    takibini yener, operasyonun Reach'i yenmez;
+  • operasyon HAM X/Z modundayken (Pass Angle boş) Açı — motor orada
+    açı değerini zaten yok sayıyor.
+Elle çizilen çıkış yolu ve kırılma noktalarına dokunulmaz; çok paslı
+operasyonlar ve bitirme operasyonları hiç etkilenmez. Kutu kapalıyken
+davranış bugünküyle birebir aynıdır.
 
 
 PASLARI KARŞILAŞTIR (Karşılaştır ⇄ — şu pas neden farklı?)

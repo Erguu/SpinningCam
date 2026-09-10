@@ -3,6 +3,74 @@
 
 ---
 
+## Operator confusion — 2026-09-10
+
+### 106. ⏳ IMPLEMENTED 2026-09-10 (headless + real-widget verified; GUI smoke + PHYSICAL pending) — Single-pass op: one number, not two
+
+**User finding (verbatim):** *"one of my customer use only one pass for each
+operation. To maximize its controll over passes. and some times he use pass specific
+modifications from pass table. So operation parameters and pass parameters collides
+I think. I am thinking that when we have only one pass in a operation, we can make
+pass parameters same with operation parameters. for example clearence. operation has
+1mm clearence but he write 0.5mm clearence in pass table. that two different value
+confuses him."*
+
+When an op has ONE pass, that pass gets described twice. The engine runs the pin
+(0.5), the op editor keeps showing the op field (1.0). Neither number is wrong;
+having both is.
+
+**DECIDED (user, asked 2026-09-10):** the PASS value wins and is **copied up** into
+the operation field, and the pin is deleted. Chosen over "operation wins" precisely
+because the pass value is the one the engine already used — so existing customer
+programs keep their exact toolpath. The two rejected options were "operation wins"
+(silently changes existing programs) and "warn only" (leaves both numbers alive).
+
+Opt-in: `single_pass_op_sync`, Process tab ▸ Editing, **default OFF**, and OFF is
+byte-for-byte today.
+
+| Piece | Where |
+|---|---|
+| Pure rules + the lift | `single_pass_sync.py` |
+| Dialog wiring (lift at open, edit routing, staged op fields) | `ui/dialogs/pass_table.py` — `_lift_pins`, `_sync_target`, `_stage`, `_preview_op` |
+| Setting | `main.py` `load_settings` + `_VIEW_ONLY_PREF_KEYS`; UI `ui/tabs/process_tab.py` |
+| Test | `_test_single_pass_sync.py` (69), `_test_single_pass_sync_gui.py` (28) |
+
+**THE WHOLE FEATURE RESTS ON ONE CLAIM — and it is measured, not argued:**
+`_test_single_pass_sync.py` §2 generates the toolpath before and after the lift and
+compares it point for point, per field and all five together, plus back pass and
+reverse. If a future change to the resolution chain in `path_generator` breaks the
+equivalence for any field, that section fails.
+
+**TWO PINS ARE REFUSED** because lifting them WOULD move the machine (§3 proves it
+by doing the forbidden lift and measuring the difference):
+1. `reach` while `reach_follow_blank` is on — the pin beats follow-blank,
+   `op["reach"]` does not. In the test the stroke jumps 60.7 mm → 239.6 mm.
+2. `pass_angle` while the op is in RAW exit mode (`pass_angle` empty) — the engine
+   gates the whole polar block on that field, so lifting would flip raw → polar.
+
+Both are reported in the pass-table footer with the reason, never silently skipped.
+
+**AGENT'S PICKS (not asked):**
+- ROUGHING only, because the engine reads these pins on roughing only. A pin on a
+  finishing op is dead data and lifting it WOULD change the path.
+- `target_z` maps to `start_z` (a 1-pass op takes its contact Z from Zone Start Z
+  verbatim). It is the only pin whose op twin has a different name.
+- The lift runs when the pass table is OPENED, as one undo step — not on load, and
+  not on ticking the box.
+- Residual slots 1..n on a 1-pass op are LEFT ALONE (the engine never reads them;
+  deleting operator data was not requested). The recipe-audit window already flags
+  them.
+
+**NOT DONE / could be offered:**
+- A whole-program "clean these up" action. `single_pass_sync.scan()` /
+  `merge_all()` already exist and are tested for exactly this; nothing calls them
+  from the UI yet, so a customer with 20 single-pass ops still opens 20 pass tables.
+  This is the most likely next request.
+- The Compare-passes dialog (#104) still offers "pin" as an edit destination on a
+  single-pass op, so that route can still create the second number.
+
+---
+
 ## Diagnostics — 2026-09-02
 
 ### 105. ⏳ IMPLEMENTED 2026-09-02 (headless + real-widget verified; GUI smoke pending) — Numbered copy names

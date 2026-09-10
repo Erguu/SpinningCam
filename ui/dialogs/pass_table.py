@@ -21,6 +21,7 @@ import numpy as np
 
 import exit_breaks
 import exit_waypoints
+import single_pass_sync as _sps
 from i18n import t
 from path_generator import resolve_conformal
 from logger_config import logger
@@ -425,6 +426,19 @@ class PassTableDialog(tk.Toplevel):
         self.op_index = op_index
         self.staged = {}          # {pass_i: {"pass_angle": v, "reach": v}}
         op = app.params["operations"][op_index]
+
+        # #105 — single-pass mode. When this operation has exactly ONE pass and
+        # the operator opted in, the pass IS the operation: edits are staged
+        # against the OPERATION fields (self.staged_op) instead of becoming
+        # per-pass pins, so the two-numbers-for-one-pass confusion cannot even
+        # be created. Any pins already sitting on that single pass are lifted
+        # into the operation right now — toolpath-neutral, see single_pass_sync.
+        self.staged_op = {}       # {op_key: value}  (single-pass mode only)
+        self._sync = bool(app.params.get("single_pass_op_sync", False)) and _sps.applies(op)
+        self._sync_notes = []
+        if self._sync:
+            self._lift_pins(op)
+
         self.title(t("pt_title").format(name=op.get("name") or op.get("type", "?"),
                                         n=int(op.get("count", 1))))
         dialog_sizing.fit(self, 900, 640)
@@ -438,7 +452,10 @@ class PassTableDialog(tk.Toplevel):
         bar.pack(side="bottom", fill="x", padx=6, pady=6)
 
         # Plain-language helper: how to edit one pass vs. fill many (#89).
-        tk.Label(self, text=t("pt_help"), anchor="w", justify="left", fg="#446688",
+        # In single-pass mode it says something different, because there is
+        # nothing to "fill across passes" and edits land on the operation.
+        tk.Label(self, text=t("sps_help") if self._sync else t("pt_help"),
+                 anchor="w", justify="left", fg="#446688",
                  wraplength=860).pack(fill="x", padx=8, pady=(8, 2))
 
         self._last_rows = None
@@ -536,6 +553,76 @@ class PassTableDialog(tk.Toplevel):
         self.refresh()
         self.protocol("WM_DELETE_WINDOW", self._cancel)
 
+    # ── single-pass mode (#105) ───────────────────────────────────────
+    def _lift_pins(self, op):
+        """Move this single pass's pins up into the operation. MUTATES ``op``.
+
+        Runs once, at open. Neutral for the machine: every lifted pin was
+        already the value the engine used for this pass (single_pass_sync
+        proves this field by field), so the path is byte-identical after the
+        lift — only the second, disagreeing number disappears.
+
+        Anything single_pass_sync refuses to lift is reported instead of being
+        silently left behind, because "I turned it on and Reach still shows two
+        numbers" is exactly the confusion this feature exists to remove.
+        """
+        merges, blocks = _sps.plan(op)
+        if merges:
+            # Undo snapshot BEFORE the mutation — same contract as _apply.
+            self.ptab._push_undo(t("sps_undo_label"))
+            _sps.merge_op(op)
+            self._sync_notes.append(t("sps_note_merged").format(n=len(merges)))
+            self.ptab.refresh_ops_tree()
+            # Re-seed the op editor's Tk variables. They were seeded from the
+            # PRE-lift op and would otherwise write the stale number back on the
+            # next focus-out, undoing the lift behind the operator's back
+            # (the documented param-var staleness trap). _flush=False so the
+            # stale vars are not saved on the way out.
+            try:
+                self.ptab.on_op_select(None, _flush=False)
+            except Exception as e:
+                logger.debug(f"single-pass lift: op editor refresh skipped: {e}")
+            logger.info(f"[SINGLE_PASS] op {self.op_index}: lifted "
+                        + ", ".join(f"{p}→{o}={v}" for p, o, v, _c in merges))
+        if blocks:
+            self._sync_notes.append(t("sps_note_blocked").format(
+                fields="  |  ".join(t(reason) for _k, reason in blocks)))
+
+    def _preview_op(self):
+        """The operation as the staged edits would leave it (single-pass mode).
+
+        compute_pass_rows reads the op dict, so previewing a staged OPERATION
+        edit means handing it a copy with the staging applied — the same thing
+        ``staged=`` does for pins. A shallow copy is enough: only scalar fields
+        are staged here, never pass_edits.
+        """
+        op = self._op()
+        if op is None or not self.staged_op:
+            return op
+        view = dict(op)
+        for k, v in self.staged_op.items():
+            if v is None:
+                view.pop(k, None)
+            else:
+                view[k] = v
+        return view
+
+    def _staged_pin_keys(self, i):
+        """PIN keys staged for row ``i``, whatever they are staged AGAINST.
+
+        In single-pass mode an edit is stored under the OPERATION key
+        (``start_z``), but the ✎ marker has to appear on the pass-table column
+        it was typed into (``target_z``). One translation, here, so the marker
+        never disagrees with what the operator clicked.
+        """
+        keys = set(self.staged.get(i) or self.staged.get(str(i)) or {})
+        if self._sync and i == 0:
+            keys |= {p for p, o in _sps.PIN_TO_OP.items() if o in self.staged_op}
+        return keys
+
+    def _has_staged(self):
+        return bool(self.staged or self.staged_op)
+
     # ── data ──────────────────────────────────────────────────────────
     def _op(self):
         ops = self.app.params.get("operations", [])
@@ -559,7 +646,7 @@ class PassTableDialog(tk.Toplevel):
         if op is None:
             self.destroy()
             return
-        rows = compute_pass_rows(op, self.app.params, self.app.mandrel_mgr,
+        rows = compute_pass_rows(self._preview_op(), self.app.params, self.app.mandrel_mgr,
                                  gui_overrides=getattr(self.app, "gui_pass_overrides", {}),
                                  base_fwd_idx=self._base_fwd_idx(),
                                  staged=self.staged)
@@ -580,7 +667,7 @@ class PassTableDialog(tk.Toplevel):
             # competing tags is fragile, and 'odd' must always win.
             if odd:
                 tags = ["odd"]
-            elif str(r["i"]) in {str(k) for k in self.staged}:
+            elif self._staged_pin_keys(r["i"]):
                 tags = ["staged"]
             elif r["pinned"]:
                 tags = ["pin"]
@@ -591,7 +678,7 @@ class PassTableDialog(tk.Toplevel):
             # Prefix directly ON the cell — user feedback 2026-07-08: the row
             # tint alone was not noticed. ✎ = staged edit, ◆ = the value that
             # does not fit this operation's pattern (row tint cannot say which).
-            st = self.staged.get(r["i"]) or self.staged.get(str(r["i"])) or {}
+            st = self._staged_pin_keys(r["i"])
             def _mark(key, val, field=None, _st=st, _odd=odd):
                 pre = ("✎ " if key in _st else "") + ("◆ " if field in _odd else "")
                 return f"{pre}{val}" if pre else val
@@ -604,18 +691,19 @@ class PassTableDialog(tk.Toplevel):
                 r["i"] + 1, an_txt, ex_txt, r["z"], c_txt, a_txt, r_txt,
                 r["end_z"], r["source"],
                 "  |  ".join(r["warnings"])))
-        # Footer: follow-mode flange line + staged count
-        foot = []
+        # Footer: single-pass notes + follow-mode flange line + staged count
+        foot = list(self._sync_notes)
         if op.get("reach_follow_blank"):
             vals = self.ptab._blank_reach_values(op)
             if vals:
                 foot.append(t("pt_foot_flange").format(a=vals[0], b=vals[1]))
             else:
                 foot.append(t("lbl_reach_auto_blocked"))
-        if self.staged:
-            foot.append(t("pt_foot_staged").format(n=len(self.staged)))
+        _n_staged = len(self.staged) + len(self.staged_op)
+        if _n_staged:
+            foot.append(t("pt_foot_staged").format(n=_n_staged))
         self.lbl_foot.config(text="   •   ".join(foot))
-        self.btn_apply.config(state="normal" if self.staged else "disabled")
+        self.btn_apply.config(state="normal" if self._has_staged() else "disabled")
         self._draw_preview()
 
     # ── 2D preview (#89) ───────────────────────────────────────────────
@@ -824,31 +912,59 @@ class PassTableDialog(tk.Toplevel):
         cur = self.tree.set(row, {"target_z": "anchor", "p2_z_extend": "extend",
                                   "clearance": "clr", "pass_angle": "angle",
                                   "reach": "reach"}[key])
-        cur = cur.replace("✎", "").strip()   # strip the staged marker
-        val = simpledialog.askstring(t("pt_title_short"),
-                                     t("pt_edit_prompt").format(p=i + 1, label=label),
+        cur = cur.replace("✎", "").replace("◆", "").strip()   # strip the markers
+        # #105 single-pass mode: say "Operation —" rather than "Pass 1 —", so the
+        # prompt names the field the value is actually about to land in.
+        _prompt = (t("sps_edit_prompt").format(label=label) if self._sync_target(key)
+                   else t("pt_edit_prompt").format(p=i + 1, label=label))
+        val = simpledialog.askstring(t("pt_title_short"), _prompt,
                                      initialvalue=cur if cur != "—" else "",
                                      parent=self)
         if val is None:
             return
         val = val.strip().replace(",", ".")
-        if val == "":
-            # empty = drop this staged key (and stage removal of an existing pin key)
-            st = self.staged.setdefault(i, {})
-            st[key] = None
-        else:
+        fval = None
+        if val != "":
             try:
                 fval = float(val)
             except ValueError:
                 messagebox.showerror(t("pt_title_short"), t("pt_bad_number"), parent=self)
                 return
-            self.staged.setdefault(i, {})[key] = fval
+        self._stage(i, key, fval)   # fval None = clear
+        self.refresh()
+
+    def _sync_target(self, key):
+        """The OPERATION field this edit should go to, or None to make a pin.
+
+        Only in single-pass mode, only for the pass the operation actually has,
+        and only for keys single_pass_sync is willing to equate. A key it
+        refuses (Reach under follow-blank, Angle in raw mode) keeps making a
+        pin, because for that key the pass and the operation genuinely are not
+        the same number — pretending otherwise would change the toolpath.
+        """
+        if not self._sync:
+            return None
+        op = self._op()
+        if _sps.blocked_reason(op, key):
+            return None
+        return _sps.PIN_TO_OP.get(key)
+
+    def _stage(self, i, key, value):
+        """Stage one edit — as an operation field in single-pass mode, else a pin.
+
+        ``value`` None = clear. Kept in one place so the double-click editor and
+        the Set-all button can never route differently.
+        """
+        op_key = self._sync_target(key)
+        if op_key is not None:
+            self.staged_op[op_key] = value
+            return
+        self.staged.setdefault(i, {})[key] = value
         # prune empty staging entries ({} or all-None with no existing pin)
         if all(v is None for v in self.staged[i].values()):
             pe = (self._op().get("pass_edits") or {})
             if not (pe.get(str(i)) or pe.get(i)):
                 self.staged.pop(i, None)
-        self.refresh()
 
     # ── bulk fill helpers (#89) ────────────────────────────────────────
     def _parse_num(self, s):
@@ -884,7 +1000,7 @@ class PassTableDialog(tk.Toplevel):
         if v is None:
             return
         for i in range(int(self._op().get("count", 1))):
-            self.staged.setdefault(i, {})[key] = v
+            self._stage(i, key, v)
         self.refresh()
 
     def _fill_progressive(self):
@@ -913,11 +1029,27 @@ class PassTableDialog(tk.Toplevel):
         self.refresh()
 
     def _apply(self):
-        """ONE undo snapshot; staged values → op['pass_edits']; recalc."""
+        """ONE undo snapshot; staged values → op['pass_edits'] / op fields; recalc."""
         op = self._op()
-        if op is None or not self.staged:
+        if op is None or not self._has_staged():
             return
         self.ptab._push_undo(t("pt_undo_label"))
+        # #105 — single-pass mode stages OPERATION fields. Written first and in
+        # the same undo step as the pins, so one [Apply] is still one Ctrl+Z.
+        for k, v in self.staged_op.items():
+            if v is None:
+                op.pop(k, None)
+            else:
+                op[k] = v
+        if self.staged_op:
+            self.staged_op = {}
+            # The op editor's Tk vars still hold the pre-Apply numbers and would
+            # write them back on the next focus-out — re-seed them (same trap as
+            # in _lift_pins).
+            try:
+                self.ptab.on_op_select(None, _flush=False)
+            except Exception as e:
+                logger.debug(f"single-pass apply: op editor refresh skipped: {e}")
         pe = dict(op.get("pass_edits") or {})
         for i, ed in self.staged.items():
             k = str(i)
@@ -941,10 +1073,11 @@ class PassTableDialog(tk.Toplevel):
         self.refresh()
 
     def _cancel(self):
-        if self.staged and not messagebox.askyesno(
+        if self._has_staged() and not messagebox.askyesno(
                 t("pt_title_short"), t("pt_discard_confirm"), parent=self):
             return
         self.staged = {}
+        self.staged_op = {}
         self.destroy()
 
     def _edit_exit_tail(self):
