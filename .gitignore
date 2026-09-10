@@ -28,6 +28,17 @@ _proof_*.py
 # test run and it can be regenerated in three minutes.
 TEST_STATUS.md
 
+# Golden-file regression fixtures and their snapshots (user decision,
+# 2026-09-10). The CODE is tracked — golden_snapshot.py and
+# _test_golden_programs.py — but the inputs are real customer programs and a
+# customer's part geometry, and git history is permanent. Keeping them out means
+# the regression net is local to this machine; _test_golden_programs.py SKIPS
+# cleanly with re-import instructions when the folder is absent.
+#
+# Re-create it with:
+#   python golden_snapshot.py --import-from <shop folder> --accept
+golden/
+
 # PyInstaller writes this from build_exe.py's --name/--hidden-import arguments.
 # It carries a COPY of packaging_manifest.CRITICAL_MODULES, so a committed one
 # goes stale the moment a module is added and becomes a second, wrong source of

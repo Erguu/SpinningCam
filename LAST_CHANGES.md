@@ -5,6 +5,56 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-09-10c — Golden dosyalar: gerçek saha programları regresyon ağı
+
+Diğer hiçbir test **"istemeden bir şey değişti mi"**yi sormuyordu. Artık 7
+gerçek saha programı her koşuda yeniden üretilip kayıtlı özetle karşılaştırılıyor
+(`020926.ssp`, `bundan devam geçerli olan.ssp`, `bigsheet`, `bigsheet2`,
+`kalin`, `kalin2`, `v1`). Toplam 44.596 `.nc` satırı, 213 takım yolu.
+
+| Ne | Nerede |
+|---|---|
+| Model + CLI | `golden_snapshot.py` |
+| Test | `_test_golden_programs.py` |
+| Fixture + özetler | `golden/` — **GIT'E GİRMİYOR** (kullanıcı kararı) |
+
+```
+python golden_snapshot.py --import-from <klasör> --accept
+python golden_snapshot.py            # farkı göster
+python golden_snapshot.py --accept   # farkı KABUL et (diff'i commit'le!)
+```
+
+**Özet:** tüm `.nc` + reçetenin sha256'sı (her değişikliği yakalar) ve yol
+başına satır (nokta sayısı, ilk/son nokta, sınır kutusu → hangi yolun kaydığını
+söyler). Ham koordinat saklanmaz, bu yüzden 328 KB fixture → 76 KB özet.
+
+**Fixture'lar KOPYA, referans değil.** Atölye klasöründeki dosyalar canlı —
+`bundan devam geçerli olan.ssp` bu modül yazılırken bir saat önce
+düzenlenmişti. Canlı dosyaya bakan bir temel her düzenlemede kırılır ve insan
+`--accept`'i okumadan basmayı öğrenir. Fixture'ın sha256'sı özette; dosya
+değişirse RAPOR EDİLİR.
+
+**Duyarlılık kanıtı testin içinde.** Yakalayamayan bir golden test sonsuza
+kadar "başarılı" der. Mandreli 0.37 mm kaydırıp farkın görüldüğü doğrulanıyor.
+
+### Bu iş sırasında bulunan iki gerçek şey
+
+**1. `020926.ssp`'nin 4 açık op'unun HEPSİNDE pas pini var** → op seviyesindeki
+`clearance` değişikliği takım yolunu HİÇ kıpırdatmıyor. İlk duyarlılık probu
+bunu kullanıyordu ve sahte bir başarısızlık verdi. Bu **öncelik zincirinin
+doğru çalışması** (pin > op) — bkz. `_test_reach_priority.py`. Gerçek dünyadan
+güzel bir örnek: operatör "clearance'ı değiştirdim, hiçbir şey olmadı" derse
+sebep bu olabilir.
+
+**2. `load_project` snapshot için KULLANILAMAZ.** pyvista istiyor VE makine
+ayarlarını dosyadan uygulamıyor (UI için doğru: operatörün makinesi kazanır).
+Snapshot onu kullansaydı temel, Makine sekmesinin o günkü hâline göre kayardı.
+Dosyanın kendi params'ı kullanılıyor.
+
+**96 dosya, hepsi yeşil.**
+
+---
+
 ## 2026-09-10b — "Değiştirdim, hiçbir şey olmadı" sınıfı için 4 test
 
 Kullanıcının sorusu: *"testlerimiz yeterli mi? Operatör 'bu pasın reach'i neden

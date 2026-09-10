@@ -705,6 +705,48 @@ hâlde kanıtı silmiş oluyordu.
 | **Reach öncelik zinciri** | `_test_reach_priority.py` | 32 vaka (2 mod × 2⁴ halka): pin > follow > fan > op reach > \|p3\|. Ayrıca **motorun reach'i = açıklamanın NAMED değeri** (operatörün aldığı cevap makineyle uyuşmalı) |
 | **Motor ↔ ekran** | `_test_engine_screen_agree.py` | 240 konfigürasyonda pas tablosu = motor (reach / contact_z / angle). Ayrıca YAPISAL: her `resolve_*` hem HESAPLAYAN hem GÖSTEREN dosyadan çağrılmalı; kimse ham anahtarı kendi varsayılanıyla okumamalı (F3'ün genelleştirilmiş hâli) |
 | **Konformal (F3) regresyonu** | `_test_conformal_resolve.py` | 3 op durumu × 2 genel ayar doğruluk tablosu + eğimli yüzeyde bayrağın ÖLÜ OLMADIĞI kanıtı + kaynak taraması |
+| **GERÇEK programlar (golden)** | `golden_snapshot.py` + `_test_golden_programs.py` | 7 saha .ssp'si yeniden üretilir, kayıtlı özetle karşılaştırılır. Bkz. §26 |
+
+### 26. Golden dosyalar — gerçek saha programları — 2026-09-10
+
+**Diğer HİÇBİR test "istemeden bir şey değişti mi"yi sormuyor.** Bu soruyor:
+7 gerçek program yeniden üretilir ve geçen seferki çıktıyla karşılaştırılır.
+
+| Ne | Nerede |
+|---|---|
+| Model + CLI | `golden_snapshot.py` |
+| Test | `_test_golden_programs.py` |
+| Fixture'lar + özetler | `golden/` — **GIT'TE YOK** (kullanıcı kararı; müşteri programları + parça geometrisi) |
+
+```
+python golden_snapshot.py --import-from <klasör> --accept   # kur / yeniden kur
+python golden_snapshot.py                                   # farkı göster
+python golden_snapshot.py --accept                          # farkı KABUL et
+python golden_snapshot.py --write-full _fullgen             # tam .nc'yi yaz
+```
+
+**Özet ne tutar:** tüm `.nc` ve reçetenin sha256'sı (HER değişikliği yakalar) +
+yol başına satır (nokta sayısı, ilk/son nokta, sınır kutusu → HANGİ yolun
+kaydığını söyler) + sayımlar. Ham koordinat SAKLANMAZ.
+
+**KRİTİK TASARIM NOKTALARI:**
+- **`load_project` KULLANILMAZ.** O pyvista ister ve makine ayarlarını
+  dosyadan UYGULAMAZ (UI için doğru, snapshot için ölümcül: temel Makine
+  sekmesine göre kayar). Dosyanın KENDİ params'ı kullanılır.
+- **Fixture'lar KOPYA.** Atölye klasöründeki dosyalar canlı — biri bu modül
+  yazılırken bir saat önce düzenlenmişti. Canlı dosyaya bakan snapshot her
+  düzenlemede kırılır ([[project_known_failing_tests]] `_test_tool_io` dersi).
+  Fixture'ın sha256'sı özette tutulur → dosya değişirse RAPOR EDİLİR, sessizce
+  yeni temel olmaz.
+- **STEP BASENAME ile çözülür** (dosyadaki mutlak yol başka makinenin).
+- **`step_loaded` kontrol edilir**: varsayılan koniye düşerse snapshot yine
+  KARARLI olur — ama YANLIŞ PARÇANIN. Bu olmadan her kontrol geçer ve hiçbir
+  şey ölçülmez.
+- **Duyarlılık kanıtı testin İÇİNDE**: mandreli 0.37 mm kaydır, fark görülmeli.
+  **`clearance` ile YAPMA** — `020926.ssp`'nin 4 açık op'unun HEPSİNDE pas
+  pini var, pin op değerini yener, yol HİÇ kıpırdamaz (öncelik zinciri doğru
+  çalışıyor, ama sahte bir başarısızlığa mal oldu).
+- Fixture yoksa test **SKIP** eder (exit 0), yeniden kurma komutunu yazar.
 
 > **⚠ AÇIK BULGULAR (2026-09-10, `_test_param_wiring.KNOWN_FINDINGS`):**
 > `exit_arc_angle` ve `exit_mid_trim` denenen HİÇBİR konfigürasyonda takım yolunu

@@ -49,6 +49,13 @@ Purpose: let a maintenance agent improve **stability, performance, bugs, and str
 - **Cheap invariants worth extending rather than re-inventing:**
   `_test_i18n_complete.py` (every `t()` key exists, in all three languages, placeholders match)
   and `_test_no_pass_mirrors.py` (everything that counts toolpaths counts them the same way).
+- **GOLDEN FILES — read this before touching the engine.** `_test_golden_programs.py`
+  regenerates 7 real shop programs and compares against recorded digests. It is the only
+  test that asks "did anything change that nobody meant to change". After an engine
+  change, a diff here is the FIRST thing to explain — and if the change was intended,
+  `python golden_snapshot.py --accept` and **commit the snapshot diff with the change**,
+  never on its own. The fixtures live in `golden/` and are NOT in git (real customer
+  programs); the test skips cleanly when absent and prints how to re-import them.
 - **After changing anything shipped:** `conda run -n spinning_cam python check_packaging.py`.
   The `.default.json` warning is a known false positive.
 
