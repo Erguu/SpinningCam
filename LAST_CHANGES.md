@@ -5,6 +5,12 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+> **v1.033 = aşağıdaki 2026-09-10d girdisi** (#106 tek paslı operasyon =
+> tek sayı). Operatöre görünen kısmı `changelog.py`'deki `"1.033"` girdisi.
+> Bu sürümde de takım yolu DEĞİŞMEDİ — nötrlük nokta nokta ÖLÇÜLÜYOR
+> (`_test_single_pass_sync.py` §2) ve golden dosyalar da temiz.
+> Branch `feature/single-pass-sync`; **master'a MERGE EDİLMEDİ, EXE ÜRETİLMEDİ.**
+
 > **v1.032 = aşağıdaki üç 2026-09-10 girdisi** (Rapor Gönder + F3 konformal
 > düzeltmesi + test altyapısı). Operatöre görünen kısmı `changelog.py`'deki
 > `"1.032"` girdisi; test işi bilerek DIŞARIDA (operatör için görünmez).

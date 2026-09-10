@@ -17,6 +17,39 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.033": [
+        ("One pass, one number",
+         "If an operation has only one pass, that pass IS the operation — so "
+         "there is no longer a separate pass value to disagree with it. What "
+         "you type in the pass table goes straight into the operation's own "
+         "fields: Clearance, Extend, Angle, Reach and Zone Start Z. This fixes "
+         "the case where an operation said Clearance 1.0 while the pass table "
+         "said 0.5, the machine ran 0.5, and there was no way to tell which "
+         "number was real.",
+         "Program List ▸ right-click an operation ▸ Passes ▦"),
+        ("Values already sitting on a single pass are moved up for you",
+         "Opening the pass table on such an operation moves them into the "
+         "operation and tells you how many moved. THE TOOLPATH DOES NOT "
+         "CHANGE: the value that moves is the one the machine was already "
+         "using, so your existing programs run exactly as before — only the "
+         "second, disagreeing number disappears. Ctrl+Z puts it back.",
+         "Program List ▸ right-click an operation ▸ Passes ▦"),
+        ("You can switch this off per operation",
+         "There is a \"1 pass = op values\" tickbox under Pass Count, on "
+         "every roughing operation set to 1 pass. It is on to start with. "
+         "Untick it on an operation where you really do want to keep a "
+         "separate value for the pass — the other operations are not "
+         "affected.",
+         "Program List ▸ select a 1-pass operation ▸ 1 pass = op values"),
+        ("Two values are deliberately left on the pass",
+         "Moving them really would change the cut, so they stay put and the "
+         "line under the table says why. Reach stays when \"follow blank "
+         "sheet\" is on for that operation, because the pass value beats "
+         "follow mode and the operation's Reach does not. Angle stays when "
+         "the operation is in raw X/Z mode with Pass Angle empty, where an "
+         "angle value does nothing anyway.",
+         "Program List ▸ right-click an operation ▸ Passes ▦"),
+    ],
     "1.032": [
         ("Send a problem to the developers in one step",
          "When something looks wrong, this collects everything needed to "
