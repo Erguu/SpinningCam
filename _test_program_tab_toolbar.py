@@ -106,18 +106,36 @@ assert app.params["operations"][0]["enabled"] == was_enabled, "redo did not re-a
 assert len(app.params["operations"]) == n_before, "undo/redo changed op count"
 print("Undo/Redo buttons + revert/reapply OK")
 
-# --- #67 Batch button: disabled at <2 targets, enabled via ticks or selection ---
-assert str(tab.btn_batch["state"]) == "disabled", "batch should start disabled"
-tab.tree_ops.selection_set(("0", "1"))           # extended selection of 2 ops
-tab._update_batch_button()
-assert str(tab.btn_batch["state"]) == "normal", "batch should enable at 2 selected"
-assert "(2)" in tab.btn_batch["text"], "batch label should show target count"
+# --- #67 Batch targeting: <2 targets is not offered; ticks beat selection ---
+#
+# Asserted on _batch_targets(), the rule itself, instead of on a toolbar button.
+# `btn_batch` moved into the right-click menu in the 2026-07-10 toolbar cleanup
+# and this test was never updated, so it died HERE — taking with it every check
+# below (batch apply, copy, library insert, pass table, unpin, factory reset:
+# about ten assertions that simply stopped running). That is the real cost of
+# leaving a test on the known-broken list: not one lost check, but everything
+# downstream of it. Diagnosed and fixed 2026-09-10.
+#
+# `_update_batch_button` still exists and no-ops when the button is absent
+# (program_tab.py:1909), so calling it here proves it stays harmless.
+assert len(tab._batch_targets()) < 2, "batch should start with nothing to act on"
+tab._update_batch_button()                        # must not raise without the button
+
+tab.tree_ops.selection_set(("0", "1"))            # extended selection of 2 ops
+assert len(tab._batch_targets()) == 2, "batch should target 2 selected ops"
 tab.tree_ops.selection_set("0")                   # back to single
-tab._update_batch_button()
-assert str(tab.btn_batch["state"]) == "disabled", "batch should disable at 1 selected"
+assert len(tab._batch_targets()) == 1, "batch should fall back to 1 target"
 tab._batch_checked.update({0, 1, 2})              # ☑ ticks override selection
-tab._update_batch_button()
-assert "(3)" in tab.btn_batch["text"], "ticked targets should win over selection"
+assert tab._batch_targets() == [0, 1, 2], \
+    f"ticked targets should win over selection, got {tab._batch_targets()}"
+
+# The gate the operator actually meets now: the right-click entry is greyed out
+# below 2 targets. Same predicate as program_tab.py:2047.
+assert (len(tab._batch_targets()) >= 2), "ticks should have enabled the batch entry"
+tab._batch_checked.clear()
+tab.tree_ops.selection_set("0")
+assert not (len(tab._batch_targets()) >= 2), "single target must not enable batch"
+tab._batch_checked.update({0, 1, 2})              # restore for the apply below
 changes, skipped = tab._batch_compute(app.params["operations"], tab._batch_targets(),
                                       "count", "add", 1.0,
                                       {ot: tab._universe_for(ot)

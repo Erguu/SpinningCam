@@ -52,10 +52,29 @@ check(abs(a - 170.0) < 0.01 and abs(r - 40.0) < 0.01,
 op = dict(BASE, reach_follow_blank=True, pass_edits={"2": {"reach": 12.5}})
 r, a = run(op)
 check(abs(r - 12.5) < 0.01, f"pin beats follow ({r})")
+# A pin on a DIFFERENT pass must not knock the last pass off follow-blank.
+#
+# The oracle here is the same operation with NO pins at all, not a number
+# recomputed from process_planner. It used to call estimate_flange_reach
+# directly, which stopped being the engine's answer when follow-blank moved from
+# a flat radial overhang to the slanted stroke length (path_generator.py:1347).
+# The test then failed at HEAD for weeks describing a pin bug that did not exist,
+# while the real subject of this file — pin > follow > fan — was fine.
+#
+# The follow-blank ARITHMETIC belongs to _test_reach_follow.py. What this file
+# owns is the priority chain, and "unpinned passes are unaffected by a pin
+# elsewhere" states exactly that without duplicating a formula that is allowed
+# to change.
+follow_only, _ = run(dict(BASE, reach_follow_blank=True))
 op2 = dict(BASE, reach_follow_blank=True, pass_edits={"1": {"reach": 12.5}})
 r2, _ = run(op2)
-want_follow = estimate_flange_reach(mgr, blank_r, min_z + 30)
-check(abs(r2 - want_follow) < 0.05, f"unpinned pass still follows ({r2:.2f})")
+check(abs(r2 - follow_only) < 1e-9,
+      f"unpinned pass still follows, pin elsewhere ignored "
+      f"({r2:.2f} == {follow_only:.2f})")
+check(abs(follow_only - BASE["reach"]) > 0.05,
+      f"follow-blank really did move the reach off the fan value "
+      f"({follow_only:.2f} vs {BASE['reach']}) — otherwise the check above "
+      f"would pass even if follow-blank did nothing")
 
 # 4. Junk/int-key tolerance: int keys work, junk values fall through safely.
 op = dict(BASE, pass_edits={2: {"reach": 20.0}, "1": {"reach": "abc"}})

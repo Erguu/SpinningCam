@@ -75,13 +75,32 @@ tab = ProgramTab(ttk.Frame(root), app, MagicMock(), MagicMock())
 root.update_idletasks()
 
 assert "RealEndZ" in tab.tree_ops["columns"], "RealEndZ column missing"
-assert str(tab.tree_ops.item("0")["values"][5]) == "16",   tab.tree_ops.item("0")["values"]
-assert str(tab.tree_ops.item("1")["values"][5]) == "18.5", tab.tree_ops.item("1")["values"]
+
+
+def cell(row, col_id="RealEndZ"):
+    """Value of one named cell.
+
+    Looked up by COLUMN NAME, not by position. This test used to hardcode
+    `values[5]`, and it had been failing at HEAD since a column was inserted to
+    its left — the #91 column-order work added the pinned selection column. The
+    engine half of the test (above) was passing the whole time, so the failure
+    said nothing about Real End Z and everybody stopped reading it.
+
+    Positional indexing into a tree whose columns are user-configurable is a
+    trap: the columns are built from `_display_order()` and a program's saved
+    `op_view_col_order`, so the position is not fixed even at runtime.
+    """
+    cols = list(tab.tree_ops["columns"])
+    return str(tab.tree_ops.item(row)["values"][cols.index(col_id)])
+
+
+assert cell("0") == "16",   tab.tree_ops.item("0")["values"]
+assert cell("1") == "18.5", tab.tree_ops.item("1")["values"]
 print("Real End Z column cells OK")
 
 app.path_gen.last_op_end_z = {}
 tab.refresh_ops_tree()
-assert str(tab.tree_ops.item("0")["values"][5]) == "—", "empty Real End Z should be dash"
+assert cell("0") == "—", "empty Real End Z should be dash"
 print("Empty Real End Z shows dash OK")
 
 root.destroy()

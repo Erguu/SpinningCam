@@ -97,6 +97,42 @@ def resolve_speed_mode(op):
     return mode
 
 
+CONFORMAL_OP_KEY     = "conformal_clearance_operation_specific"
+CONFORMAL_GLOBAL_KEY = "conformal_clearance_all_operations"
+
+
+def conformal_is_inherited(op):
+    """True when this op carries NO explicit conformal choice, so it follows the
+    global "Conformal Path - Rough" setting.
+
+    Needed by the editor to tell "off" apart from "not set": those two look
+    identical in a checkbox but resolve differently the moment the global is on.
+    """
+    return (op or {}).get(CONFORMAL_OP_KEY) is None
+
+
+def resolve_conformal(op, params):
+    """Whether this op places P2 along the mandrel NORMAL - THE SINGLE SOURCE OF TRUTH.
+
+    An op that has never been touched inherits the global
+    ``conformal_clearance_all_operations``; an op with an explicit value keeps it.
+    Every consumer must call this instead of ``op.get(KEY, False)``.
+
+    The bare-``False`` default is the trap this replaces (2026-09-10): the engine
+    and the pass-table mirror both fell back to the global while the editor
+    checkbox and the two pass diagrams fell back to ``False``. With the global ON,
+    an untouched op therefore RAN conformal while its checkbox showed empty and
+    its diagram drew the non-conformal shape - the picture disagreed with the
+    machine. Worse, ticking that checkbox on and off wrote an explicit ``False``,
+    which defeats the fallback and silently moves the pass from normal-projected
+    to pure radial placement on every sloped surface.
+    """
+    v = (op or {}).get(CONFORMAL_OP_KEY)
+    if v is None:
+        return bool((params or {}).get(CONFORMAL_GLOBAL_KEY, False))
+    return bool(v)
+
+
 def op_builds_back_pass(op):
     """True when each of this op's forward passes is followed by a back pass.
 
@@ -1464,7 +1500,7 @@ class PathGenerator:
 
                 total_off = r_tool + blank_thick + eff_clearance
                 # Per-op conformal flag: normal-projected P2 placement. Falls back to global conformal_clearance_all_operations.
-                conformal = op.get("conformal_clearance_operation_specific", params.get("conformal_clearance_all_operations", False))
+                conformal = resolve_conformal(op, params)
                 if conformal:
                     p2_x = center_x + r_contact + nx * total_off
                     p2_z = contact_z + nz * total_off

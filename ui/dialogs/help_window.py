@@ -495,6 +495,33 @@ in the pass table, has no reach or angle to fit, and cannot be
 split or united. In the 3D view it is a grey TRIANGLE at the
 position it drives to.
 
+CONFORMAL CLR — AND WHERE ITS VALUE COMES FROM
+════════════════════════════════════════════════════════════════
+"Conformal Clr" places the contact point P2 along the mandrel
+SURFACE NORMAL instead of straight out radially, which is what
+keeps the roller-to-sheet gap correct on a sloped wall. Finishing
+always works this way; for roughing it is a choice.
+
+The choice has THREE states, not two:
+
+  ticked        this operation runs conformal.
+  unticked      this operation runs pure radial.
+  (from global  the operation has no setting of its own and
+   setting)     follows the Process tab's "Conformal Path – Rough"
+                checkbox. The box shows what will actually run,
+                and the grey note beside it tells you the value
+                was inherited.
+
+Change the box once and the operation stops inheriting: from then
+on it keeps its own value and the global no longer moves it. That
+is deliberate — but it does mean that ticking a box on and then
+off again is NOT a no-op if the global is on. It leaves the
+operation explicitly OFF where it used to follow the global, and
+the pass moves from normal-projected to radial placement.
+
+If a pass looks like it changed standoff for no reason on a
+sloped surface, this is the first thing to check.
+
 WHAT A POINT IS MEASURED FROM
 ════════════════════════════════════════════════════════════════
 A PASS does not work like a fixed position. You give a pass its
@@ -1479,6 +1506,33 @@ bir alanın içinde saklanmak yerine operasyon listesinde görünür.
 Nokta takım yolu üretmez ve paso sayılmaz: pas tablosunda çıkmaz,
 uydurulacak bir erişim/açısı yoktur, bölünemez ve birleştirilemez.
 3B görünümde gittiği konumda GRİ bir ÜÇGEN olarak görünür.
+
+KONFORMAL KLR — VE DEĞERİ NEREDEN GELİR
+════════════════════════════════════════════════════════════════
+"Konformal Klr", temas noktası P2'yi saf radyal yerine mandrel
+YÜZEY NORMALİ boyunca yerleştirir; eğimli duvarda rulo-sac
+boşluğunu doğru tutan budur. Bitirme her zaman böyle çalışır;
+kabada ise bir seçimdir.
+
+Bu seçimin İKİ değil ÜÇ durumu vardır:
+
+  işaretli        bu operasyon konformal çalışır.
+  işaretsiz       bu operasyon saf radyal çalışır.
+  (genel ayardan) operasyonun kendi ayarı yoktur; İşlem
+                  sekmesindeki "Konformal Yol – Kaba" kutusunu
+                  izler. Kutu GERÇEKTE ne çalışacağını gösterir,
+                  yanındaki gri not da değerin devralındığını
+                  söyler.
+
+Kutuyu bir kez değiştirdiğinizde operasyon devralmayı bırakır:
+o andan sonra kendi değerini korur ve genel ayar onu artık
+oynatmaz. Bu bilinçlidir — ama şu anlama da gelir: genel ayar
+AÇIKKEN kutuyu açıp tekrar kapatmak ETKİSİZ DEĞİLDİR. Operasyonu,
+eskiden genel ayarı izlediği yerde açıkça KAPALI bırakır ve pas
+normal-izdüşümlü yerleşimden radyal yerleşime geçer.
+
+Eğimli bir yüzeyde bir pasın standoff'u sebepsiz değişmiş
+görünüyorsa, ilk bakılacak yer burasıdır.
 
 NOKTA NEYE GÖRE ÖLÇÜLÜR
 ════════════════════════════════════════════════════════════════
@@ -3573,6 +3627,45 @@ PDF raporu        Operasyon listesi, paso özeti ve takım yollarının
 
     "trouble": {
         "EN": """\
+SENDING A REPORT TO THE DEVELOPERS
+════════════════════════════════════════════════════════════════
+Help ▸ Send Report to Devs… collects everything needed to
+reproduce your problem into a single .zip file.
+
+Nothing is sent automatically. You tick what to include, save the
+file, and then send it however you normally contact us. It works
+with no internet connection.
+
+What is offered, and what each one is for:
+
+  The program on screen   the operation list exactly as it is
+                          now, INCLUDING edits you have not
+                          saved yet. This is the important one.
+  Log files               this session and the one before it
+  Settings                app state; contains your folder paths
+  Machine profile         your machine settings AND the factory
+                          ones, so we can see what was changed
+  Tool library            roller sizes and calibration
+  Generated G-code        what would go to the machine
+  Mandrel model (STEP)    off by default — tick it only if the
+                          problem is about the shape
+  Roller models           off by default — tick it only for
+                          roller reach problems
+
+Every row shows its size and has a Preview button, so you can
+read any file before you send it. A typical report is about
+25 KB. Your license file is never included.
+
+WRITE THE DESCRIPTION BOX. One or two sentences — what you
+expected and what the machine did instead. Every file in the
+bundle can be read by us, but only you can say which pass looked
+wrong. A report with no description usually costs a full extra
+day of questions.
+
+Best moment to send one: right after the problem happens, before
+you close the program.
+
+
 ONE PASS BEHAVES DIFFERENTLY AND I CAN'T FIND WHY
 ════════════════════════════════════════════════════════════════
 A pass gets its numbers from a priority chain, and only the FIRST
@@ -3722,6 +3815,45 @@ and this warning does not appear. The popup is shown once per
 recipe; the same details are always written to the log.
 """,
         "TR": """\
+GELİŞTİRİCİLERE RAPOR GÖNDERME
+════════════════════════════════════════════════════════════════
+Yardım ▸ Geliştiricilere Rapor Gönder… sorununuzu yeniden
+oluşturmak için gereken her şeyi tek bir .zip dosyasında toplar.
+
+Hiçbir şey kendiliğinden gönderilmez. Neyin ekleneceğini siz
+işaretlersiniz, dosyayı kaydedersiniz ve bize her zamanki yolla
+gönderirsiniz. İnternet bağlantısı olmadan da çalışır.
+
+Neler sunulur ve her biri ne işe yarar:
+
+  Ekrandaki program    operasyon listesi şu anki hâliyle,
+                       HENÜZ KAYDETMEDİĞİNİZ düzenlemeler
+                       dâhil. Önemli olan budur.
+  Günlük dosyaları     bu oturum ve bir öncekisi
+  Ayarlar              uygulama durumu; klasör yollarınızı içerir
+  Makine profili       sizin makine ayarlarınız VE fabrika
+                       ayarları — neyin değiştiğini görebilelim
+  Takım kütüphanesi    rulo ölçüleri ve kalibrasyon
+  Üretilen G-kodu      makineye gidecek olan
+  Mandrel modeli       varsayılan KAPALI — yalnızca sorun şekille
+  (STEP)               ilgiliyse işaretleyin
+  Rulo modelleri       varsayılan KAPALI — yalnızca rulo erişim
+                       sorunları için işaretleyin
+
+Her satır boyutunu gösterir ve bir Önizle düğmesi vardır; yani
+göndermeden önce her dosyayı okuyabilirsiniz. Tipik bir rapor
+yaklaşık 25 KB'dir. Lisans dosyanız asla eklenmez.
+
+AÇIKLAMA KUTUSUNU DOLDURUN. Bir iki cümle — ne bekliyordunuz ve
+makine bunun yerine ne yaptı. Paketteki her dosyayı biz
+okuyabiliriz ama hangi pasın yanlış göründüğünü yalnızca siz
+söyleyebilirsiniz. Açıklamasız bir rapor genellikle bir tam gün
+fazladan soru-cevaba mal olur.
+
+Göndermek için en iyi an: sorun olur olmaz, programı
+kapatmadan önce.
+
+
 BİR PAS FARKLI DAVRANIYOR AMA NEDENİNİ BULAMIYORUM
 ════════════════════════════════════════════════════════════════
 Bir pasın sayıları bir ÖNCELİK ZİNCİRİNDEN gelir ve bu zincirin

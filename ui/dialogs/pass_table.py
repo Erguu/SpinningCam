@@ -22,6 +22,7 @@ import numpy as np
 import exit_breaks
 import exit_waypoints
 from i18n import t
+from path_generator import resolve_conformal
 from logger_config import logger
 from ui import preview_orient
 from ui import dialog_sizing
@@ -98,8 +99,7 @@ def compute_pass_rows(op, params, mgr, gui_overrides=None, base_fwd_idx=0,
         else:
             op_clearance = _f(params.get("target_clearance"), 0.0) or 0.0
     op_clearance = float(op_clearance)
-    conformal = op.get("conformal_clearance_operation_specific",
-                       params.get("conformal_clearance_all_operations", False))
+    conformal = resolve_conformal(op, params)
 
     shape = op.get("pass_shape", "spline")
     if shape in ("linear_approach", "linear_full"):

@@ -278,6 +278,12 @@ class SpinningCamWindow(tk.Tk):
         help_menu.add_separator()
         help_menu.add_command(label=t("menu_user_guide"), command=_open_user_guide)
         help_menu.add_separator()
+        # Under Help rather than Tools: this is what an operator reaches for when
+        # they have already given up on solving it themselves, and Help is where
+        # they look at that point (same reasoning as the recipe check above).
+        help_menu.add_command(label=t("menu_send_report"),
+                              command=self.open_send_report)
+        help_menu.add_separator()
         help_menu.add_command(label=t("menu_about"), command=lambda: messagebox.showinfo(
             t("menu_about"), t("about_text").format(v=APP_VERSION)))
 
@@ -1327,6 +1333,23 @@ class SpinningCamWindow(tk.Tk):
         """Read-only list of values that did not come from the operation panel."""
         from ui.dialogs.recipe_audit import RecipeAuditDialog
         RecipeAuditDialog(self, self.app, getattr(self, "ui_program", None))
+
+    def open_send_report(self):
+        """Build a troubleshooting .zip for the developers.
+
+        The tabs are synced first for the same reason Save Project does it: an
+        operator reporting a problem is very likely looking at a number they
+        just typed and have not tabbed out of yet, and that number is usually
+        the one the report is about.
+        """
+        if hasattr(self, 'ui_machine'):
+            self.ui_machine.sync_params()
+        if hasattr(self, 'ui_process'):
+            self.ui_process.sync_params()
+        if hasattr(self, 'ui_program'):
+            self.ui_program._flush_entries()
+        from ui.dialogs.send_report import SendReportDialog
+        SendReportDialog(self, self.app)
 
     def open_scl_inspector(self):
         """Read-only view of what PLC decimation does to the calculated paths."""

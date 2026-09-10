@@ -54,6 +54,23 @@ def start_lines(txt):
     return [l for l in txt.splitlines() if "(Program Start Z)" in l or "(Program Start X)" in l]
 
 
+def stable_lines(txt):
+    """Lines of `txt` with the wall-clock header dropped.
+
+    generate_gcode stamps `(Generated: <time>)` into the header
+    (path_generator.py:3592). The section-2 diff below compares two SEPARATE
+    generations, so whenever the two landed in different seconds the timestamp
+    became a third differing line and the run failed — roughly one run in two,
+    for reasons having nothing to do with what is being tested. Diagnosed
+    2026-08-30, fixed 2026-09-10.
+
+    Dropped rather than frozen: pinning the clock would need generate_gcode to
+    take an injectable time just to satisfy a test, and the timestamp is not
+    part of any claim made here.
+    """
+    return [l for l in txt.splitlines() if not l.strip().startswith("(Generated:")]
+
+
 # ── 1. .nc output keeps the staged home, unchanged ────────────────────────
 p_off = make_params(plc=False)
 nc = gen(p_off, for_recipe=False)
@@ -66,7 +83,7 @@ check("G0 Z0.000 (Program Start Z)" in nc and "G0 X0.000 (Program Start X)" in n
 # ── 2. Recipe output drops exactly those two lines, nothing else ──────────
 rec = gen(p_off, for_recipe=True)
 check(start_lines(rec) == [], "recipe output emits neither Program Start line")
-removed = [l for l in nc.splitlines() if l not in rec.splitlines()]
+removed = [l for l in stable_lines(nc) if l not in stable_lines(rec)]
 # Count MOTION lines, not raw text: the recipe path also adds comment-only
 # markers the .nc does not carry (the "(--- OP n START: ... ---)" line the pass
 # markers are built on, 2026-09-06). Comments are skipped by the recipe parser,
@@ -130,6 +147,31 @@ check(abs(first_rapid_nc.x - first_rapid_rec.x) < 1e-9
       and abs(first_rapid_nc.z - first_rapid_rec.z) < 1e-9,
       f"first real positioning move is unchanged "
       f"(X{first_rapid_rec.x:.3f} Z{first_rapid_rec.z:.3f})")
+
+# ── 6. The section-2 diff survives a clock tick (regression guard) ────────
+# Section 2 compares two SEPARATE generations. Before 2026-09-10 it also
+# compared their `(Generated: <time>)` header lines, so it failed whenever the
+# two landed in different seconds — about one run in two, with an error message
+# pointing at Program Start, which is not what had gone wrong.
+#
+# Forcing the gap makes the old failure deterministic instead of occasional: run
+# this section against the unfiltered diff and it fails EVERY time. That is what
+# makes it a guard rather than another coin toss.
+import time as _time
+
+_nc2 = gen(p_off, for_recipe=False)
+_time.sleep(1.1)
+_rec2 = gen(p_off, for_recipe=True)
+
+_raw_diff = [l for l in _nc2.splitlines() if l not in _rec2.splitlines()]
+check(any(l.strip().startswith("(Generated:") for l in _raw_diff),
+      "the clock really did tick between the two generations "
+      "(otherwise this guard proves nothing)")
+
+_clean_diff = [l for l in stable_lines(_nc2) if l not in stable_lines(_rec2)]
+check(all("Program Start" in l for l in _clean_diff),
+      f"across a clock tick, the ONLY lines dropped are the two home moves "
+      f"(dropped: {_clean_diff})")
 
 print()
 print("FAILURES:" if fails else "ALL PASS", fails if fails else "")

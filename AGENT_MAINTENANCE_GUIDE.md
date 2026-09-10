@@ -27,17 +27,30 @@ Purpose: let a maintenance agent improve **stability, performance, bugs, and str
 - **Conda env `spinning_cam`** has the heavy deps (pythonocc/OCC, pyvista/VTK, cryptography,
   fpdf). **System Python fails imports.** Conda path (this machine):
   `C:\Users\PC\anaconda3\Scripts\conda.exe`.
-- **Run headless tests via:** `conda run -n spinning_cam python _test_xxx.py`.
+- **Run the WHOLE suite:** `conda run -n spinning_cam python run_tests.py` (or `run_tests.bat`).
+  ~90 files, ~3 minutes, one exit code. `-k <word>` narrows it; `--list` shows what would run.
+  Writes `TEST_STATUS.md` (generated — never hand-edit it).
+- **One file:** `conda run -n spinning_cam python _test_xxx.py`.
 - ⚠️ **Never call the env's `python.exe` directly** (un-activated) → MKL BLAS delay-load crash
   `0xc06d007f` masquerading as a numpy crash. Always `conda run -n spinning_cam ...`.
+  `run_tests.py` has a `preflight()` that proves `np.linalg.inv` and `np.polyfit` work and
+  refuses to run anything if they do not — one clear message instead of ninety false failures.
+- **`KNOWN_BROKEN` in `run_tests.py` is EMPTY and should stay that way.** All five entries were
+  cleared on 2026-09-10 and none was a product bug — every one was a stale test. Before adding
+  an entry, try to fix the test. A red suite stops being read, and everything BELOW the first
+  failing assertion in a file silently stops running (`_test_program_tab_toolbar.py` was hiding
+  ten later checks that way for two months).
 - **Pure-syntax checks don't need the env:** `python -c "import ast,io; ast.parse(io.open('f.py',encoding='utf-8').read())"`
   (system Python is fine for `ast.parse`; files are UTF-8 with non-ASCII — pass `encoding='utf-8'`).
-- **The GUI cannot be tested by the agent** (no display; VTK interactive widgets don't work
-  headless). Anything GUI-only must be handed to the user for a smoke test. Flag it clearly.
-- **Existing headless tests** (run them as regressions after engine changes):
-  `_test_reach.py`, `_test_reach_foldback.py`, `_test_progressive_reach.py`, `_test_real_end_z.py`,
-  `_test_flange_reach.py`, `_test_surface_angle.py`, `_test_reach_follow.py`, `_test_deformed_blank.py`,
-  `_test_clamp_zone.py`, `_test_split.py`, `_test_continue.py`, `_test_planner*.py`, `test_headless.py`.
+- **The 3D GUI cannot be tested by the agent** (no display; VTK interactive widgets don't work
+  headless). Anything VTK-only must be handed to the user for a smoke test. Flag it clearly.
+  **Plain Tk widgets DO work headless** — `tk.Tk()` + `root.withdraw()` builds real widgets, and
+  the `_test_*_gui.py` files rely on it.
+- **Cheap invariants worth extending rather than re-inventing:**
+  `_test_i18n_complete.py` (every `t()` key exists, in all three languages, placeholders match)
+  and `_test_no_pass_mirrors.py` (everything that counts toolpaths counts them the same way).
+- **After changing anything shipped:** `conda run -n spinning_cam python check_packaging.py`.
+  The `.default.json` warning is a known false positive.
 
 ---
 

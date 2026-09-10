@@ -660,6 +660,52 @@ sayıyı boğar. Uzun hâli yalnız alttaki açıklama çubuğunda.
 > koşuyordu. 2026-07-28'de düzeltildi (`_test_pass_table.py` #2 artık geçiyor).
 > Motorun çözüm zincirine dokunan HER değişikliği aynaya da taşı.
 
+### 24. Geliştiricilere Rapor Gönder (sorun paketi) — 2026-09-10
+
+Yardım ▸ Geliştiricilere Rapor Gönder… → tek `.zip`. **Gönderme YOK** —
+operatör kaydeder, kendi yoluyla iletir (kullanıcı kararı; fabrika güvenlik
+duvarının arkasında çalışan tek yol).
+
+| Ne | Dosya | Fonksiyon/Anahtar |
+|----|-------|-------------------|
+| Toplayıcılar (saf, GUI'siz) | `report_bundle.py` | `collect_items()`; tek tek `collect_program/log/settings/machine/tools/gcode/step/tool_geometry` |
+| Sıra + varsayılan kutucuklar | `report_bundle.py` | `ITEM_ORDER`, `DEFAULT_ON` (STEP ve tool_geometry KAPALI) |
+| Özet dosyası | `report_bundle.py` | `summary_text()` → `report.txt`; not EN ÜSTTE |
+| Zip yazma (atomik) | `report_bundle.py` | `write_bundle()` — `.part` + rename |
+| Pencere | `ui/dialogs/send_report.py` | `SendReportDialog`; `_preview()`, `_save()` |
+| Menü kancası | `ui/main_window.py` | `open_send_report()` (sekmeleri ÖNCE sync'ler) |
+| Test | `_test_report_bundle.py` (16), `_test_report_bundle_gui.py` (8) | — |
+
+**KURALLAR:**
+- **Hiçbir toplayıcı hata FIRLATMAZ.** Özellik zaten bir şey bozukken
+  kullanılıyor; eksik dosya = tek satır griye düşer, paket yine kurulur.
+- **Lisans dosyası ASLA girmez.** Kimlik için `machine_fingerprint()`.
+  Ayrı test bunu kilitliyor — klasöre `.lic`/`.pem` konup zip'te aranıyor.
+- **Program bellekten kaydedilir** (`app.save_project` geçici dosyaya) →
+  kaydedilmemiş düzenlemeler DÂHİL, ve "Programı Kaydet" ile bire bir aynı.
+- Yeni öğe eklersen `rep_item_<key>` + `rep_hint_<key>` i18n anahtarlarını
+  üç dilde de ekle — `_test_report_bundle.py` bunu kontrol ediyor.
+
+`logger_config.py` artık `spinning_cam.log` → `spinning_cam.prev.log` taşıyor.
+Rapor ikisini birden alır: hatayı alıp programı yeniden açan operatör aksi
+hâlde kanıtı silmiş oluyordu.
+
+### 25. Test altyapısı — 2026-09-10
+
+| Ne | Dosya | Not |
+|----|-------|-----|
+| Koşucu | `run_tests.py` / `run_tests.bat` | 91 dosya ~141 sn; `-k`, `--list`, `--timeout` |
+| Önuçuş | `run_tests.py` | `preflight()` — `np.linalg.inv` + `np.polyfit`. Çalışmazsa HİÇ test koşmaz (aktive edilmemiş env = exit 127, traceback yok) |
+| Bilinen kırıklar | `run_tests.py` | `KNOWN_BROKEN` — **BOŞ.** Eklemeden önce testi DÜZELTMEYİ dene |
+| Durum raporu | `TEST_STATUS.md` | ÜRETİLİR, elle düzenleme |
+| i18n bütünlüğü | `_test_i18n_complete.py` | anahtar var mı / üç dil dolu mu / `{placeholder}` tutuyor mu. BAZI dillerde boş = hata, HEPSİNDE boş = karar |
+| Ayna senkronu | `_test_no_pass_mirrors.py` | `cutting`/`bending`/`point` dört yerde tekrar yazılı; motorun GERÇEK yol sayısı ile `path_categories` karşılaştırılır |
+| Paketleme sapması | `_test_packaging_static.py` | `check_packaging.check_static()` + seed↔STEP + tembel import edilen modüller `CRITICAL_MODULES`'te mi. `.default.json` uyarısı bilinen yanlış pozitif |
+
+**Ders (5 test, 2026-09-10):** "bilinen kırık" listesindeki hiçbiri ürün hatası
+değildi ama `_test_program_tab_toolbar.py` ilk hatada ölüyor ve **altındaki 10
+kontrol hiç koşmuyordu.** Kırmızı bir takım okunmaz hâle gelir.
+
 ### 15. PLC mod decimation
 | Ne | Dosya | Satır/Fonksiyon |
 |----|-------|-----------------|

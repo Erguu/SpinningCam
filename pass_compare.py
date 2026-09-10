@@ -302,8 +302,13 @@ def _implied_default(key, kind, op, params):
         except Exception:
             return "RPM"
     if key == "conformal_clearance_operation_specific":
-        # Falls back to the GLOBAL setting, not to False.
-        return bool((params or {}).get("conformal_clearance_all_operations", False))
+        # Falls back to the GLOBAL setting, not to False. Same helper the engine
+        # uses, so the comparison cannot drift from what runs.
+        try:
+            from path_generator import resolve_conformal
+            return resolve_conformal({}, params)
+        except Exception:
+            return bool((params or {}).get("conformal_clearance_all_operations", False))
     if key in _IMPLIED_DEFAULTS:
         return _IMPLIED_DEFAULTS[key]
     if kind == "bool":

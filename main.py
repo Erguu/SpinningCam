@@ -12,7 +12,8 @@ import queue
 import copy
 from mandrel_analyzer import MandrelManager
 from path_generator import (PathGenerator, effective_clamp_length,
-                            op_builds_back_pass, op_toolpath_entries)
+                            op_builds_back_pass, op_toolpath_entries,
+                            resolve_conformal)
 import pass_colors
 from simulation_controller import SimulationController
 from tool_step_loader import ToolStepLoader
@@ -494,7 +495,6 @@ class SpinningApp:
             side = 1.0 if self.params.get("roller_positive_x_side", True) else -1.0
             m_min_z = float(self.mandrel_mgr.props.get("min_z"))
             m_top_z = float(self.mandrel_mgr.props.get("top_z", m_min_z))
-            global_conformal = self.params.get("conformal_clearance_all_operations", False)
 
             findings = []
             for op in self.params.get("operations", []):
@@ -512,8 +512,8 @@ class SpinningApp:
                 angles, deltas = table
                 r_tool = float(op.get("r_tool", tl.get("r_tool") or tl.get("radius") or 25.0))
                 clr = float(op.get("clearance", 0.0))
-                is_normal_model = (op_type == "finishing") or op.get(
-                    "conformal_clearance_operation_specific", global_conformal)
+                is_normal_model = (op_type == "finishing") or resolve_conformal(
+                    op, self.params)
 
                 z0 = min(float(op.get("start_z", m_min_z)), float(op.get("end_z", m_top_z)))
                 z1 = max(float(op.get("start_z", m_min_z)), float(op.get("end_z", m_top_z)))

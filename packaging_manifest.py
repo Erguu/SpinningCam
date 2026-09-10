@@ -94,6 +94,8 @@ CRITICAL_MODULES = [
     "ui.dialogs.orphan_commands",     # out-of-range pass trigger prompt, lazily imported
     "ui.dialogs.scl_layout",          # recipe DB chunk-layout picker, lazily imported
     "ui.dialogs.project_params_diff", # machine settings inside a .ssp, lazily imported
+    "report_bundle",                  # troubleshooting bundle model, lazily imported
+    "ui.dialogs.send_report",         # "Send Report to Devs" UI, lazily imported
 ]
 
 

@@ -8,6 +8,7 @@ from ui.helpers_ui import _fmt_num, scroll_not_edit
 from i18n import t
 from ui import dialog_sizing
 from path_generator import (op_builds_back_pass, point_surface_x,
+                            conformal_is_inherited, resolve_conformal,
                             resolve_point_mode, resolve_point_motion,
                             resolve_retract_motion, retract_motion_is_risky,
                             resolve_speed_mode, speed_mode_choices)
@@ -2955,16 +2956,31 @@ class ProgramTab:
             f_conf._pkey = "conformal_clearance_operation_specific"
             f_conf.pack(fill="x", padx=2, pady=1)
             ttk.Label(f_conf, text=t("lbl_conformal_clr"), width=15).pack(side="left")
-            conf_var = tk.BooleanVar(value=bool(op.get("conformal_clearance_operation_specific", False)))
-            def toggle_conformal(i=idx):
+            # Show what the ENGINE will do, not a bare False. An op that has never
+            # been touched inherits the global "Conformal Path - Rough"; showing
+            # False there made the checkbox and the pass diagram disagree with the
+            # machine, and made the first click write an explicit False that
+            # silently flipped the pass to pure radial placement (F3, 2026-09-10).
+            conf_var = tk.BooleanVar(value=resolve_conformal(op, self.app.params))
+            lbl_inh = ttk.Label(f_conf, text=(t("lbl_conformal_inherited")
+                                              if conformal_is_inherited(op) else ""),
+                                foreground="#888")
+            lbl_inh.pack(side="right", padx=(0, 4))
+            def toggle_conformal(i=idx, _lbl=lbl_inh):
+                # Writes the state the operator can actually see themselves
+                # selecting, and the op stops inheriting from this point on.
                 self.app.params["operations"][i]["conformal_clearance_operation_specific"] = conf_var.get()
+                _lbl.config(text="")
                 # R3 (one calc path): debounced async recalc.
                 self._schedule_auto_calc()
             ttk.Checkbutton(f_conf, variable=conf_var, command=toggle_conformal).pack(side="right")
             self.helper.bind_tooltip(f_conf,
                 "Temas noktası P2'yi mandrel yüzey normaline göre yerleştir (finishing gibi). "
                 "Eğimli yüzeylerde clearance'ı doğru tutar. "
-                "Kapalıysa saf radyal offset kullanılır.")
+                "Kapalıysa saf radyal offset kullanılır.\n"
+                "Hiç dokunulmamış operasyon, İşlem sekmesindeki genel "
+                "'Konformal Yol – Kaba' ayarını devralır; kutuyu bir kez "
+                "değiştirdiğinizde bu operasyon artık kendi değerini kullanır.")
 
             if is_linear:
                 f_afs = ttk.Frame(self.f_prop_editor)
@@ -3496,7 +3512,7 @@ class ProgramTab:
             step_ = max(float(op.get("step",  5.0)), 1.0)
             rot_  = float(op.get("rot",   0.0))
             p2r_  = float(op.get("p2_radius", 0.0))
-            cf_   = bool(op.get("conformal_clearance_operation_specific", False))
+            cf_   = resolve_conformal(op, self.app.params)
             pa_r  = op.get("pass_angle", None)
             pa_   = float(pa_r) if pa_r is not None else None
             bow_  = float(op.get("exit_bow", 0.0) or 0.0)
@@ -3603,6 +3619,9 @@ class ProgramTab:
                 f("surface normal for uniform")
                 f("roller-to-blank gap")
                 n("  uses profile normals")
+                if conformal_is_inherited(op):
+                    n("  inherited from the global")
+                    n("  Conformal Path - Rough setting")
 
             form_text.config(state="disabled")
 
@@ -3691,7 +3710,7 @@ class ProgramTab:
         step = max(float(op.get("step",  5.0)), 1.0)
         rot  = float(op.get("rot",   0.0))
         p2r  = float(op.get("p2_radius", 0.0))
-        conformal   = bool(op.get("conformal_clearance_operation_specific", False))
+        conformal   = resolve_conformal(op, self.app.params)
         pa_raw      = op.get("pass_angle", None)
         pa          = float(pa_raw) if pa_raw is not None else None
         exit_bow    = float(op.get("exit_bow", 0.0) or 0.0)

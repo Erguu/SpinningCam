@@ -5,6 +5,149 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+## 2026-09-10 — "Geliştiricilere Rapor Gönder" + test altyapısı
+
+İki iş: sahadan sorun bildirmeyi tek tıka indirmek, ve test takımını
+gerçekten çalıştırılabilir hâle getirmek.
+
+### 1. Yardım ▸ Geliştiricilere Rapor Gönder…
+
+Sorunu yeniden üretmek için gereken her şeyi TEK bir `.zip`'te toplar.
+**Hiçbir şey kendiliğinden gönderilmez** (kullanıcı kararı 2026-09-10):
+operatör kaydeder, her zamanki yolla gönderir. İnternet gerekmez — fabrika
+güvenlik duvarının arkasında çalışan tek yol da budur.
+
+| Dosya | Ne |
+|---|---|
+| `report_bundle.py` | Toplama + zip yazma. Saf mantık, GUI'siz test edilir. |
+| `ui/dialogs/send_report.py` | Pencere: not kutusu, kutucuk listesi, Önizle. |
+| `ui/main_window.py` | `open_send_report()` + Yardım menüsü girdisi. |
+
+**İçerik (varsayılan AÇIK):** ekrandaki program (`.ssp`, kaydedilmemiş
+düzenlemeler DÂHİL), günlükler, `settings.json`, makine profili (kendi +
+fabrika), `tools.json`, üretilen `.nc`. **Varsayılan KAPALI:** mandrel STEP'i
+ve `tool_geometry/` — ikisi de MB'larca olabilir ve müşterinin kendi parça
+geometrisidir. Tipik paket ≈ 25 KB.
+
+**Her zaman eklenir:** `report.txt` — operatörün notu EN ÜSTTE, sonra sürüm,
+parmak izi, makine no, op sayısı.
+
+**LİSANS DOSYASI ASLA GİTMEZ.** Kimliği parmak izi taşır. `_test_report_bundle.py`
+bunu ayrı bir testle kilitliyor (klasöre `.lic`/`.pem` koyup zip'te aranıyor).
+
+**Her satırın Önizle düğmesi var** ve boyutu yazıyor — operatör göndermeden
+önce her dosyayı okuyabilir. `settings.json` klasör yollarını içerir, listede
+öyle yazıyor, tek tıkla çıkarılabilir.
+
+**Toplayıcıların HİÇBİRİ hata fırlatmaz.** Bu özellik zaten bir şeyler
+bozukken kullanılıyor; eksik STEP ya da hesaplanmamış yol = tek satır griye
+düşer, paket yine oluşur.
+
+**Geri alma:** Yardım menüsündeki `add_command(label=t("menu_send_report"))`
+satırını sil. Başka hiçbir yol bu modüllere dokunmuyor.
+
+### 2. `logger_config.py` — önceki oturumun günlüğü artık KORUNUYOR
+
+`mode='w'` her açılışta günlüğü siliyordu. Sahada işe yaramaz: hatayı alan,
+programı kapatan ve rapor göndermek için tekrar açan operatör kanıtı çoktan
+yok etmiş oluyordu. Artık `spinning_cam.log` → `spinning_cam.prev.log`
+taşınıyor, sonra yenisi açılıyor. Bir kuşak geri yeter; disk maliyeti iki
+dosyayla sınırlı. Taşıma başarısız olursa (ikinci kopya dosyayı tutuyorsa)
+sessizce devam eder — `logger.debug`'a yazar, stdout'a DEĞİL.
+
+### 3. `run_tests.py` + `run_tests.bat` — tek komut, tek çıkış kodu
+
+88 test dosyası vardı ve hepsini çalıştırmanın yolu YOKTU. Sonuç: kimse
+çalıştırmıyordu, "zaten kırık" listesi de kodun yanında değil not defterinde
+duruyordu.
+
+```
+run_tests.bat                 hepsi   (88 dosya, ~141 sn)
+run_tests.bat -k point        sadece eşleşenler
+run_tests.bat --list          ne çalışacağını göster
+```
+
+**ÖNUÇUŞ KONTROLÜ:** `np.linalg.inv` ve `np.polyfit` denenir. Çalışmazsa
+HİÇBİR test koşmaz, tek bir net mesaj verir. Aktive edilmemiş env'in MKL
+çökmesi (exit 127, traceback yok) bu projede üç kez yanlış teşhise yol açtı.
+
+`TEST_STATUS.md` üretilir (elle DÜZENLENMEZ).
+
+### 4. Beş "bilinen kırık" testin TAMAMI düzeltildi — hiçbiri ürün hatası değildi
+
+| Test | Gerçek sebep |
+|---|---|
+| `_test_reach_follow.py` | Zaten geçiyordu; liste BAYATTI. |
+| `_test_real_end_z.py` | `values[5]` sabit indeksi; soluna sütun eklenmiş. Artık İSİMLE aranıyor. |
+| `_test_pass_edits.py` | Oracle `estimate_flange_reach` çağırıyordu; follow-blank düz→eğik geçince motorun cevabı olmaktan çıktı. |
+| `_test_program_tab_toolbar.py` | `btn_batch` sağ-tık menüsüne taşınmıştı. Test ORADA ölüyordu — **altındaki 10 kontrol hiç koşmuyordu.** |
+| `_test_tool_io.py` | Canlı, git-ignore'lu `tools.json`'ı okuyordu. Artık kendi fixture'ını kuruyor. |
+
+**Ders:** kırmızı bir takım okunmaz hâle gelir, ve ilk hatanın ALTINDAKİ
+kontroller sessizce koşmayı bırakır. `KNOWN_BROKEN` artık BOŞ.
+
+`_test_program_start_recipe.py` FLAKY değil artık: iki üretimi diff'leyip
+`(Generated: <saat>)` satırını da farka sokuyordu (~2 koşuda 1). `stable_lines()`
+o satırı eliyor; ayrıca 1.1 sn'lik bilerek boşlukla DETERMİNİSTİK bir koruma
+testi eklendi.
+
+### 5. Dört yeni değişmez (invariant) testi
+
+| Test | Ne kilitliyor |
+|---|---|
+| `_test_i18n_complete.py` | 939 `t("...")` anahtarı var mı; 1119 girdinin üçü de dolu mu; `{placeholder}`'lar diller arasında tutuyor mu. **İlk koşuşta gerçek bir boşluk buldu** (`rx_col_sev` — kasıtlı boş başlıkmış, kural inceltildi: BAZI dillerde boş = hata, HEPSİNDE boş = karar). |
+| `_test_no_pass_mirrors.py` | Pas ÜRETMEYEN op tipleri (`cutting`/`bending`/`point`) dört ayrı yerde tekrar yazılıyor. Motorun GERÇEKTEN ürettiği yol sayısı ile `path_categories` tahmini karşılaştırılıyor — aynaları aynaladıkları şeye karşı ölçer. |
+| `_test_packaging_static.py` | `check_packaging.py` zaten VARDI ama onu ÇALIŞTIRAN bir şey yoktu — sürüm öncesi hatırlanacak bir komuttu, ve hatırlanacak adım tam da acele edilen sürümde atlanır. Artık paketleme sapması sıradan test koşusunda, saniyeler içinde kırmızı olur. Tembel import edilen `report_bundle` + `send_report` `CRITICAL_MODULES`'te mi diye ayrıca bakar (tembel import PyInstaller'a GÖRÜNMEZ → sadece exe'de ImportError). |
+| `_test_report_bundle*.py` | Yukarıdaki rapor özelliği (16 + 9 kontrol; modal grab devri dâhil). |
+
+**Sonuç: 91 dosya, hepsi yeşil, KNOWN_BROKEN boş.**
+
+---
+
+## 2026-09-10 — F3: "Konformal Klr" kutusu YANLIŞ DURUM gösteriyordu
+
+**Belirti:** Operatör "bir şeye dokundum, clearance davranışı değişti ama
+neden göremiyorum" diyor. Kök neden: HESAPLAYAN her yer op bayrağını genel
+ayara düşürüyordu, GÖSTEREN her yer ise sabit `False`'a.
+
+| | Önce | Şimdi |
+|---|---|---|
+| Motor `path_generator.py` | genel ayara düşer | `resolve_conformal()` |
+| `main.py` açı danışmanı | genel ayara düşer | `resolve_conformal()` |
+| Pas tablosu aynası | genel ayara düşer | `resolve_conformal()` |
+| **Kutu** `program_tab.py:2958` | **sabit `False`** | `resolve_conformal()` |
+| **Pas diyagramı ×2** `:3499 :3694` | **sabit `False`** | `resolve_conformal()` |
+
+**İki somut sonuç:**
+1. Genel "Konformal Yol – Kaba" AÇIKKEN, hiç dokunulmamış bir operasyon
+   motorda konformal çalışıyor ama kutusu BOŞ görünüyordu ve diyagram
+   konformal OLMAYAN şekli çiziyordu. Resim makineyle çelişiyordu.
+2. O kutuyu açıp kapatmak op'a açık `False` yazıyordu. Açık `False` genel
+   ayarı devre dışı bırakır → pas normal-izdüşümlü yerleşimden SAF RADYAL
+   yerleşime geçiyordu. Kutu öncesi ve sonrası AYNI görünüyordu.
+
+**Tek doğruluk kaynağı:** `path_generator.resolve_conformal(op, params)` +
+`conformal_is_inherited(op)` — `resolve_speed_mode` / `resolve_retract_motion`
+kalıbının aynısı. Altı çağrı yeri de buna bağlandı (`pass_compare.py` dahil).
+
+**TAKIM YOLU DEĞİŞMEDİ.** `resolve_conformal` eski motor ifadesiyle bire bir
+aynı; 12 kombinasyonun tamamında parite testi geçti. Değişen SADECE ekran.
+
+**Devralma artık görünür:** kendi değeri olmayan op'un kutusunun yanında gri
+`(genel ayardan)` notu (EN/TR/ES `lbl_conformal_inherited`). Kutuya bir kez
+dokunulduğunda not kaybolur — op artık kendi değerini taşır. Formül
+görünümünde de aynı not var.
+
+**Geri alma:** altı çağrı yerini `op.get(KEY, False)` (UI) ve
+`op.get(KEY, params.get(GLOBAL, False))` (motor) haline döndür.
+
+**Doğrulama:** 83/88 test geçiyor; 5 hata HEAD'de de var (temiz worktree ile
+teyit edildi, hiçbiri bu değişiklikle ilgili değil). Ayrıca gerçek saha
+dosyasında (`kalin.ssp`) op'lar devralır hale getirilince genel ayar AÇ/KAPA
+takım yolunu 0.411 mm oynatıyor — yani kutunun yalan söylediği durum gerçek.
+
+---
+
 ## 2026-09-06 — v1.031: PASO İŞARETLERİ: reçetede CMD=50 / CMD=51 (opt-in)
 
 Meksika PLC ekibinin mektubu: `letter_spinningcam_pass_markers.md`.
