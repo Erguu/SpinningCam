@@ -44,7 +44,16 @@ for ver, ls in secs_all:
         parts = [x] if isinstance(x, str) else list(x)
         assert 1 <= len(parts) <= 3, f"v{ver}: entry has {len(parts)} fields"
         assert parts[0].strip(), f"v{ver}: empty title"
-        for p in parts:
+        for j, p in enumerate(parts):
+            # An omitted `detail`/`where` is a SHORTER TUPLE, not a None — see
+            # the module docstring of changelog.py. Checked explicitly because
+            # the bare iteration below reports a None as
+            # "TypeError: 'NoneType' object is not iterable", which says nothing
+            # about which entry is wrong or what to do (hit while writing the
+            # 1.032 entry, 2026-09-10).
+            assert isinstance(p, str), (
+                f"v{ver}: field {j} of {parts[0]!r} is {p!r}; omit the field "
+                f"entirely instead of passing None")
             bad = [c for c in p if ord(c) > 0xFFFF]
             assert not bad, f"v{ver}: non-BMP char {bad} breaks Tk 8.6"
 print("  OK  field counts, non-empty titles, BMP-only text")

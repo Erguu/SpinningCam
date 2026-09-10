@@ -17,6 +17,52 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.032": [
+        ("Send a problem to the developers in one step",
+         "When something looks wrong, this collects everything needed to "
+         "reproduce it into a single .zip: the program on screen (including "
+         "edits you have not saved), the log files, your settings, your machine "
+         "profile, the tool library and the G-code that would go to the "
+         "machine. You tick what to include, save the file, and send it "
+         "however you normally contact us. Nothing is sent automatically and no "
+         "internet connection is needed, so it works behind the factory "
+         "firewall. Every line shows its size and has a Preview button, so you "
+         "can read any file before you send it. Your licence file is never "
+         "included.",
+         "Help ▸ Send Report to Devs…"),
+        ("Write one sentence about what went wrong",
+         "The box at the top of that window matters more than any of the "
+         "files. We can read every number in your program, but only you can say "
+         "which pass looked wrong or what you expected instead. A report with "
+         "no description usually costs a full extra day of questions back and "
+         "forth. Best moment to send one is right after the problem happens, "
+         "before you close the program.",
+         "Help ▸ Send Report to Devs…"),
+        ("The log from your previous session is kept now",
+         "The log file used to be wiped every time the program started. That "
+         "meant if you hit a fault, closed the program and opened it again to "
+         "report it, the record of the fault was already gone. One session back "
+         "is now kept, and a report picks up both."),
+        ("Fixed: the \"Conformal Clr\" box could show the wrong state",
+         "The box has three states — on, off, and not set (follow the global "
+         "\"Conformal Path - Rough\" setting) — but a checkbox can only show "
+         "two. With the global switched on, an operation you had never touched "
+         "was running conformal while its box looked empty, and the pass "
+         "diagram drew the non-conformal shape. The picture disagreed with the "
+         "machine. An operation that follows the global now shows a grey "
+         "\"(from global setting)\" note beside the box, which disappears once "
+         "you set it yourself.",
+         "Program List ▸ select an operation ▸ Conformal Clr"),
+        ("Worth re-checking if you ever ticked that box on and off",
+         "Doing that wrote an explicit \"off\" onto the operation, and an "
+         "explicit off overrides the global setting. The pass then moved from "
+         "surface-normal placement to purely radial placement on any sloped "
+         "wall — and looked identical before and after. If you have operations "
+         "where you experimented with that box, open them and confirm the value "
+         "is what you intended. Toolpaths are otherwise unchanged by this "
+         "release: only what the screen reports was wrong.",
+         "Program List ▸ select an operation ▸ Conformal Clr"),
+    ],
     "1.031": [
         ("The operator can see which pass is running",
          "The machine screen could only say \"Line 47 of 99\", which tells the "

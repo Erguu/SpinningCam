@@ -5,6 +5,11 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+> **v1.032 = aşağıdaki üç 2026-09-10 girdisi** (Rapor Gönder + F3 konformal
+> düzeltmesi + test altyapısı). Operatöre görünen kısmı `changelog.py`'deki
+> `"1.032"` girdisi; test işi bilerek DIŞARIDA (operatör için görünmez).
+> Bu sürümde takım yolu DEĞİŞMEDİ — sadece ekranın söylediği düzeldi.
+
 ## 2026-09-10c — Golden dosyalar: gerçek saha programları regresyon ağı
 
 Diğer hiçbir test **"istemeden bir şey değişti mi"**yi sormuyordu. Artık 7
