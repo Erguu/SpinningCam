@@ -3,6 +3,33 @@
 
 ---
 
+## PLC continuous motion — 2026-09-14
+
+### 107. ⏳ IMPLEMENTED 2026-09-14 (headless verified; GUI smoke + MACHINE pending) — Continuous-motion export (CMD=2)
+
+From `letter_spinningcam_velocity_path.md`. Branch `feature/continuous-motion`.
+Details, decisions and proof: LAST_CHANGES 2026-09-14. Reply:
+`reply_spinningcam_velocity_path.md`.
+
+Open:
+- **T (PLC scan time) is not measured** — the PLC team will send it; it is a
+  setting, not a constant.
+- **Item 4 (longer segments, 2–3 mm) deliberately skipped** (user, 2026-09-14).
+  If it comes back it needs a mandrel-gap check: a longer chord cuts inside a
+  convex curve. **Instead (2026-09-15): a short-line WARNING with a simple value
+  to try** for P2 Max Points / Exit Max Points (`short_segments.py`). Not done
+  there: a trial run of the suggestion, the SCL Inspector column, and ANY advice
+  for short lines outside the P2 radius / exit leg (back passes, spline passes) —
+  lowering the auto-tune target was measured NOT to help (v1.ssp).
+- **Sharp P2 without radius:** the whole arriving line is slowed. User will use a
+  P2 radius instead. A "brake piece" (split the straight line a few mm before
+  the corner, +1 line per pass, path unchanged) was discussed and NOT built.
+- Look-ahead over more than one corner and the acceleration limit (letter's two
+  optional refinements) not built.
+- Never run on the machine; GUI smoke of the Machine-tab fields not done.
+
+---
+
 ## Operator confusion — 2026-09-10
 
 ### 106. ⏳ IMPLEMENTED 2026-09-10 (headless + real-widget verified; GUI smoke + PHYSICAL pending) — Single-pass op: one number, not two

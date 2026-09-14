@@ -216,7 +216,8 @@ class ExportManager:
                    gcode_string: Optional[str] = None,
                    chunk_size: int = None,
                    emit_checksum: bool = True,
-                   emit_pass_markers: bool = False) -> Tuple[bool, dict]:
+                   emit_pass_markers: bool = False,
+                   continuous_motion: Optional[dict] = None) -> Tuple[bool, dict]:
         """
         Export G-code as SCL Data Block for TIA Portal.
         
@@ -244,13 +245,19 @@ class ExportManager:
                 show "Op 2 of 5 / Pass 3 of 10". Costs one recipe line per op and
                 per pass. Off by default; off is byte-identical to a build without
                 the feature. See letter_spinningcam_pass_markers.md.
+            continuous_motion: ``recipe_to_scl.continuous_settings(params)``, or
+                None (default). When given, cutting G1 lines become CMD=2 and
+                corner feeds are planned -- a file ONLY the experimental
+                continuous-motion PLC can run. No line is added or removed. See
+                letter_spinningcam_velocity_path.md.
 
         Returns:
             Tuple of (success: bool, stats: dict with conversion statistics)
             If line limit exceeded and force=False, stats will contain 'limit_exceeded' key
         """
         try:
-            converter = GCodeToSCLConverter(emit_pass_markers=emit_pass_markers)
+            converter = GCodeToSCLConverter(emit_pass_markers=emit_pass_markers,
+                                            continuous_motion=continuous_motion)
             if gcode_string is not None:
                 # In-memory path: no file read needed
                 converter.parse_gcode(gcode_string)
@@ -266,7 +273,7 @@ class ExportManager:
                 with open(out_path, 'w', encoding='utf-8') as f:
                     f.write(scl_code)
                 rapid_count  = sum(1 for l in converter.lines if l.cmd == 0)
-                linear_count = sum(1 for l in converter.lines if l.cmd == 1)
+                linear_count = sum(1 for l in converter.lines if l.cmd in (1, 2))
                 tool_count   = sum(1 for l in converter.lines if l.cmd == 10)
                 from recipe_to_scl import chunk_geometry, recipe_checksum
                 stats = {
@@ -275,6 +282,7 @@ class ExportManager:
                     'linear_moves': linear_count,
                     'tool_changes': tool_count,
                     'pass_markers': sum(1 for l in converter.lines if l.cmd in (50, 51)),
+                    'continuous': converter.continuous_stats,
                     'db_name': db_name,
                     'scl_size_bytes': len(scl_code.encode('utf-8')),
                     'estimated_plc_bytes': len(converter.lines) * 12,
@@ -333,6 +341,18 @@ class ExportManager:
                     'message': (f"{_mcode} P{_p}: P must be a whole number "
                                 f"between 0 and 255 (the PLC Param is one byte). "
                                 f"Fix the custom command in the Machine tab.")
+                }
+            if error_msg.startswith("CONT_ZERO_FEED:"):
+                # The continuous-motion PLC refuses a CMD=2 with F = 0 at pre-scan,
+                # so the whole recipe would not start. Refuse here instead.
+                _line = error_msg.split(":", 1)[1]
+                return False, {
+                    'continuous_zero_feed': True,
+                    'line': int(_line),
+                    'message': (f"Recipe line {_line} is a cutting move with feed 0. "
+                                f"The continuous-motion PLC refuses such a recipe. "
+                                f"Give that operation a feed, or turn off "
+                                f"'Continuous-motion export' in the Machine tab.")
                 }
             if error_msg.startswith("MARKER_RANGE:"):
                 # An op or pass number above 255 cannot be sent in the PLC's Param

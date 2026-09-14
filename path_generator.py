@@ -3496,6 +3496,10 @@ class PathGenerator:
         # Remember what PLC mode emitted so the auto-tune / clearance guard can
         # measure the exact chords the machine will run.
         self.last_plc_paths = paths_to_use
+        # {path index: {"op_idx", "op", "feeds"}} — feeds[k] is the programmed feed
+        # of the line INTO point k of paths_to_use[index] (None for k = 0, the G0
+        # in). Recorded while emitting, read by short_segments.py. Output-neutral.
+        self.last_path_point_feeds = {}
 
         # ── Tilt-arm machines (ID112): per-point B words + reachability check.
         # Tilt is recomputed from the emitted point list itself (decimated or
@@ -3938,6 +3942,9 @@ class PathGenerator:
                 current_f_val = -1.0
                 fired_z_indices = set()
                 prev_raw_z = path[0][2] if len(path) > 0 else None
+                _pt_feeds = [None] * len(path)
+                self.last_path_point_feeds[global_path_idx] = {
+                    "op_idx": op_idx, "op": op, "feeds": _pt_feeds}
 
                 for _pi, p in enumerate(path[1:], start=1):
                     tx, tz = transform_pt(p)
@@ -3990,6 +3997,7 @@ class PathGenerator:
                         current_f_val = target_f
 
                     gcode.append(f"G1 X{tx:.3f} Z{tz:.3f}{_b_word(pass_tilts, _pi)}{f_suffix}{s_suffix} (Op{op_idx+1} P{i+1})")
+                    _pt_feeds[_pi] = target_f
                 
                 # Skip the forward retract when a back pass follows — the back pass
                 # starts where the forward ended (P3), so the roller flows straight in.
@@ -4050,6 +4058,9 @@ class PathGenerator:
                     # Base feed line (unchanged when no contact zone -> identical output).
                     gcode.append(f"G1 F{bp_feed_val:.3f}")
                     current_bp_f = bp_feed_val
+                    _bp_feeds = [None] * len(bp_path)
+                    self.last_path_point_feeds[global_path_idx] = {
+                        "op_idx": op_idx, "op": op, "feeds": _bp_feeds}
                     for _bpi, bp_pt in enumerate(bp_path[1:], start=1):
                         tx, tz = transform_pt(bp_pt)
                         target_bp_f = pass_feed_contact if (bp_mask is not None and bp_mask[_bpi]) else bp_feed_val
@@ -4058,6 +4069,7 @@ class PathGenerator:
                             f_suffix = f" F{target_bp_f:.3f}"
                             current_bp_f = target_bp_f
                         gcode.append(f"G1 X{tx:.3f} Z{tz:.3f}{_b_word(bp_tilts, _bpi)}{f_suffix} (Op{op_idx+1} BP{i+1})")
+                        _bp_feeds[_bpi] = target_bp_f
                     if len(bp_path) > 0:
                         bl = bp_path[-1]
                         _bp_rx_off, _bp_rz_off = resolve_pass_retract(op, params)  # #90 per-op

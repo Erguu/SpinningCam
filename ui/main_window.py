@@ -690,6 +690,27 @@ class SpinningCamWindow(tk.Tk):
         except Exception:
             return True     # never block an export on a reporting bug
 
+    def _confirm_short_segments(self, cont):
+        """Continuous-motion export: list operations whose recipe lines are
+        shorter than the letter's 5 × v × T, with a simple value to try
+        (short_segments.py). Returns True to carry on, False to abort.
+
+        Advisory only — a short line is less smooth, not unsafe — so it never
+        blocks, and it is silent when continuous motion is off.
+        """
+        if not cont:
+            return True
+        try:
+            import short_segments
+            T = float(cont["scan_time_s"])
+            reports = short_segments.analyze(self.app.path_gen, T)
+            if not reports:
+                return True
+            text = short_segments.format_report(reports, t, T)
+            return messagebox.askyesno(t("msg_short_title"), text, icon='warning')
+        except Exception:
+            return True     # never block an export on a reporting bug
+
     def _confirm_zero_spindle(self):
         """Warn when an operation would command the spindle to zero RPM.
 
@@ -1555,9 +1576,15 @@ class SpinningCamWindow(tk.Tk):
         # and counted from here on so the line-count preview, the auto-tune budget
         # and the file that ships all agree on the same number.
         _markers = bool(_xp.get("plc_pass_markers", False)) and bool(_xp.get("plc_mode", False))
+        # Continuous motion (letter_spinningcam_velocity_path.md): None unless PLC
+        # mode AND the option are on. It never changes the line count, so the
+        # auto-tune below does not need to know about it.
+        from recipe_to_scl import continuous_settings
+        _cont = continuous_settings(_xp)
 
         try:
-            _pre_converter = GCodeToSCLConverter(emit_pass_markers=_markers)
+            _pre_converter = GCodeToSCLConverter(emit_pass_markers=_markers,
+                                                 continuous_motion=_cont)
             _pre_converter.parse_gcode(gcode_str)
             _parsed_line_count = len(_pre_converter.lines)
         except ValueError as _pe:
@@ -1577,6 +1604,11 @@ class SpinningCamWindow(tk.Tk):
                 _, _n, _mx = _pe_msg.split(":", 2)
                 messagebox.showerror(t("msg_export_error_title"),
                                      t("msg_marker_range").format(n=_n, max=_mx))
+                return
+            if _pe_msg.startswith("CONT_ZERO_FEED:"):
+                messagebox.showerror(t("msg_export_error_title"),
+                                     t("msg_continuous_zero_feed").format(
+                                         line=_pe_msg.split(":", 1)[1]))
                 return
             _parsed_line_count = None
         except Exception:
@@ -1746,6 +1778,11 @@ class SpinningCamWindow(tk.Tk):
         # DB_RecipeProgram2.scl (two cuts, a roughing and a bend).
         if not self._confirm_zero_spindle():
             return
+        # Continuous motion only: lines too short for the PLC to blend well, with
+        # a value to try. Reads the state of the LAST generate_gcode above, which
+        # is the recipe about to be written (auto-tune regenerates just before).
+        if not self._confirm_short_segments(_cont):
+            return
 
         default_name = db_name + ".scl"
         scl_path = filedialog.asksaveasfilename(
@@ -1780,7 +1817,8 @@ class SpinningCamWindow(tk.Tk):
             custom_array_size=custom_array_size,
             chunk_size=chunk_size,
             gcode_string=gcode_str,
-            emit_pass_markers=_markers
+            emit_pass_markers=_markers,
+            continuous_motion=_cont
         )
 
         if not success and stats.get('limit_exceeded'):
@@ -1804,7 +1842,8 @@ class SpinningCamWindow(tk.Tk):
                     custom_array_size=custom_array_size,
                     chunk_size=chunk_size,
                     gcode_string=gcode_str,
-                    emit_pass_markers=_markers
+                    emit_pass_markers=_markers,
+                    continuous_motion=_cont
                 )
             else:
                 messagebox.showinfo(t("msg_cancelled_title"), t("msg_cancelled"))
@@ -1831,6 +1870,14 @@ class SpinningCamWindow(tk.Tk):
                                  stats.get('message', t("msg_scl_error")))
             return
 
+        # Cutting move with feed 0 under continuous motion (backstop — the
+        # pre-check above normally catches this first).
+        if not success and stats.get('continuous_zero_feed'):
+            messagebox.showerror(t("msg_export_error_title"),
+                                 t("msg_continuous_zero_feed").format(
+                                     line=stats.get('line', '?')))
+            return
+
         if success:
             msg = t("msg_scl_success_body").format(
                 db_name=stats.get('db_name', db_name),
@@ -1853,6 +1900,13 @@ class SpinningCamWindow(tk.Tk):
             # against the toolpath resolution when the program is near the ceiling.
             if stats.get('pass_markers'):
                 msg += "\n" + t("msg_scl_markers_line").format(n=stats['pass_markers'])
+            # The letter's warning, repeated where the operator is looking when
+            # the file is written: a production PLC skips CMD=2.
+            _cst = stats.get('continuous')
+            if _cst:
+                msg += "\n\n" + t("msg_scl_continuous_line").format(
+                    n=_cst['continuous'], exact=_cst['exact_corners'],
+                    slowed=_cst['slowed_corners'], stops=_cst['slowed_stops'])
             if autofit_note:
                 msg = f"{autofit_note}\n\n{msg}"
             messagebox.showinfo(t("msg_scl_complete_title"), msg)

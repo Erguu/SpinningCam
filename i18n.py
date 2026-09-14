@@ -634,6 +634,76 @@ STRINGS = {
     "msg_scl_markers_line":     {"EN": "Pass markers: {n} lines (the operator sees op and pass on the HMI)",
                                  "TR": "Paso işaretleri: {n} satır (operatör ekranda op ve pasoyu görür)",
                                  "ES": "Marcadores de pasada: {n} líneas (el operador ve op y pasada en el HMI)"},
+    "msg_scl_continuous_line":  {"EN": "!!! CONTINUOUS MOTION (CMD=2): load this file ONLY on the experimental "
+                                       "continuous-motion PLC. A production PLC skips CMD=2 lines.\n"
+                                       "{n} non-stop lines, {exact} exact-stop corners, {slowed} slowed corners, "
+                                       "{stops} slowed stops",
+                                 "TR": "!!! SÜREKLİ HAREKET (CMD=2): bu dosyayı YALNIZCA deneysel sürekli-hareket "
+                                       "PLC'sine yükleyin. Üretim PLC'si CMD=2 satırlarını atlar.\n"
+                                       "{n} duraksız satır, {exact} tam duruşlu köşe, {slowed} yavaşlatılmış köşe, "
+                                       "{stops} yavaşlatılmış duruş",
+                                 "ES": "!!! MOVIMIENTO CONTINUO (CMD=2): cargue este archivo SOLO en el PLC "
+                                       "experimental de movimiento continuo. Un PLC de producción omite las líneas CMD=2.\n"
+                                       "{n} líneas sin parada, {exact} esquinas con parada exacta, "
+                                       "{slowed} esquinas ralentizadas, {stops} paradas ralentizadas"},
+    "msg_continuous_zero_feed": {"EN": "Recipe line {line} is a cutting move with feed 0.\n\n"
+                                       "The continuous-motion PLC refuses such a recipe and it would not start. "
+                                       "Give that operation a feed, or turn off 'Continuous-motion export' "
+                                       "in the Machine tab.",
+                                 "TR": "Reçete satırı {line}: besleme hızı 0 olan bir kesme hareketi.\n\n"
+                                       "Sürekli-hareket PLC'si böyle bir reçeteyi reddeder, program başlamaz. "
+                                       "O operasyona bir besleme verin ya da Makine sekmesinde "
+                                       "'Sürekli hareket dışa aktarımı'nı kapatın.",
+                                 "ES": "La línea {line} de la receta es un movimiento de corte con avance 0.\n\n"
+                                       "El PLC de movimiento continuo rechaza esa receta y no arrancaría. "
+                                       "Asigne un avance a esa operación o desactive 'Exportación de "
+                                       "movimiento continuo' en la pestaña Máquina."},
+    "msg_short_title":          {"EN": "Short lines for continuous motion",
+                                 "TR": "Sürekli hareket için kısa satırlar",
+                                 "ES": "Líneas cortas para movimiento continuo"},
+    "msg_short_head":           {"EN": "Some lines are shorter than suggested for continuous motion.\n"
+                                       "Suggested length = 5 × feed × T (T = {T} s, e.g. {ex} mm at F300).",
+                                 "TR": "Bazı satırlar sürekli hareket için önerilenden kısa.\n"
+                                       "Önerilen uzunluk = 5 × besleme × T (T = {T} s, örn. F300'de {ex} mm).",
+                                 "ES": "Algunas líneas son más cortas de lo sugerido para movimiento continuo.\n"
+                                       "Longitud sugerida = 5 × avance × T (T = {T} s, p. ej. {ex} mm a F300)."},
+    "msg_short_op":             {"EN": "• Op{n} {name}: {count} short lines (shortest {shortest} mm, "
+                                       "suggested ≥ {need} mm), mostly {where}",
+                                 "TR": "• Op{n} {name}: {count} kısa satır (en kısa {shortest} mm, "
+                                       "önerilen ≥ {need} mm), çoğu {where}",
+                                 "ES": "• Op{n} {name}: {count} líneas cortas (la más corta {shortest} mm, "
+                                       "sugerido ≥ {need} mm), sobre todo {where}"},
+    "msg_short_where_fillet":   {"EN": "in the P2 radius", "TR": "P2 yarıçapında", "ES": "en el radio P2"},
+    "msg_short_where_exit":     {"EN": "in the exit leg", "TR": "çıkış kolunda", "ES": "en el tramo de salida"},
+    "msg_short_where_other":    {"EN": "in passes without a P2 radius / exit split (e.g. back passes)",
+                                 "TR": "P2 yarıçapı / çıkış ayrımı olmayan paslarda (örn. geri paslar)",
+                                 "ES": "en pasadas sin división radio P2 / salida (p. ej. pasadas de retorno)"},
+    "msg_short_where_approach": {"EN": "in the straight approach line", "TR": "düz yaklaşma çizgisinde",
+                                 "ES": "en la línea recta de aproximación"},
+    "msg_short_approach_info":  {"EN": "    The straight approach line is short on some passes — it is always one line, no setting makes it longer",
+                                 "TR": "    Düz yaklaşma çizgisi bazı paslarda kısa — her zaman tek satırdır, hiçbir ayar onu uzatmaz",
+                                 "ES": "    La línea recta de aproximación es corta en algunas pasadas — siempre es una sola línea, ningún ajuste la alarga"},
+    "msg_short_try_cap":        {"EN": "    Try: {param}  {cur} → {sug}",
+                                 "TR": "    Deneyin: {param}  {cur} → {sug}",
+                                 "ES": "    Pruebe: {param}  {cur} → {sug}"},
+    "msg_short_too_short_fillet": {"EN": "    The P2 radius is shorter than {need} mm on some passes — no point count reaches it",
+                                   "TR": "    P2 yarıçapı bazı paslarda {need} mm'den kısa — hiçbir nokta sayısı buna ulaşamaz",
+                                   "ES": "    El radio P2 mide menos de {need} mm en algunas pasadas — ningún número de puntos lo alcanza"},
+    "msg_short_too_short_exit": {"EN": "    The exit leg is shorter than {need} mm on some passes — no point count reaches it",
+                                 "TR": "    Çıkış kolu bazı paslarda {need} mm'den kısa — hiçbir nokta sayısı buna ulaşamaz",
+                                 "ES": "    El tramo de salida mide menos de {need} mm en algunas pasadas — ningún número de puntos lo alcanza"},
+    "msg_short_other_info":     {"EN": "    Some are in passes without a P2 radius / exit leg (e.g. back passes) — the point limits do not reach them",
+                                 "TR": "    Bazıları P2 yarıçapı / çıkış kolu olmayan paslarda (örn. geri paslar) — nokta sınırları bunlara ulaşmaz",
+                                 "ES": "    Algunas están en pasadas sin radio P2 / tramo de salida (p. ej. de retorno) — los límites de puntos no las alcanzan"},
+    "msg_short_more":           {"EN": "  … and {n} more operations",
+                                 "TR": "  … ve {n} operasyon daha",
+                                 "ES": "  … y {n} operaciones más"},
+    "msg_short_foot":           {"EN": "These values never bring the roller closer to the mandrel: if one would, "
+                                       "it is not used and you are told.\n\nContinue with the export?",
+                                 "TR": "Bu değerler ruloyu mandrele asla yaklaştırmaz: yaklaştıracaksa "
+                                       "uygulanmaz ve size bildirilir.\n\nDışa aktarıma devam edilsin mi?",
+                                 "ES": "Estos valores nunca acercan el rodillo al mandril: si uno lo hiciera, "
+                                       "no se aplica y se le avisa.\n\n¿Continuar con la exportación?"},
     "msg_marker_range":         {"EN": "This program has {n} operations or passes, and a pass-marker number "
                                        "must fit 0-{max} (the PLC Param field is one byte).\n\n"
                                        "Turn off \"Emit pass markers\" in the Machine tab to export it.",
@@ -878,6 +948,65 @@ STRINGS = {
     "cb_plc_pass_markers":  {"EN": "Emit pass markers (show op/pass on the HMI)",
                              "TR": "Paso işaretleri ekle (operatör ekranında op/paso göster)",
                              "ES": "Emitir marcadores de pasada (mostrar op/pasada en el HMI)"},
+    "cb_plc_continuous":    {"EN": "Continuous-motion export (CMD=2) - EXPERIMENTAL PLC ONLY",
+                             "TR": "Sürekli hareket dışa aktarımı (CMD=2) - YALNIZCA DENEYSEL PLC",
+                             "ES": "Exportación de movimiento continuo (CMD=2) - SOLO PLC EXPERIMENTAL"},
+    "tip_plc_continuous":   {"EN": "Cutting moves are written as CMD=2, so the machine can run\n"
+                                   "through them without stopping at every point.\n"
+                                   "Sharp corners still stop exactly; smaller corners are slowed.\n"
+                                   "ONLY for the experimental continuous-motion PLC: a production\n"
+                                   "PLC skips CMD=2 lines. Off = the file is exactly as before.",
+                             "TR": "Kesme hareketleri CMD=2 olarak yazılır; makine her noktada\n"
+                                   "durmadan akarak geçebilir.\n"
+                                   "Keskin köşelerde yine tam durur; küçük köşelerde yavaşlar.\n"
+                                   "YALNIZCA deneysel sürekli-hareket PLC'si için: üretim PLC'si\n"
+                                   "CMD=2 satırlarını atlar. Kapalı = dosya eskisinin aynısı.",
+                             "ES": "Los movimientos de corte se escriben como CMD=2, así la máquina\n"
+                                   "los recorre sin detenerse en cada punto.\n"
+                                   "Las esquinas agudas siguen con parada exacta; las pequeñas se ralentizan.\n"
+                                   "SOLO para el PLC experimental de movimiento continuo: un PLC de\n"
+                                   "producción omite las líneas CMD=2. Apagado = archivo igual que antes."},
+    "lbl_plc_scan_time":    {"EN": "PLC scan time T (s)",            "TR": "PLC tarama süresi T (s)",     "ES": "Tiempo de ciclo PLC T (s)"},
+    "tip_plc_scan_time":    {"EN": "How often the PLC looks at the next line. The PLC team will send\n"
+                                   "the measured value; 0.1 s is their estimate.",
+                             "TR": "PLC'nin bir sonraki satıra ne sıklıkla baktığı. PLC ekibi ölçülen\n"
+                                   "değeri gönderecek; 0.1 s onların tahmini.",
+                             "ES": "Cada cuánto el PLC mira la siguiente línea. El equipo PLC enviará\n"
+                                   "el valor medido; 0.1 s es su estimación."},
+    "lbl_plc_corner_tol":   {"EN": "Corner tolerance (mm)",          "TR": "Köşe toleransı (mm)",         "ES": "Tolerancia de esquina (mm)"},
+    "tip_plc_corner_tol":   {"EN": "How far the roller may cut inside a corner where two lines blend.\n"
+                                   "Smaller = more slowing at corners.",
+                             "TR": "İki satırın birleştiği köşede rulonun köşeden ne kadar içeri\n"
+                                   "kesebileceği. Küçük = köşelerde daha çok yavaşlama.",
+                             "ES": "Cuánto puede cortar el rodillo por dentro de una esquina donde se\n"
+                                   "unen dos líneas. Menor = más ralentización en esquinas."},
+    "lbl_plc_feed_min":     {"EN": "Lowest corner feed (mm/min)",    "TR": "En düşük köşe beslemesi (mm/dak)", "ES": "Avance mínimo en esquina (mm/min)"},
+    "tip_plc_feed_min":     {"EN": "A corner is never slowed below this. A feed programmed lower\n"
+                                   "than this stays as programmed.",
+                             "TR": "Bir köşe bunun altına yavaşlatılmaz. Bundan düşük programlanmış\n"
+                                   "besleme olduğu gibi kalır.",
+                             "ES": "Una esquina nunca se ralentiza por debajo de esto. Un avance\n"
+                                   "programado menor se mantiene."},
+    "lbl_plc_reversal":     {"EN": "Exact stop at corners from (°)", "TR": "Tam duruş: köşe açısı en az (°)", "ES": "Parada exacta en esquinas desde (°)"},
+    "tip_plc_reversal":     {"EN": "Corners that turn this much or more stop exactly on the point.\n"
+                                   "Lower it (e.g. 10°) to stop at sharp corners instead of slowing\n"
+                                   "the whole line before them. Rounded corners (P2 radius) turn\n"
+                                   "only a few degrees per point and keep running.",
+                             "TR": "Bu kadar veya daha çok dönen köşelerde makine noktada tam durur.\n"
+                                   "Keskin köşelerde önceki satırın tamamını yavaşlatmak yerine\n"
+                                   "durması için düşürün (örn. 10°). Yuvarlatılmış köşeler (P2\n"
+                                   "yarıçapı) nokta başına birkaç derece döner ve akmaya devam eder.",
+                             "ES": "Las esquinas que giran esto o más paran exactamente en el punto.\n"
+                                   "Bájelo (p. ej. 10°) para parar en esquinas agudas en vez de\n"
+                                   "ralentizar toda la línea anterior. Las esquinas redondeadas\n"
+                                   "(radio P2) giran pocos grados por punto y siguen."},
+    "cb_plc_stop_slowdown": {"EN": "Slow down before stops",         "TR": "Duruşlardan önce yavaşla",    "ES": "Ralentizar antes de paradas"},
+    "tip_plc_stop_slowdown": {"EN": "The line that ends in a stop, and the line before it, run slower\n"
+                                    "for a smoother finish. A single move on its own is not slowed.",
+                              "TR": "Duruşla biten satır ve ondan önceki satır daha yavaş çalışır,\n"
+                                    "bitiş daha yumuşak olur. Tek başına bir hareket yavaşlatılmaz.",
+                              "ES": "La línea que termina en parada y la anterior van más lentas\n"
+                                    "para un final más suave. Un movimiento aislado no se ralentiza."},
     "msg_autotune_title":   {"EN": "PLC Auto-tune",                 "TR": "PLC Otomatik Ayar",          "ES": "Autoajuste PLC"},
     "msg_autotune_clearance": {"EN": "Auto-tune reached {lines} lines (target {target}), but the roller clearance drops to {cl} mm — below the {floor} mm of the full-resolution path. The simplified path cuts closer to the mandrel here. Export anyway?",
                              "TR": "Otomatik ayar {lines} satıra indi (hedef {target}), ancak rulo boşluğu {cl} mm'ye düşüyor — tam çözünürlükteki {floor} mm'nin altında. Sadeleştirilen yol burada mandrel'e daha çok yaklaşıyor. Yine de dışa aktarılsın mı?",

@@ -2967,6 +2967,43 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  carries the same number as the pass it returns
                  from.
 
+                 CONTINUOUS MOTION (Machine tab, PLC section) -
+                 EXPERIMENTAL PLC ONLY: normally the machine stops
+                 at every point of a pass. With "Continuous-motion
+                 export" ticked, cutting moves are written so the
+                 experimental PLC can run through them without
+                 stopping. Load such a file ONLY on that PLC: a
+                 production PLC skips those lines and jumps between
+                 the remaining points.
+
+                 Where the path turns sharply the machine still
+                 stops exactly on the point ("Exact stop at corners
+                 from"). At smaller corners it slows down just
+                 enough to stay within the corner tolerance - but a
+                 feed belongs to a whole line, so a sharp corner at
+                 the end of a long straight line slows that whole
+                 line. Rounding the corner (a P2 radius) avoids both:
+                 many small turns keep running at full feed. Lower
+                 the stop angle if you would rather stop at sharp
+                 corners than slow down before them.
+
+                 SHORT LINES: the PLC re-aims a non-stop line about
+                 once per scan, so a line should last a few scans
+                 (suggested length = 5 × feed × T, 2.5 mm at F300).
+                 Before saving, the export lists the operations
+                 with shorter lines and, where one helps, suggests
+                 a smaller P2 Max Points or Exit Max Points to try.
+                 Nothing is changed for you, and those settings
+                 still refuse any value that would bring the
+                 roller closer to the mandrel. Short lines are not unsafe,
+                 only less smooth; you can export anyway.
+
+                 The export message and the file header say how
+                 many lines run non-stop, how many corners stop and
+                 how many were slowed. Nothing about the toolpath
+                 changes and no line is added. With the box off the
+                 file is exactly what it was before.
+
                  WAYPOINTS (per pass, from the Pass Table - this
                  button was called "Exit tail"): lets
                  you place the points the roller passes THROUGH
@@ -3477,6 +3514,44 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   satır kapatılsa bile operasyon, operasyon
                   listesindeki sıra numarasını korur; geri pas ise
                   döndüğü pasın numarasını taşır.
+
+                  SÜREKLİ HAREKET (Makine sekmesi, PLC bölümü) -
+                  YALNIZCA DENEYSEL PLC: normalde makine bir pasın
+                  her noktasında durur. "Sürekli hareket dışa
+                  aktarımı" işaretliyken kesme hareketleri, deneysel
+                  PLC'nin durmadan akarak geçebileceği şekilde
+                  yazılır. Böyle bir dosyayı YALNIZCA o PLC'ye
+                  yükleyin: üretim PLC'si bu satırları atlar ve kalan
+                  noktalar arasında atlar.
+
+                  Yolun keskin döndüğü yerde makine yine noktada tam
+                  durur ("Tam duruş: köşe açısı en az"). Daha küçük
+                  köşelerde köşe toleransı içinde kalacak kadar
+                  yavaşlar - ama besleme bütün satıra aittir; uzun
+                  düz bir satırın sonundaki keskin köşe o satırın
+                  tamamını yavaşlatır. Köşeyi yuvarlatmak (P2
+                  yarıçapı) ikisini de önler: çok sayıda küçük dönüş
+                  tam beslemeyle akar. Keskin köşelerde yavaşlamak
+                  yerine durmayı tercih ediyorsanız duruş açısını
+                  düşürün.
+
+                  KISA SATIRLAR: PLC duraksız bir satırı yaklaşık her
+                  taramada bir yeniden hedefler; bu yüzden bir satır
+                  birkaç tarama sürmeli (önerilen uzunluk = 5 ×
+                  besleme × T, F300'de 2.5 mm). Kaydetmeden önce dışa
+                  aktarım, daha kısa satırı olan operasyonları
+                  listeler ve işe yarayacaksa denenecek daha küçük
+                  bir P2 Maks. Nokta veya Çıkış Maks. Nokta önerir.
+                  Sizin yerinize hiçbir şey değiştirilmez; bu
+                  ayarlar ruloyu mandrele yaklaştıracak değeri yine
+                  reddeder. Kısa satırlar güvensiz değildir, sadece
+                  daha az akıcıdır; yine de dışa aktarabilirsiniz.
+
+                  Dışa aktarım mesajı ve dosya başlığı kaç satırın
+                  duraksız aktığını, kaç köşede durulduğunu ve
+                  kaçının yavaşlatıldığını söyler. Takım yolu
+                  değişmez, satır eklenmez. Kutu kapalıyken dosya
+                  eskisinin aynısıdır.
 
                   ARA NOKTALAR (pas başına, Pas Tablosundan; bu
                   düğmenin eski adı "Çıkış yolu" idi): P2'den

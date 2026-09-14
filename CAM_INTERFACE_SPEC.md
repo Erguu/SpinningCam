@@ -214,7 +214,7 @@ Each line is exactly 12 bytes:
 |-------|----------|-------|-------------|
 | X | Real | 4 | Target X position (mm). Must be 0.0 – 170.0. |
 | Z | Real | 4 | Target Z position (mm). Must be 0.0 – 200.0. |
-| F | Int  | 2 | Feedrate in **mm/min**, integer. Used only for CMD=1 (LINEAR). Set 0 for all other CMDs. |
+| F | Int  | 2 | Feedrate in **mm/min**, integer. Used for CMD=1 (LINEAR) and CMD=2 (LINEAR_CONTINUOUS), where it must be > 0. Set 0 for all other CMDs (exception: CMD=50/51 markers). |
 | CMD | Byte | 1 | Command type — see table in Section 5. |
 | Param | Byte | 1 | Parameter — meaning depends on CMD, see Section 5. |
 
@@ -229,6 +229,7 @@ Each line is exactly 12 bytes:
 |-----|------|-----------|---------|---------------|-------------------|
 | 0   | RAPID | Yes | No (ignored) | 0 | G0 X Z |
 | 1   | LINEAR | Yes | Yes | 0 | G1 X Z F |
+| 2   | LINEAR_CONTINUOUS | Yes | Yes (> 0) | 0 | G1 X Z F *(recipe only, opt-in, experimental PLC only)* |
 | 10  | TOOL_CHANGE | No (ignored) | No | External tool code (0–255) | M6 T |
 | 20  | SPINDLE_ON | No | No | Speed = Param × 10 RPM | M3 S |
 | 21  | SPINDLE_OFF | No | No | 0 | M5 |
@@ -284,6 +285,31 @@ Param byte; the export is refused rather than wrapped.
 - PLC calculates per-axis velocity from total path length and feedrate.
 - **F field:** feedrate in mm/min, integer, range 1–3000. Values above 3000 are clamped to 3000 by the PLC.
 - The HMI FeedrateOverride (50–200%) is applied at runtime, so program with nominal feed.
+
+### LINEAR_CONTINUOUS (CMD=2) — experimental PLC only
+Spec: `letter_spinningcam_velocity_path.md` (PLC team, 2026-09-14), PLC branch
+`exp/velocity-path-350`. Emitted only when Machine ▸ PLC ▸ "Continuous-motion
+export" is ticked; with it off the export is byte-identical and contains no CMD=2.
+
+- Same fields as CMD=1. The PLC **may** blend a CMD=2 line into the next line
+  when that line is CMD=1 or CMD=2 with F > 0; otherwise it lands exactly.
+  CMD=2 is permission to blend, not a promise, and it is per line (no modal state).
+- **A production PLC skips CMD=2** and jumps between the remaining points, with
+  the skipped lines never checked against the soft limits. Such a file carries a
+  `// !!! CONTINUOUS MOTION (CMD=2) - EXPERIMENTAL PLC ONLY !!!` header block.
+- The CAM (`recipe_to_scl.plan_continuous_motion`) decides per line:
+  - every cutting G1 → CMD=2; a Point-operation move stays CMD=1;
+  - where the path turns by at least `plc_reversal_deg` (default 90°) the line
+    arriving at that corner stays CMD=1 (exact stop, no extra line);
+  - at a smaller corner the arriving line's F is lowered to
+    `tol / (T · sin θ)`, rounded down, never below `plc_feed_min` and never above
+    the programmed feed (`T = plc_scan_time_s`, `tol = plc_corner_tol_mm`);
+  - optional `plc_stop_slowdown`: the line ending in a stop gets `tol / T`, the
+    blending line before it twice that. A lone move is not slowed.
+- A CMD=1 with F = 0 refuses the export when the option is on (the PLC refuses a
+  CMD=2 with F = 0 at pre-scan).
+- No line is added or removed: LineCount, the auto-tune budget and the toolpath
+  are unchanged. CMD=2 enters the checksum like any other CMD value.
 
 ### TOOL_CHANGE (CMD=10)
 - Param carries the **external tool code** — not the physical turret slot number.

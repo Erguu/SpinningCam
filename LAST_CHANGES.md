@@ -16,6 +16,147 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 > `"1.032"` girdisi; test işi bilerek DIŞARIDA (operatör için görünmez).
 > Bu sürümde takım yolu DEĞİŞMEDİ — sadece ekranın söylediği düzeldi.
 
+## 2026-09-15 — Sürekli harekette kısa satır uyarısı + basit öneri (#107)
+
+**Kullanıcı:** *"A small warning with simple suggestion would be nice"*; öneride
+*"current values and suggested values for the specific parameters"* görmek
+istedi. Plan gösterildi, *"Yes its seems fine"* ile onaylandı.
+
+**Neden bu yol:** mektubun madde 4'ü (2–3 mm segment) yeni geometri gerektirir
+ve kiriş mandrele doğru keser. Bunun yerine program SADECE ÖLÇER ve mevcut
+ayarlara değer önerir: "P2 Maks. Nokta" / "Çıkış Maks. Nokta" (clearance'ı
+düşürecek değeri zaten REDDEDİYOR) veya auto-tune satır hedefi. **Yol değişmez,
+yeni güvenlik riski yok.**
+
+**Ne zaman:** SCL export, **sadece sürekli hareket AÇIKKEN** ve kısa satır varsa,
+kaydetme penceresinden ÖNCE, Evet/Hayır. Engellemez.
+
+**Kural** (`short_segments.py`): önerilen uzunluk = 5 × besleme × T, **her
+satırın kendi programlanmış beslemesiyle** (köşe planlamasından ÖNCEKİ F).
+Öneri = floor(bölüm uzunluğu ÷ önerilen uzunluk) + 1, operasyonun EN KISA
+pasında, en az 2; sadece mevcut sınırdan küçükse gösterilir. Bölüm ona
+yetmeyecek kadar kısaysa sayı verilmez, açıklanır. P2/çıkış dışındaki kısa
+satırlar → sadece not (aşağıda 3. madde). **Deneme koşusu YOK**
+(kullanıcının onayladığı "basit" plan) — değer girilince mevcut kapı yargılar.
+
+**Bölüm tespiti:** T1 (yaklaşma kolu sonu) ve T2 (P2 yarıçapı sonu) PLC
+seyreltmesinde HER ZAMAN korunuyor → gönderilen noktalarda konumla bulunuyor.
+Ters pas `last_reverse_split_idx` ile.
+
+**Motora tek dokunuş — SADECE KAYIT:** `generate_gcode` her G1 noktasının
+beslemesini `self.last_path_point_feeds[yol] = {op_idx, op, feeds}`'e yazıyor
+(ileri pas + geri pas). Çıktı DEĞİŞMEDİ: 14/14 SCL bayt-aynı (yeniden ölçüldü),
+golden testi geçti. Test kaydın reçetenin G1 F'leriyle satır satır aynı olduğunu
+pinliyor.
+
+**GERÇEK PROGRAMLARDA ÇIKAN 3 HATA (aynı gün düzeltildi, testleri var):**
+1. **Ters pasta P2 yarıçapı YOKKEN** T1 = T2 aynı nokta → yön indeks sırasından
+   okunuyordu → çıkış kolundaki satır "diğer" sanıldı (bundan devam Op46). Yön
+   artık `last_reverse_split_idx`'in varlığından (`section_bounds` 3. eleman).
+2. **Anlamsız öneri "Çıkış Maks. Nokta ∞ → 40":** 7 noktalı uzun bir kolda tek
+   kısa satır için formül 40 veriyordu; sınır ancak mevcut noktaların ALTINDA
+   etkili. Öneri artık min(formül, bölümün segment sayısı) → bundan devam'da 6.
+   Ayrıca "Deneyin" satırı SADECE öneri kısa satırlı bir pasın mevcut nokta
+   sayısının ALTINDAYSA çıkıyor (v1: zaten tek çizgi olan P2 yarıçapına "→ 2"
+   öneriliyordu, hiçbir şey değiştirmiyordu).
+3. **"auto-tune hedefini düşür" önerisi KALDIRILDI — ölçüldü, işe yaramıyor:**
+   v1'de hedef 400 → 150 → 130 → 110 satır; geri pastaki kısa satır yerinde
+   kaldı (auto-tune önce başka yerleri seyreltiyor). P2/çıkış dışındaki kısa
+   satırlar artık "nokta sınırları bunlara ulaşmaz" notu alıyor, "Deneyin" YOK.
+   (Planda "auto-tune hedefi, sayı yok" vardı; ölçüm yüzünden çıkarıldı.)
+   Ayrıca yaklaşma kolu
+   ayrı bölüm: her zaman tek çizgi, hiçbir ayar uzatmaz → bilgi, öneri YOK.
+   "En kısa" 2 ondalık (0.007 mm "0.0" görünüyordu — gerçekti: bigsheet2'nin son
+   paslarında P2 yarıçapı neredeyse sıfıra iniyor).
+
+**Ölçüm — öneriler programa girilip yeniden export edildi (auto-tune 400):**
+| Program | Öneri | Kısa satır | Reçete | En küçük boşluk | Kapı reddi |
+|---|---|---|---|---|---|
+| bigsheet2 | P2 Maks. Nokta 2 | 64 → 13 | 118 → 69 | -0.007 → -0.007 | yok |
+| bundan devam | Çıkış Maks. Nokta 6 (Op46) | 1 → 0 | 108 → 106 | 0.033 → 0.033 | yok |
+| v1 | (öneri yok — P2 zaten tek çizgi) | 3 → 3 | 161 | aynı | — |
+
+bigsheet2'de kalan 13 satır, P2 yarıçapı 2 mm'nin altına inen son paslarda —
+uyarı bunu zaten "hiçbir nokta sayısı ulaşamaz" diye söylüyor.
+
+| Ne | Nerede |
+|---|---|
+| Ölçüm + öneri + metin | `short_segments.py` `analyze()`, `format_report()`, `section_bounds()`, `classify()` |
+| Besleme kaydı | `path_generator.py` `last_path_point_feeds` (init `last_plc_paths` yanında, 2 kayıt yeri) |
+| Uyarı | `ui/main_window.py` `_confirm_short_segments()` — `_confirm_zero_spindle`'dan sonra |
+| Metin | `i18n.py` `msg_short_*` (EN/TR/ES); yardım penceresi EN+TR "KISA SATIRLAR" |
+| Test | `_test_short_segments.py` (32) |
+
+**GERİ ALMA:** `export_scl_action` içindeki `_confirm_short_segments` çağrısını
+sil. Besleme kaydı zararsız, kalabilir.
+
+## 2026-09-14 — Sürekli hareket dışa aktarımı: CMD=2 (#107, opt-in, DENEYSEL PLC)
+
+**Kaynak:** `MexicoMetalSpinning/Program/docs/letter_spinningcam_velocity_path.md`
+(PLC ekibi, 2026-09-14, güncellenmiş hâli). Cevap:
+`reply_spinningcam_velocity_path.md` (aynı klasör).
+
+**Ne:** PLC bugün her reçete satırında duruyor. Deneysel PLC dalı
+(`exp/velocity-path-350`) yeni bir kod tanıyor: **`CMD=2` = durmadan bir
+sonrakine akabilen G1**. `CMD=1` tam duruş olarak kalıyor. Makine ▸ PLC ▸
+"Sürekli hareket dışa aktarımı (CMD=2) - YALNIZCA DENEYSEL PLC" kutusu,
+**varsayılan KAPALI**.
+
+**⚠ Neden kapalı ve neden bu kadar etiketli:** üretim PLC'si CMD=2'yi bilmiyor ve
+ATLIYOR → eksenler kalan noktalar arasında atlar, atlanan satırlar soft limitlere
+karşı kontrol edilmez. Dosya başlığına ve export mesajına uyarı yazılıyor.
+
+**Kurallar** (`recipe_to_scl.plan_continuous_motion`, `parse_gcode` SONUNDA):
+1. Kesme G1'lerinden birinde F=0 → export REDDEDİLİR (`CONT_ZERO_FEED:<satır>`).
+2. Her kesme G1 → CMD=2. **İstisna: Nokta op'u** (`(Point OpN)` etiketi) CMD=1 kalır.
+3. Köşe ≥ `plc_reversal_deg` (varsayılan 90°) → o köşeye gelen satır CMD=1.
+4. Küçük köşe → gelen satırın F'i `tol/(T·sinθ)`, aşağı yuvarlanır, `plc_feed_min`
+   altına inmez, programlanandan YUKARI çıkmaz.
+5. `plc_stop_slowdown` (varsayılan KAPALI): duruşla biten satır `tol/T`, önceki
+   satır iki katı (mektubun 120→60 örneği). Tek başına bir hareket yavaşlatılmaz.
+
+**Satır EKLENMEZ/SİLİNMEZ** → LineCount, auto-tune bütçesi ve takım yolu aynı.
+Bu yüzden `auto_fit_plc_tolerance`'a dokunulmadı.
+
+**KULLANICI KARARLARI (2026-09-14'te soruldu):**
+- Madde 4 (daha uzun segmentler) **ATLANDI** — "Skip item 4 for now".
+- P2 öncesi "fren parçası" (uzun düz satırı bölmek) **YAPILMADI** — kullanıcı
+  keskin P2 yerine **P2 yarıçapı** kullanacak ("I probably will use option 3").
+  Sebep: F bütün satıra ait; keskin köşeli 100 mm'lik yaklaşma satırı TÜMÜYLE
+  yavaşlar.
+- Duruş açısı **ayarlanabilir parametre** olmalı ("make it a parameter that can be
+  configurable"). **Başlangıç değeri 90° = ajanın seçimi (mektubun değeri), sorulmadı.**
+- **Ajanın seçimi, sorulmadı:** Nokta op'u = CMD=1; madde 7 kuralı (tol/T ve 2×);
+  kaydetmeden önce ek onay penceresi YOK (uyarı etiket + başlık + mesajda).
+
+**KANIT:**
+- **KAPALI = bayt bayt aynı:** 7 golden program × (işaretli/işaretsiz) = 14 SCL,
+  değişiklikten ÖNCE ve SONRA üretildi, 14/14 IDENTICAL.
+- Açıkken aynı 14 dosya PLC ekibinin `split_recipe_db.py --check`'inden geçti
+  (4 × 100 düzeniyle; 10 × 100 ile geçmez — bu dosyanın değil DÜZENİN meselesi).
+- `_test_continuous_motion.py` 53 kontrol + `_test_continuous_motion_gui.py` 18
+  kontrol (gerçek `<Return>` bağlaması; pencere gizlenmez, ekran dışına alınır —
+  gizli pencerede tuş olayı hiç ulaşmıyor). Tam takım 99/99.
+- Saha reçeteleri üzerinde (`gcodes/DB_RecipeProgram1/2.scl`): program 1 377/377
+  CMD=2, HİÇ yavaşlama yok (en büyük dönüş 2.6°); program 2 (keskin P2) 90°'de 50
+  köşe yavaşlıyor (en düşük F 104), 10°'de 45 tam duruş + 5 yavaşlama.
+
+| Ne | Nerede |
+|---|---|
+| Ayarlar + planlayıcı | `recipe_to_scl.py` `CONTINUOUS_DEFAULTS`, `continuous_settings()`, `plan_continuous_motion()`, `CMD_LINEAR_CONTINUOUS`, `RecipeLineData.exact`, başlık uyarısı `generate_scl`, CLI `--continuous --scan-time --corner-tol --feed-min --reversal-deg --stop-slowdown` |
+| Export | `export_manager.py` `export_scl(continuous_motion=)`, `continuous_zero_feed`; `ui/main_window.py` `_cont` (ön-kontrol + 2 export çağrısı + mesaj) |
+| UI | `ui/tabs/machine_tab.py` `cb_cont`, `_add_cont_entry`, `cb_stop`, `_sync_plc_states` |
+| Anahtarlar | `machine_loader.py` + `main.py`: `plc_continuous`, `plc_scan_time_s`, `plc_corner_tol_mm`, `plc_feed_min`, `plc_reversal_deg`, `plc_stop_slowdown` |
+| Metin | `i18n.py` 14 anahtar (EN/TR/ES); yardım penceresi EN+TR |
+| Spec | `CAM_INTERFACE_SPEC.md` §4 F satırı, §5 tablo + "LINEAR_CONTINUOUS (CMD=2)" |
+
+**GERİ ALMA:** kutuyu kapat (dosya eskisinin aynısı). Kodu tamamen sökmek için
+`parse_gcode` sonundaki `if self.continuous_motion:` bloğu yeterli; geri kalanı
+`None`'da hiçbir şey yapmıyor.
+
+**AÇIK:** T ölçülmedi (PLC ekibi gönderecek). Makinede HİÇ çalışmadı. GUI smoke
+yapılmadı (Makine sekmesi alanları sadece derleme + i18n testiyle doğrulandı).
+
 ## 2026-09-10e — Açık pas tablosu operasyon düzenlemesini canlı izliyor (#106)
 
 **Kullanıcı sorusu:** *"can't we have both ways? the last changed one will

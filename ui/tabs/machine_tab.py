@@ -597,9 +597,81 @@ class MachineTab(ScrollableTabBase):
             "sınırına yakın programlarda takım yolu çözünürlüğünden gider.\n"
             "Kapalıyken dosya bu özellik hiç yokmuş gibi üretilir.")
 
+        # Continuous motion (letter_spinningcam_velocity_path.md): cutting lines
+        # become CMD=2 so the experimental PLC can blend them. Opt-in and labelled
+        # EXPERIMENTAL PLC ONLY — a production PLC skips CMD=2. Off = file as before.
+        from recipe_to_scl import CONTINUOUS_DEFAULTS
+        f_cont = ttk.Frame(f_plc)
+        f_cont.pack(fill="x", padx=5, pady=2)
+        var_cont = tk.BooleanVar(value=bool(self.app.params.get("plc_continuous", False)))
+        def on_cont_toggle():
+            self.app.on_param_change("plc_continuous", var_cont.get(), "none")
+            _sync_plc_states()
+        cb_cont = ttk.Checkbutton(f_cont, text=t("cb_plc_continuous"), variable=var_cont,
+                                  command=on_cont_toggle)
+        cb_cont.pack(anchor="w")
+        self.helper.bind_tooltip(cb_cont, t("tip_plc_continuous"))
+
+        cont_widgets = []
+
+        def _add_cont_entry(label_key, tip_key, key, default, as_int=False, max_value=None):
+            fr = ttk.Frame(f_plc)
+            fr.pack(fill="x", padx=(25, 5), pady=1)
+            tk.Label(fr, text=t(label_key)).pack(side="left")
+            var = tk.StringVar(value=str(self.app.params.get(key, default)))
+
+            def commit(_ev=None):
+                import math
+                try:
+                    v = float(str(var.get()).replace(",", "."))
+                    if not math.isfinite(v) or v <= 0:
+                        raise ValueError
+                except ValueError:
+                    # Not a positive number: put the stored value back rather
+                    # than plan with it (T = 0 would divide by zero).
+                    var.set(str(self.app.params.get(key, default)))
+                    return
+                if max_value is not None:
+                    v = min(v, max_value)
+                if as_int:
+                    v = max(1, int(v))
+                self.app.on_param_change(key, v, "none")
+                var.set(str(v))
+
+            e = ttk.Entry(fr, textvariable=var, width=10)
+            e.pack(side="right")
+            e.bind("<Return>", commit)
+            e.bind("<FocusOut>", commit)
+            e.bind("<Button-1>", lambda event: event.widget.focus_force())
+            self.helper.bind_tooltip(e, t(tip_key))
+            cont_widgets.append(e)
+
+        _add_cont_entry("lbl_plc_scan_time", "tip_plc_scan_time", "plc_scan_time_s",
+                        CONTINUOUS_DEFAULTS["scan_time_s"])
+        _add_cont_entry("lbl_plc_corner_tol", "tip_plc_corner_tol", "plc_corner_tol_mm",
+                        CONTINUOUS_DEFAULTS["corner_tol_mm"])
+        _add_cont_entry("lbl_plc_feed_min", "tip_plc_feed_min", "plc_feed_min",
+                        CONTINUOUS_DEFAULTS["feed_min"], as_int=True)
+        _add_cont_entry("lbl_plc_reversal", "tip_plc_reversal", "plc_reversal_deg",
+                        CONTINUOUS_DEFAULTS["reversal_deg"], max_value=180.0)
+
+        f_stop = ttk.Frame(f_plc)
+        f_stop.pack(fill="x", padx=(25, 5), pady=1)
+        var_stop = tk.BooleanVar(value=bool(self.app.params.get("plc_stop_slowdown", False)))
+        cb_stop = ttk.Checkbutton(
+            f_stop, text=t("cb_plc_stop_slowdown"), variable=var_stop,
+            command=lambda: self.app.on_param_change("plc_stop_slowdown", var_stop.get(), "none"))
+        cb_stop.pack(anchor="w")
+        self.helper.bind_tooltip(cb_stop, t("tip_plc_stop_slowdown"))
+        cont_widgets.append(cb_stop)
+
         def _sync_plc_states():
             plc_on  = var_plc.get()
             auto_on = var_auto.get() and plc_on
+            cont_on = var_cont.get() and plc_on
+            cb_cont.config(state="normal" if plc_on else "disabled")
+            for _w in cont_widgets:
+                _w.config(state="normal" if cont_on else "disabled")
             # Auto-tune is only selectable when PLC mode is on.
             cb_auto.config(state="normal" if plc_on else "disabled")
             cb_marks.config(state="normal" if plc_on else "disabled")

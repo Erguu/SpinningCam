@@ -49,7 +49,8 @@ def resolve_speed_mode(op):
 
 # CMD Constants (matching PLC spec)
 CMD_RAPID = 0           # G0 - Rapid positioning
-CMD_LINEAR = 1          # G1 - Linear interpolation with feedrate
+CMD_LINEAR = 1          # G1 - Linear interpolation with feedrate (exact stop)
+CMD_LINEAR_CONTINUOUS = 2  # G1 that MAY blend into the next G1 (opt-in, experimental PLC only)
 CMD_TOOL_CHANGE = 10    # M6 Tn - Tool change
 CMD_SPINDLE_ON = 20     # M3 Snnn - Spindle on
 CMD_SPINDLE_OFF = 21    # M5 - Spindle off
@@ -205,6 +206,193 @@ def count_pass_markers(gcode: str) -> int:
         if _PASS_HDR_RE.match(line):
             n_pass += 1
     return len(ops) + n_pass
+
+
+# Continuous motion (letter_spinningcam_velocity_path.md, PLC team 2026-09-14).
+# CMD=2 is a G1 the PLC MAY blend into the next G1 without stopping; CMD=1 stays
+# the exact stop. Only the experimental continuous-motion PLC build knows CMD=2:
+# a production PLC skips unknown commands, so the axes would jump straight
+# between the remaining points and the skipped lines would never be checked
+# against the soft limits. Hence opt-in, loudly labelled, and OFF byte-identical
+# (no CMD=2 anywhere).
+CONTINUOUS_DEFAULTS = {
+    "scan_time_s": 0.1,      # PLC scan time T -- the PLC team has NOT measured it yet
+    "corner_tol_mm": 0.1,    # allowed path error where two lines blend
+    "feed_min": 30,          # floor for a planned corner feed, mm/min
+    "reversal_deg": 90.0,    # corners at least this sharp stop exactly (CMD=1)
+    "stop_slowdown": False,  # letter item 7: slow the last lines before a stop
+}
+_CONTINUOUS_PARAM_KEYS = {
+    "scan_time_s": "plc_scan_time_s",
+    "corner_tol_mm": "plc_corner_tol_mm",
+    "feed_min": "plc_feed_min",
+    "reversal_deg": "plc_reversal_deg",
+    "stop_slowdown": "plc_stop_slowdown",
+}
+
+
+def continuous_settings(params):
+    """The continuous-motion settings for an SCL export, or None when it is off.
+
+    Off unless BOTH ``plc_mode`` and ``plc_continuous`` are set: CMD=2 exists only
+    in the recipe, never in the .nc. A number that is unreadable, not finite or
+    not positive falls back to its default instead of planning with nonsense
+    (T = 0 divides by zero; a negative tolerance would stop at every corner).
+    """
+    params = params or {}
+    if not (params.get("plc_mode") and params.get("plc_continuous")):
+        return None
+    cfg = {}
+    for name, default in CONTINUOUS_DEFAULTS.items():
+        raw = params.get(_CONTINUOUS_PARAM_KEYS[name], default)
+        if isinstance(default, bool):
+            cfg[name] = bool(raw)
+            continue
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            val = float(default)
+        if not math.isfinite(val) or val <= 0:
+            val = float(default)
+        cfg[name] = val
+    cfg["feed_min"] = max(1, int(cfg["feed_min"]))
+    cfg["reversal_deg"] = min(cfg["reversal_deg"], 180.0)
+    # In diameter mode the recipe X is a diameter; corner angles are measured on
+    # the real (radius) geometry.
+    cfg["diameter_mode"] = bool(params.get("machine_output_diameter_mode", False))
+    return cfg
+
+
+def _feed_floor(v_mm_s: float) -> int:
+    """mm/s -> whole mm/min, rounded DOWN so a planned limit is never exceeded
+    (the letter's rule). The epsilon keeps 60.0000000001 from becoming 59."""
+    return int(math.floor(v_mm_s * 60.0 + 1e-9))
+
+
+def plan_continuous_motion(lines, cfg) -> dict:
+    """Rewrite a parsed recipe for the continuous-motion PLC, in place.
+
+    The PLC blends line i into line i+1 only when i is CMD=2 with F > 0 AND i+1
+    is CMD=1 or CMD=2 with F > 0; everything else lands exactly. Given that rule:
+
+    1. every G1 must have F > 0 -- the PLC refuses a CMD=2 with F = 0 at
+       pre-scan, so the export refuses first (``CONT_ZERO_FEED:<line>``);
+    2. every G1 becomes CMD=2, except lines marked ``exact`` (a Point op: "go
+       there and stop" is a precise point by definition);
+    3. where a blend would turn by ``reversal_deg`` or more, the line arriving
+       at that corner goes back to CMD=1 -- an exact stop, no extra line;
+    4. at a smaller corner the arriving line's F is lowered to
+       ``tol / (T * sin theta)`` so the hand-off error stays within ``tol``.
+       F belongs to the WHOLE line, so this slows all of it -- which is why a
+       sharp corner on a long straight line is better made an exact stop, or
+       rounded with a P2 radius (user, 2026-09-14);
+    5. optional (``stop_slowdown``): the line that ends in a stop gets the
+       90-degree feed (tol / T) and the blending line before it double that,
+       as in the letter's example. A lone move that blends from nothing is left
+       alone -- slowing a one-line bend would slow the whole bend.
+
+    Feeds are only ever LOWERED, never raised above what was programmed, and
+    never planned below ``feed_min`` (a programmed feed below it stays as is).
+    No line is added or removed, so LineCount and the auto-tune budget do not
+    move. Returns counts for the header and the export message.
+    """
+    T = cfg["scan_time_s"]
+    tol = cfg["corner_tol_mm"]
+    f_min = int(cfg["feed_min"])
+    rev = cfg["reversal_deg"]
+    xs = 0.5 if cfg.get("diameter_mode") else 1.0
+    n = len(lines)
+
+    for i, ln in enumerate(lines):
+        if ln.cmd == CMD_LINEAR and ln.f <= 0:
+            raise ValueError(f"CONT_ZERO_FEED:{i}")
+    for ln in lines:
+        if ln.cmd == CMD_LINEAR and not ln.exact:
+            ln.cmd = CMD_LINEAR_CONTINUOUS
+
+    # Where each motion line starts. Non-motion lines carry X/Z too (markers
+    # carry 0,0), so only motion lines may move the running position.
+    motion = (CMD_RAPID, CMD_LINEAR, CMD_LINEAR_CONTINUOUS)
+    start = [None] * n
+    pos = None
+    for i, ln in enumerate(lines):
+        if ln.cmd in motion:
+            start[i] = pos
+            pos = (ln.x * xs, ln.z)
+
+    def is_feed(i):
+        return (0 <= i < n and lines[i].cmd in (CMD_LINEAR, CMD_LINEAR_CONTINUOUS)
+                and lines[i].f > 0)
+
+    def blends(i):
+        return lines[i].cmd == CMD_LINEAR_CONTINUOUS and is_feed(i + 1)
+
+    def direction(i):
+        if start[i] is None:
+            return None
+        dx = lines[i].x * xs - start[i][0]
+        dz = lines[i].z - start[i][1]
+        length = math.hypot(dx, dz)
+        return None if length < 1e-6 else (dx / length, dz / length)
+
+    # A zero-length G1 has no direction; look through it to the nearest real one.
+    def dir_in(i):
+        k = i
+        while is_feed(k):
+            d = direction(k)
+            if d:
+                return d
+            k -= 1
+        return None
+
+    def dir_out(i):
+        k = i + 1
+        while is_feed(k):
+            d = direction(k)
+            if d:
+                return d
+            k += 1
+        return None
+
+    stats = {"continuous": 0, "exact_corners": 0, "slowed_corners": 0, "slowed_stops": 0}
+    for i in range(n):
+        if not blends(i):
+            continue
+        a, b = dir_in(i), dir_out(i)
+        if a is None or b is None:
+            continue
+        theta = math.degrees(math.acos(max(-1.0, min(1.0, a[0] * b[0] + a[1] * b[1]))))
+        if theta >= rev:
+            lines[i].cmd = CMD_LINEAR
+            stats["exact_corners"] += 1
+            continue
+        # Past 90 degrees sin falls again; a sharper corner must never plan faster.
+        s = math.sin(math.radians(min(theta, 90.0)))
+        if s <= 1e-12:
+            continue
+        limit = max(f_min, _feed_floor(tol / (T * s)))
+        if limit < lines[i].f:
+            lines[i].f = limit
+            stats["slowed_corners"] += 1
+
+    if cfg.get("stop_slowdown"):
+        f_stop = max(f_min, _feed_floor(tol / T))
+        f_before = max(f_min, 2 * f_stop)
+        for i in range(1, n):
+            if not is_feed(i) or blends(i) or not blends(i - 1):
+                continue
+            changed = False
+            if f_stop < lines[i].f:
+                lines[i].f = f_stop
+                changed = True
+            if f_before < lines[i - 1].f:
+                lines[i - 1].f = f_before
+                changed = True
+            if changed:
+                stats["slowed_stops"] += 1
+
+    stats["continuous"] = sum(1 for ln in lines if ln.cmd == CMD_LINEAR_CONTINUOUS)
+    return stats
 
 
 def recipe_checksum(lines, line_count: int = None) -> int:
@@ -464,12 +652,14 @@ class RecipeLineData:
     cmd: int = 0        # Command type (Byte)
     param: int = 0      # Parameter (Byte) - meaning depends on CMD
     pass_label: str = ""  # e.g. "Op1 P2" — for comments only, not sent to PLC
-    
+    exact: bool = False   # G1 whose end point must be hit exactly (Point op); never sent
+
     def get_cmd_comment(self, mcode_descriptions: dict = None) -> str:
         """Get human-readable comment for CMD type."""
         cmd_names = {
             CMD_RAPID: "G0 Rapid",
             CMD_LINEAR: "G1 Linear",
+            CMD_LINEAR_CONTINUOUS: "G1 Continuous",
             CMD_TOOL_CHANGE: f"Tool Change T{self.param}",
             CMD_SPINDLE_ON: f"Spindle ON {self.param * 10} RPM",
             CMD_SPINDLE_OFF: "Spindle OFF",
@@ -501,7 +691,8 @@ class GCodeToSCLConverter:
     """
     
     def __init__(self, default_spindle_rpm: int = 1000, default_feedrate: int = 300,
-                 emit_pass_markers: bool = False):
+                 emit_pass_markers: bool = False,
+                 continuous_motion: Optional[dict] = None):
         """
         Initialize converter.
 
@@ -510,10 +701,15 @@ class GCodeToSCLConverter:
             default_feedrate: Default feed rate if not specified in G-code
             emit_pass_markers: Insert CMD=50/51 op and pass markers. Default False
                 keeps the output byte-identical to a build without this feature.
+            continuous_motion: Settings from ``continuous_settings(params)``, or
+                None (default) for today's output with no CMD=2 anywhere. See
+                ``plan_continuous_motion`` and letter_spinningcam_velocity_path.md.
         """
         self.default_spindle_rpm = min(default_spindle_rpm, MAX_SPINDLE_RPM)
         self.default_feedrate = min(default_feedrate, MAX_FEEDRATE)
         self.emit_pass_markers = bool(emit_pass_markers)
+        self.continuous_motion = continuous_motion or None
+        self.continuous_stats = None
         self.lines: List[RecipeLineData] = []
         
         # Bounding box tracking
@@ -545,7 +741,7 @@ class GCodeToSCLConverter:
         
         Supported G-codes:
             G0 Xnnn Znnn       -> CMD=0 (RAPID)
-            G1 Xnnn Znnn Fnnn  -> CMD=1 (LINEAR)
+            G1 Xnnn Znnn Fnnn  -> CMD=1 (LINEAR); CMD=2 when continuous_motion is on
             M3 Snnn            -> CMD=20 (SPINDLE_ON), Param=S/10
             M5                 -> CMD=21 (SPINDLE_OFF)
             M6 Tn              -> CMD=10 (TOOL_CHANGE), Param=tool#
@@ -553,6 +749,7 @@ class GCodeToSCLConverter:
             M30                -> CMD=99 (PROGRAM_END)
         """
         self.lines = []
+        self.continuous_stats = None
         self.min_x = float('inf')
         self.max_x = float('-inf')
         self.min_z = float('inf')
@@ -743,7 +940,10 @@ class GCodeToSCLConverter:
                     self.lines.append(RecipeLineData(
                         x=current_x, z=current_z, f=current_f,
                         cmd=CMD_LINEAR, param=0,
-                        pass_label=current_pass_label
+                        pass_label=current_pass_label,
+                        # A Point op is "go there and stop": its end point is
+                        # the one continuous motion must never blend past.
+                        exact="(Point Op" in line
                     ))
             
             # Handle standalone T command (tool select without M6)
@@ -783,7 +983,14 @@ class GCodeToSCLConverter:
         if self.min_x == float('inf'):
             self.min_x = self.max_x = 0.0
             self.min_z = self.max_z = 0.0
-            
+
+        # Continuous motion runs LAST, on the finished line list, so it sees the
+        # same lines (markers, spindle, END) the PLC will see. It never adds or
+        # removes a line. Off = this block does not run = today's recipe.
+        if self.continuous_motion:
+            self.continuous_stats = plan_continuous_motion(self.lines,
+                                                           self.continuous_motion)
+
         return self.lines
         
     def _tool_table_scl(self, params: dict) -> List[str]:
@@ -906,6 +1113,21 @@ class GCodeToSCLConverter:
             # this line, so keep the exact "// CHUNKS: n x m" spelling.
             scl_lines.append(f"// CHUNKS: {geo['chunk_count']} x {geo['chunk_size']}")
         scl_lines.append(f"// Generated by SpinningCam  [{gen_time}]")
+        if self.continuous_motion:
+            # The letter asks for a visible note: a production PLC skips CMD=2.
+            cm = self.continuous_motion
+            st = self.continuous_stats or {}
+            scl_lines.append("// !!! CONTINUOUS MOTION (CMD=2) - EXPERIMENTAL PLC ONLY !!!")
+            scl_lines.append("// Load ONLY on the continuous-motion PLC build. A production PLC")
+            scl_lines.append("// skips CMD=2 lines and jumps straight between the other points.")
+            scl_lines.append(
+                f"// T={cm['scan_time_s']:g} s, corner tol={cm['corner_tol_mm']:g} mm, "
+                f"F min={cm['feed_min']}, exact stop at >= {cm['reversal_deg']:g} deg, "
+                f"stop slow-down={'ON' if cm['stop_slowdown'] else 'OFF'}")
+            scl_lines.append(
+                f"// CMD=2 lines: {st.get('continuous', 0)}, exact corners: "
+                f"{st.get('exact_corners', 0)}, slowed corners: {st.get('slowed_corners', 0)}, "
+                f"slowed stops: {st.get('slowed_stops', 0)}")
         scl_lines.append("// ============================================")
         if params:
             scl_lines.append("//")
@@ -1100,7 +1322,8 @@ class GCodeToSCLConverter:
             
         # Statistics
         rapid_count = sum(1 for line in self.lines if line.cmd == CMD_RAPID)
-        linear_count = sum(1 for line in self.lines if line.cmd == CMD_LINEAR)
+        linear_count = sum(1 for line in self.lines
+                           if line.cmd in (CMD_LINEAR, CMD_LINEAR_CONTINUOUS))
         tool_count = sum(1 for line in self.lines if line.cmd == CMD_TOOL_CHANGE)
         spindle_ops = sum(1 for line in self.lines if line.cmd in (CMD_SPINDLE_ON, CMD_SPINDLE_OFF))
         
@@ -1112,6 +1335,7 @@ class GCodeToSCLConverter:
             'spindle_operations': spindle_ops,
             'pass_markers': sum(1 for line in self.lines
                                 if line.cmd in (CMD_OP_MARKER, CMD_PASS_MARKER)),
+            'continuous': self.continuous_stats,
             'db_name': db_name,
             'scl_size_bytes': len(scl_code.encode('utf-8')),
             'estimated_plc_bytes': len(self.lines) * 12,  # 12 bytes per line
@@ -1164,6 +1388,22 @@ TIA Portal Import:
                        help='Insert CMD=50 operation and CMD=51 pass markers so the HMI '
                             'can show "Op 2 of 5 / Pass 3 of 10". Costs one recipe line '
                             'per op and per pass; off by default.')
+    parser.add_argument('--continuous', action='store_true',
+                       help='Continuous-motion export: cutting G1 lines become CMD=2 '
+                            '(may blend), sharp corners stay CMD=1, corner feeds are '
+                            'planned. EXPERIMENTAL PLC ONLY -- a production PLC skips '
+                            'CMD=2. Off by default.')
+    parser.add_argument('--scan-time', type=float, default=CONTINUOUS_DEFAULTS['scan_time_s'],
+                       help='With --continuous: PLC scan time T in seconds (default: %(default)s)')
+    parser.add_argument('--corner-tol', type=float, default=CONTINUOUS_DEFAULTS['corner_tol_mm'],
+                       help='With --continuous: corner tolerance in mm (default: %(default)s)')
+    parser.add_argument('--feed-min', type=float, default=CONTINUOUS_DEFAULTS['feed_min'],
+                       help='With --continuous: lowest planned corner feed, mm/min (default: %(default)s)')
+    parser.add_argument('--reversal-deg', type=float, default=CONTINUOUS_DEFAULTS['reversal_deg'],
+                       help='With --continuous: corners at least this sharp stop exactly '
+                            '(default: %(default)s)')
+    parser.add_argument('--stop-slowdown', action='store_true',
+                       help='With --continuous: slow the last lines before every stop')
     parser.add_argument('--name', '-n', default='DB_RecipeProgram1',
                        help='Data Block name (default: DB_RecipeProgram1)')
     parser.add_argument('--title', '-t', default='SpinningCam Program',
@@ -1196,7 +1436,13 @@ TIA Portal Import:
         converter = GCodeToSCLConverter(
             default_spindle_rpm=args.spindle,
             default_feedrate=args.feedrate,
-            emit_pass_markers=args.pass_markers
+            emit_pass_markers=args.pass_markers,
+            continuous_motion=continuous_settings({
+                "plc_mode": True, "plc_continuous": args.continuous,
+                "plc_scan_time_s": args.scan_time, "plc_corner_tol_mm": args.corner_tol,
+                "plc_feed_min": args.feed_min, "plc_reversal_deg": args.reversal_deg,
+                "plc_stop_slowdown": args.stop_slowdown,
+            })
         )
 
         output_path, stats = converter.convert_file(
@@ -1228,6 +1474,11 @@ TIA Portal Import:
         print(f"Spindle Ops: {stats['spindle_operations']}")
         if stats.get('pass_markers'):
             print(f"Pass Markers: {stats['pass_markers']} (CMD 50/51)")
+        if stats.get('continuous'):
+            c = stats['continuous']
+            print(f"Continuous (CMD 2): {c['continuous']} lines, {c['exact_corners']} exact "
+                  f"corners, {c['slowed_corners']} slowed corners, {c['slowed_stops']} slowed "
+                  f"stops -- EXPERIMENTAL PLC ONLY")
         print(f"SCL File Size: {stats['scl_size_bytes']:,} bytes")
         print(f"Est. PLC Memory: {stats['estimated_plc_bytes']:,} bytes")
         print(f"\n--- Bounding Box ---")

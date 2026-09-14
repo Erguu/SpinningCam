@@ -154,6 +154,15 @@ class SpinningApp:
             "plc_auto_tune": False,     # auto-fit tolerance to a PLC line budget
             "plc_target_lines": 1000,   # target max recipe lines when auto_tune is on
             "plc_pass_markers": False,  # emit CMD=50/51 op+pass markers for the HMI
+            # Continuous motion (CMD=2, letter_spinningcam_velocity_path.md).
+            # EXPERIMENTAL PLC ONLY — a production PLC skips CMD=2. Defaults
+            # mirror recipe_to_scl.CONTINUOUS_DEFAULTS.
+            "plc_continuous": False,
+            "plc_scan_time_s": 0.1,     # PLC scan time T (not yet measured)
+            "plc_corner_tol_mm": 0.1,   # path error allowed where lines blend
+            "plc_feed_min": 30,         # lowest planned corner feed, mm/min
+            "plc_reversal_deg": 90.0,   # corners at least this sharp stop exactly
+            "plc_stop_slowdown": False, # slow the last lines before a stop
             # SCL recipe DB layout: lines per declared array (Lines1..LinesN).
             # The PLC copies the recipe out of load memory one declared array at a
             # time (READ_DBL silently truncates a 12 KB block), so this must match
