@@ -27,6 +27,43 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 > `"1.032"` girdisi; test işi bilerek DIŞARIDA (operatör için görünmez).
 > Bu sürümde takım yolu DEĞİŞMEDİ — sadece ekranın söylediği düzeldi.
 
+## 2026-09-16 — 3B'de gerçek duruş noktaları (sürekli hareket)
+
+**Kullanıcı:** sürekli hareketi mutlak (duran) hareketten 3B'de ayırt etmek istedi;
+seçenekler arasından **"her duruşta nokta"**yı seçti. Branch `feature/mandrel-end-link`.
+
+**Ne görünür:** pas rengini korur; makinenin GERÇEKTEN durduğu her noktada siyah
+küre. Noktasız uzun bölüm = durmadan gider. Sadece Makine ▸ PLC ▸ sürekli hareket
+açıkken çizilir. Proses sekmesi ▸ "Duruşları Göster (sürekli hareket)", varsayılan
+açık, `_VIEW_ONLY_PREF_KEYS`'te (program dosyası değiştiremez).
+
+**Neden dosyayla aynı:** `motion_stops.py` SCL dışa aktarımının zincirini birebir
+koşar — `generate_gcode(for_recipe=True)` (plc_auto_tune açıksa AYNI
+`auto_fit_plc_tolerance` ile) → `GCodeToSCLConverter(markers, continuous)` → PLC
+kuralı SONRAKİ reçete satırına bakarak (CMD=2 + F>0 + sonraki CMD 1/2 F>0 ise
+blend, değilse duruş). İşaretçi satırı araya girerse duruş sayılır — makinedeki gibi.
+
+**Satır → 3B nokta eşlemesi SAYARAK:** path i = 1 G0 + len(last_plc_paths[i])-1 G1.
+`exact` satırlar (Nokta op'u; ileride bağlantı satırı) atlanır. **Sayı tutmazsa HİÇ
+nokta çizilmez + uyarı loglanır** (yanlış resim yerine resim yok). Havadaki hızlı
+hareket sonu da duruştur ama NOKTA KONMAZ: 3B'deki hızlı çizgiler simülasyonun kendi
+şeklinden (3 adımlı güvenli rapid) çizilir, reçetedekinden değil — dürüst yer yok.
+
+**Güvenlik/yan etki:** hesap uygulamanın path_gen'inin SIĞ KOPYASINDA koşar
+(`generate_gcode` sadece öznitelik yeniden bağlar — ölçüldü: `last_plc_paths` kimliği
+değişmiyor). Arka plan hesabı sürerken (`_calc_running`) çizilmez. Sonuç
+`StopCache`'te: yol listesi KİMLİĞİ + `show_*` hariç params.
+
+**Ölçüm:** 140926 (auto-tune) 265 ms ilk / bundan devam 55 ms / kalin2 9 ms /
+020926 11 ms. Her nokta KENDİ pasının tam çözünürlüklü bir noktasına 1e-6 içinde
+oturuyor (4 gerçek program).
+
+**Test:** `_test_motion_stops.py` (kural, eşleme, uyuşmazlık→yok, kapalı→yok, önbellek,
+4 gerçek program, çizim: renk/sayı/uç kaydırma/anahtar/arka plan hesabı).
+`_test_view_toggles.py` yeni anahtarı da kontrol ediyor.
+
+**Geri alma:** `main.py` `self._draw_motion_stops()` satırını sil; gerisi etkisiz kalır.
+
 ## 2026-09-15 — Sürekli harekette kısa satır uyarısı + basit öneri (#107)
 
 **Kullanıcı:** *"A small warning with simple suggestion would be nice"*; öneride

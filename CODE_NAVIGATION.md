@@ -330,7 +330,8 @@ diyaloğuyla sessizce çelişebilecek ikinci bir dönüşüm yolu doğardı.
 | Hızlı hareket başına `r_tool` | `main.py` | `_rapid_rtools()` — `last_calculated_sequence`'i yürür (cut→rapid sırası); uzunluk tutmazsa TEK fallback |
 | Nokta üçgeni uç kayması | `main.py` | `update_point_markers()` → `marker["op_index"]` → op `r_tool` |
 | **.ssp'den geri yüklenmez** | `main.py` | `_VIEW_ONLY_PREF_KEYS` + `load_project` restore |
-| Kutular | `ui/tabs/process_tab.py` | `cb_show_tip_paths`, `cb_show_rapids` (ikisi de `redraw_paths_cached()`) |
+| **Duruş noktaları (sürekli hareket, 2026-09-16)** | `motion_stops.py` + `main.py` | `params["show_motion_stops"]`; `compute()` SCL zincirini koşar (auto-tune dahil) → `stop_flags` (PLC kuralı, SONRAKİ satır) → `map_stops` (SAYARAK; tutmazsa None = nokta yok); `StopCache` (yol listesi kimliği + `show_*` hariç params); çizim `_draw_motion_stops()` (`actors["paths"]`'e; `_calc_running` iken çizmez). Test: `_test_motion_stops.py` |
+| Kutular | `ui/tabs/process_tab.py` | `cb_show_tip_paths`, `cb_show_rapids`, `cb_show_motion_stops` (hepsi `redraw_paths_cached()`) |
 
 **KURAL:** uç kayması PASO + HIZLI HAREKET + NOKTA üçgenini BİRLİKTE kaydırmalı.
 Hızlı hareket bir pasonun bittiği yerden başlar; biri kayıp diğeri kalmazsa

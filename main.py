@@ -24,7 +24,7 @@ from logger_config import logger
 # see the comment at that call site. Add a key here whenever a new view-only
 # toggle is introduced; anything that changes a path or a number does NOT
 # belong in this list.
-_VIEW_ONLY_PREF_KEYS = ("show_tip_paths", "show_rapids")
+_VIEW_ONLY_PREF_KEYS = ("show_tip_paths", "show_rapids", "show_motion_stops")
 
 
 class SpinningApp:
@@ -217,6 +217,10 @@ class SpinningApp:
             # always defaulted to on — keeping True here preserves that exactly.
             # Visual only: hiding them changes no path and no G-code.
             "show_rapids": True,
+
+            # Black dots where the machine really stops, drawn only while
+            # continuous-motion export is on (motion_stops.py). Visual only.
+            "show_motion_stops": True,
 
             # Clamp / counter-press zone (TODO #62). The base region of the part is
             # held between the counter-press and the mandrel and is NOT machined.
@@ -705,6 +709,43 @@ class SpinningApp:
         sgn = np.where(dx < 0.0, -1.0, 1.0)
         out[:, 0] = cx + sgn * np.maximum(np.abs(dx) - float(r_tool), 0.1)
         return out
+
+    def _draw_motion_stops(self):
+        """VISUAL ONLY (user, 2026-09-16): with continuous-motion export on, a
+        black dot wherever the machine really stops; a long stretch without dots
+        runs nonstop. motion_stops.py works out the stops from the recipe the SCL
+        export would write right now — this only draws them, into the "paths"
+        actor list so the normal redraw removes them.
+
+        Draws nothing while a background calculation is rewriting the path
+        generator (the answer could mix two calculations), or when there is no
+        honest answer (continuous motion off, export error, recipe and paths not
+        lining up).
+        """
+        if not self.params.get("show_motion_stops", True):
+            return
+        if getattr(self, "_calc_running", False):
+            return
+        try:
+            import motion_stops
+            cache = getattr(self, "_motion_stops_cache", None)
+            if cache is None:
+                cache = self._motion_stops_cache = motion_stops.StopCache()
+            res = cache.get(self.path_gen, self.params)
+            if not res or not res.get("points"):
+                return
+            tip = self.params.get("show_tip_paths", False)
+            pts = []
+            for i, pt in res["points"]:
+                arr = np.asarray(pt, dtype=float).reshape(1, 3)
+                if tip:
+                    arr = self._shift_path_to_tip(arr, self._rtool_for_pass(i))
+                pts.append(arr[0])
+            self.actors["paths"].append(self.plotter.add_mesh(
+                pv.PolyData(np.asarray(pts, dtype=float)), color="black",
+                point_size=11, render_points_as_spheres=True))
+        except Exception as e:
+            logger.error(f"[motion stops] draw failed: {e}")
 
     def update_deformed_blank(self, render=False):
         """(#63) Faded-blue overlay of the blank as bent by the SELECTED pass. Built DIRECTLY
@@ -1400,6 +1441,8 @@ class SpinningApp:
                     if is_active:
                         for pt in cps[i]:
                             self.actors["cps"].append(self.plotter.add_points(pt, color='blue', point_size=15, render_points_as_spheres=True))
+                # Continuous motion: a dot wherever the machine really stops.
+                self._draw_motion_stops()
                 # DEBUG ANALYSIS LINES - One line per pass showing minimum clearance
                 if self.params.get("show_analysis_lines", False) and len(debug_lines) > 0:
                     all_points = []

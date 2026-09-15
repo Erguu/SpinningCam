@@ -243,6 +243,25 @@ class ProcessTab(ScrollableTabBase):
             "bu ayara uyar.\n"
             "TAMAMEN GÖRSELDİR: hareketler silinmez, G-code ve reçete AYNEN kalır.")
 
+        var_stops = tk.BooleanVar(value=bool(self.app.params.get("show_motion_stops", True)))
+        def on_stops_toggle():
+            # Visual-only, same as the rapids toggle: store the flag, save it, and
+            # redraw from the CACHED paths. The dots come from motion_stops.py.
+            self.app.params["show_motion_stops"] = var_stops.get()
+            self.app.save_settings_json()
+            self.app.redraw_paths_cached()
+        cb_stops = ttk.Checkbutton(self.content, text=t("cb_show_motion_stops"),
+                                   variable=var_stops, command=on_stops_toggle)
+        cb_stops.pack(anchor="w", padx=10)
+        self.helper.bind_tooltip(cb_stops,
+            "Sürekli hareket (CMD=2) açıkken makinenin GERÇEKTEN durduğu her\n"
+            "noktaya siyah bir nokta koyar. Noktasız uzun bölüm = durmadan gider.\n"
+            "Noktalar SCL dışa aktarımının şu an yazacağı reçeteden hesaplanır\n"
+            "(otomatik ayar dahil), yani dosyayla aynıdır. Sürekli hareket\n"
+            "kapalıyken hiçbir şey çizilmez. Her hızlı hareketin sonu da bir\n"
+            "duruştur, ama havadaki o noktalara nokta konmaz.\n"
+            "TAMAMEN GÖRSELDİR: yol, G-code ve reçete AYNEN kalır.")
+
         self._add_pass_colors()
 
         # ---------------- Back-support cylinder (3D view only) ----------------

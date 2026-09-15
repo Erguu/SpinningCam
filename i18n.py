@@ -744,6 +744,7 @@ STRINGS = {
     "cb_show_deformed_blank": {"EN": "Show Bent-Sheet Overlay",     "TR": "Bükülmüş Sac Kaplamasını Göster", "ES": "Mostrar Superposición de Chapa Doblada"},
     "cb_show_blank_edge":     {"EN": "Show Predicted Sheet Edge",   "TR": "Tahmini Sac Kenarını Göster",     "ES": "Mostrar Borde de Chapa Estimado"},
     "cb_show_rapids":         {"EN": "Show Rapid (G0) Moves",       "TR": "Hızlı (G0) Hareketleri Göster",   "ES": "Mostrar Movimientos Rápidos (G0)"},
+    "cb_show_motion_stops":   {"EN": "Show Stops (continuous motion)", "TR": "Duruşları Göster (sürekli hareket)", "ES": "Mostrar Paradas (movimiento continuo)"},
     "btn_save_cam_angle":   {"EN": "Save Current Angle",            "TR": "Mevcut Açıyı Kaydet",        "ES": "Guardar Ángulo Actual"},
     "btn_reset_cam":        {"EN": "Reset Camera",                  "TR": "Kamerayı Sıfırla",           "ES": "Restablecer Cámara"},
     "lbl_cam_presets":      {"EN": "Camera Presets:",               "TR": "Kamera Önayarları:",         "ES": "Presets de Cámara:"},

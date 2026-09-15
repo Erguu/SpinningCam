@@ -163,6 +163,16 @@ Orange dashed      Rapid (G0) moves — the roller travelling between
                    only: the moves still happen and the G-code and
                    recipe are unchanged.
 
+Black dots         Where the machine really STOPS. Drawn only while
+                   Machine ▸ PLC ▸ "Continuous-motion export" is on.
+                   A long stretch with no dots runs without stopping.
+                   The dots are worked out from the recipe the SCL
+                   export would write right now (auto-tune included),
+                   so they always match the file. Every rapid also
+                   ends in a stop, but those points in the air get no
+                   dot. Hide them with Process tab → "Show Stops
+                   (continuous motion)". View only.
+
 Grey triangle      A Point operation's position. It marks where the
                    machine is told to go; it is not a toolpath.
 
@@ -310,6 +320,17 @@ Turuncu kesikli     Hızlı (G0) hareketler — rulonun pasolar arasında
                     "Hızlı (G0) Hareketleri Göster" ile gizle.
                     Gizlemek SADECE görünümü değiştirir: hareketler
                     olduğu gibi kalır, G-code ve reçete AYNIDIR.
+
+Siyah noktalar      Makinenin GERÇEKTEN DURDUĞU yerler. Sadece
+                    Makine ▸ PLC ▸ "Sürekli hareket dışa aktarımı"
+                    açıkken çizilir. Noktasız uzun bir bölüm durmadan
+                    gider. Noktalar, SCL dışa aktarımının şu an
+                    yazacağı reçeteden hesaplanır (otomatik ayar
+                    dahil), yani dosyayla hep aynıdır. Her hızlı
+                    hareketin sonu da bir duruştur, ama havadaki o
+                    noktalara nokta konmaz. Proses sekmesi →
+                    "Duruşları Göster (sürekli hareket)" ile gizle.
+                    Sadece görünüm.
 
 Gri üçgen           Bir Nokta operasyonunun konumu. Makineye
                     gitmesi söylenen yeri gösterir; takım yolu

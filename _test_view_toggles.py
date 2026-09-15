@@ -180,6 +180,8 @@ def test_view_prefs_survive_a_project_load():
     from main import SpinningApp, _VIEW_ONLY_PREF_KEYS
     assert "show_rapids" in _VIEW_ONLY_PREF_KEYS
     assert "show_tip_paths" in _VIEW_ONLY_PREF_KEYS
+    # Stop dots (2026-09-16): a view switch too — a program must not change it.
+    assert "show_motion_stops" in _VIEW_ONLY_PREF_KEYS
 
     app = SpinningApp.__new__(SpinningApp)
     app.params = _params([_rough()], show_tip_paths=True, show_rapids=False)
