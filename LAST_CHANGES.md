@@ -5,6 +5,17 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+> **v1.034 = aşağıdaki iki 2026-09-15 / 2026-09-14 girdisi** (#107 sürekli
+> hareket CMD=2 dışa aktarımı + kısa satır uyarısı) **+ #106 açık pas tablosu
+> operasyon düzenlemesini anında gösterir** (commit 0256910). Operatöre görünen
+> kısmı `changelog.py`'deki `"1.034"` girdisi. Sürekli hareket varsayılan
+> KAPALI; KAPALI = SCL bayt-aynı. **SAHADA ÇALIŞTI (2026-09-15):**
+> `DB_RecipeProgram1.scl` (16:03, ee7cd0a kodu, 151 satır, 110 CMD=2) deneysel
+> PLC'de koştu; ilk denemede `16#000F` sapma hatası → TO smoothing t1 0.3 → 0.06 s
+> ile giderildi (PLC tarafı ayarı, CAM değişmedi). Kısa satır uyarısı sahada
+> AYRICA denenmedi. Kontrol noktası: git etiketi **`v1.034-field-tested`**.
+> Branch `feature/continuous-motion`; **MERGE YOK, EXE YOK.**
+
 > **v1.033 = aşağıdaki 2026-09-10d girdisi** (#106 tek paslı operasyon =
 > tek sayı). Operatöre görünen kısmı `changelog.py`'deki `"1.033"` girdisi.
 > Bu sürümde de takım yolu DEĞİŞMEDİ — nötrlük nokta nokta ÖLÇÜLÜYOR

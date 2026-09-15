@@ -17,6 +17,30 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.034": [
+        ("New option: continuous-motion export (experimental)",
+         "For the experimental PLC that can move from one line to the next "
+         "without stopping. Cutting lines are marked so the machine keeps "
+         "moving; sharp corners and Point operations still stop exactly, and "
+         "the feed is lowered before smaller corners. It is OFF to start with. "
+         "With it off, the PLC file is exactly the same as before.",
+         "Machine Settings ▸ PLC Output Mode ▸ Continuous-motion export"),
+        ("Only load these files on the experimental PLC",
+         "The normal production PLC does not know these lines and would skip "
+         "them, jumping straight between the remaining points. The file header "
+         "and the export message both warn you when the option is on."),
+        ("Warning about lines that are too short",
+         "With continuous motion on, before saving the program tells you which "
+         "operations have lines too short for smooth motion, and suggests "
+         "values for P2 Max Points / Exit Max Points (current → suggested). "
+         "It only advises; nothing changes unless you type the new value.",
+         "Machine Settings ▸ PLC Output Mode ▸ Continuous-motion export ▸ Export SCL"),
+        ("Fixed: an open pass table now shows edits made to its operation",
+         "If you changed a value on the operation while its pass table was "
+         "open, the table kept showing the old number until you pressed "
+         "Refresh. It now updates straight away.",
+         "Program List ▸ right-click an operation ▸ Passes ▦"),
+    ],
     "1.033": [
         ("One pass, one number",
          "If an operation has only one pass, that pass IS the operation — so "
