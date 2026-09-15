@@ -943,7 +943,9 @@ class GCodeToSCLConverter:
                         pass_label=current_pass_label,
                         # A Point op is "go there and stop": its end point is
                         # the one continuous motion must never blend past.
-                        exact="(Point Op" in line
+                        # A mandrel-end link line ends at the next pass start,
+                        # a move toward the part: exact landing too.
+                        exact=("(Point Op" in line) or ("(Link Op" in line)
                     ))
             
             # Handle standalone T command (tool select without M6)

@@ -742,6 +742,10 @@ class PathGenerator:
         self.last_exit_verbatim = set()    # #100: path indices whose exit tail must NOT be decimated
         self.last_exit_break_counts = {}   # #102: path index → how many breaks shaped its exit leg
         self.last_break_flatten_warnings = []  # #102: exit caps that blunted a break
+        # Mandrel-end link (mandrel_end_link.py, 2026-09-16), decided in calculate_paths:
+        self.last_mandrel_links = {}           # B path index -> {"a", "from", "to", "gap", "clearance"}
+        self.last_mandrel_link_refused = []    # [{"a", "b", "reasons"}] mandrel ends the option could not link
+        self.last_mandrel_link_fallbacks = []  # B indices where generate_gcode put the retract BACK
 
     def _tc_radial_gap(self, pt, center_x, mandrel_mgr, params, r_tool):
         """Radial clearance (mm) between the roller contact at ``pt`` and the
@@ -853,6 +857,8 @@ class PathGenerator:
         sequence = [] # Ordered execution list for simulation
         debug_lines = [] # Analysis Lines for Visualization
         self.last_back_pass_meta = {}  # {path_list_index: {"feed": ...}}
+        self.last_mandrel_links = {}          # mandrel-end link, see _apply_mandrel_end_links
+        self.last_mandrel_link_refused = []
         # Back passes asked for on a reverse op and deliberately not built (#49).
         self.last_back_pass_ignored = []
         self.last_render_split_idx = {}  # {path_list_index: (line_end_idx, arc_end_idx)}
@@ -1873,6 +1879,17 @@ class PathGenerator:
                 rapids.append(seg)
                 sequence.append(("rapid", seg))
         
+        # Mandrel-end link (2026-09-16): decided ONCE, here, while everything is
+        # still in the canonical frame and every pass exists. generate_gcode only
+        # follows self.last_mandrel_links. No tickbox on = returns immediately,
+        # sequence and rapids untouched.
+        sequence = self._apply_mandrel_end_links(toolpaths, sequence, operations,
+                                                 params, mandrel_mgr)
+        if self.last_mandrel_links:
+            # rapids and the sequence's rapid items are appended pairwise
+            # everywhere above; keep them pairwise after the removal.
+            rapids = [item[1] for item in sequence if item[0] == "rapid"]
+
         # Mirror all X coordinates if roller is on negative X side
         if side == -1.0:
             def _mirror_pts(arr):
@@ -1923,6 +1940,12 @@ class PathGenerator:
                 else:
                     mirrored_seq.append(item)
             sequence = mirrored_seq
+
+            # The link records are read by the emitter and the 3D view in the
+            # machine frame, like every other X here.
+            for _rec in self.last_mandrel_links.values():
+                for _key in ("from", "to"):
+                    _rec[_key][0] = 2.0 * center_x - _rec[_key][0]
 
             # Point markers were stored canonical, like every other X above. The
             # triangle has to land where the move actually goes, or the 3D view
@@ -1988,6 +2011,101 @@ class PathGenerator:
         self.last_calculated_sequence = sequence
         self.last_mandrel_mgr = mandrel_mgr
         return toolpaths, projections, control_points, deviations, rapids, debug_lines
+
+    def _apply_mandrel_end_links(self, toolpaths, sequence, operations, params, mandrel_mgr):
+        """Mandrel-end link: where the rule allows it, drop the air trip between a
+        pass that ends at the mandrel and the next forward pass, and put one short
+        feed line in its place. See mandrel_end_link.py for the rule and why.
+
+        Fills ``last_mandrel_links`` / ``last_mandrel_link_refused`` and returns
+        the (possibly) rewritten simulation sequence. The toolpath list itself is
+        NEVER changed — every index everyone else holds stays valid.
+
+        Each toolpath's "cut" item is found in the sequence by IDENTITY (the arrays
+        are appended to both). If that mapping is incomplete, or anything other
+        than rapids sits between two cuts, nothing is linked: a missing link is
+        today's behaviour, a wrong one would not be.
+        """
+        import mandrel_end_link as mel
+        if not any(mel.enabled(o) for o in operations if o.get("enabled", True)):
+            return sequence
+        n = len(toolpaths)
+        if n < 2:
+            return sequence
+
+        pos = {}
+        for s_idx, item in enumerate(sequence):
+            if not item or item[0] != "cut":
+                continue
+            for j in range(n):
+                if j not in pos and item[1] is toolpaths[j]:
+                    pos[j] = s_idx
+                    break
+        op_index_of = []
+        for j in range(n):
+            op = self._path_op_map[j] if j < len(self._path_op_map) else None
+            op_index_of.append(next((k for k, o in enumerate(operations) if o is op), None))
+        if len(pos) != n or any(k is None for k in op_index_of):
+            logger.warning("[LINK] toolpaths could not be matched to the simulation "
+                           "sequence; no mandrel-end links this time")
+            return sequence
+
+        # _path_min_clearance reads the mandrel from here; it is assigned again,
+        # to the same object, at the end of calculate_paths.
+        self.last_mandrel_mgr = mandrel_mgr
+        bp_meta = self.last_back_pass_meta
+        remove, insert_after = set(), {}
+        for a in range(n - 1):
+            b = a + 1
+            a_op = operations[op_index_of[a]]
+            if not mel.enabled(a_op):
+                continue
+            reasons = mel.blockers(operations, op_index_of[a], a in bp_meta,
+                                   op_index_of[b], b in bp_meta, b + 1, params)
+            if "not_mandrel_end" in reasons:
+                continue                      # a forward pass: nothing to link, nothing to report
+            a_end = np.asarray(toolpaths[a][-1], dtype=float)
+            b_start = np.asarray(toolpaths[b][0], dtype=float)
+            gap = cl = None
+            if not reasons:
+                ok, gap, why, cl = mel.check_geometry(
+                    a_end, b_start, a_op,
+                    lambda pts, _op=a_op: self._path_min_clearance(
+                        np.asarray(pts, dtype=float), _op, params))
+                if not ok:
+                    reasons = [why]
+            if not reasons and pos[b] <= pos[a]:
+                reasons = ["sequence"]
+            between = range(pos[a] + 1, pos[b]) if not reasons else ()
+            if not reasons and any(sequence[k][0] != "rapid" for k in between):
+                reasons = ["sequence"]
+            if reasons:
+                self.last_mandrel_link_refused.append({"a": a, "b": b, "reasons": reasons})
+                continue
+            remove.update(between)
+            if gap >= mel.MIN_LINE_MM:
+                cut_a, cut_b = sequence[pos[a]], sequence[pos[b]]
+                feeds = [f for f in (cut_a[4] if len(cut_a) > 4 else None,
+                                     cut_b[4] if len(cut_b) > 4 else None)
+                         if isinstance(f, (int, float)) and f > 0]
+                insert_after[pos[a]] = ("cut", np.array([a_end, b_start]), cut_a[2],
+                                        cut_a[3], min(feeds) if feeds else None)
+            self.last_mandrel_links[b] = {"a": a, "from": a_end.copy(),
+                                          "to": b_start.copy(), "gap": float(gap),
+                                          "clearance": cl}
+
+        if not self.last_mandrel_links:
+            return sequence
+        out = []
+        for s_idx, item in enumerate(sequence):
+            if s_idx in remove:
+                continue
+            out.append(item)
+            if s_idx in insert_after:
+                out.append(insert_after[s_idx])
+        logger.info(f"[LINK] {len(self.last_mandrel_links)} mandrel-end link(s), "
+                    f"{len(self.last_mandrel_link_refused)} refused")
+        return out
 
     def _compute_tilt_for_path(self, pts, op, mandrel_mgr, kin):
         """CANONICAL tilt source — per-point tilt (deg) for any point array.
@@ -3501,6 +3619,17 @@ class PathGenerator:
         # in). Recorded while emitting, read by short_segments.py. Output-neutral.
         self.last_path_point_feeds = {}
 
+        # Mandrel-end link (mandrel_end_link.py): calculate_paths decided WHERE;
+        # this only follows. A retract that a link will replace is HELD (not
+        # written) until the next pass start, and written after all if anything
+        # that makes the PLC do something turned up in between — a safety net for
+        # a blocker the rule missed. Empty dict = every line below is unchanged.
+        import mandrel_end_link as _mel
+        _links = getattr(self, "last_mandrel_links", None) or {}
+        self.last_mandrel_link_fallbacks = []
+        _held_retract = None      # (index in gcode, [retract lines])
+        _last_cut_feed = None     # feed of the last cut line written
+
         # ── Tilt-arm machines (ID112): per-point B words + reachability check.
         # Tilt is recomputed from the emitted point list itself (decimated or
         # not) via _compute_tilt_for_path, so words always match the points.
@@ -3935,7 +4064,34 @@ class PathGenerator:
                     return f" B{_tilt_kin.tilt_to_b(float(tilts[idx])):.3f}"
 
                 s_x, s_z = transform_pt(path[0])
-                gcode.append(f"G0 X{s_x:.3f} Z{s_z:.3f}{_b_word(pass_tilts, 0)} (Op{op_idx+1} P{i+1})")
+                _link = _links.get(global_path_idx) if _held_retract is not None else None
+                if _link is not None:
+                    if any(_mel.is_machine_line(_l) for _l in gcode[_held_retract[0]:]):
+                        # Safety net: the rule let this through but the program
+                        # commands something between the two passes. Put the
+                        # retract back exactly where it would have been.
+                        gcode[_held_retract[0]:_held_retract[0]] = _held_retract[1]
+                        self.last_mandrel_link_fallbacks.append(global_path_idx)
+                        logger.warning(f"[LINK] Op{op_idx+1} P{i+1}: a machine command sits "
+                                       f"between the passes; retract kept")
+                        _link = None
+                    _held_retract = None
+                if _link is None:
+                    gcode.append(f"G0 X{s_x:.3f} Z{s_z:.3f}{_b_word(pass_tilts, 0)} (Op{op_idx+1} P{i+1})")
+                elif _link["gap"] >= _mel.MIN_LINE_MM:
+                    # One slow feed line to this pass's start, at the lowest of the
+                    # feeds around it. Tagged "(Link Op" — the recipe marks it an
+                    # exact stop (design option A: a move toward the part always
+                    # lands exactly). The pass marker (CMD=51) above it stays where
+                    # it is, so a back-pass link costs TWO stops, not one — user
+                    # choice 2026-09-16. For ONE stop, write this line BEFORE the
+                    # "(--- OP n: ... PASO i ---)" header instead.
+                    _lf = [f for f in (_last_cut_feed, pass_feed, pass_feed_contact)
+                           if f is not None and f > 0]
+                    _lf = max(1.0, min(3000.0, min(_lf) if _lf else float(pass_feed)))
+                    gcode.append(f"G1 X{s_x:.3f} Z{s_z:.3f}{_b_word(pass_tilts, 0)} F{_lf:.3f} "
+                                 f"(Link Op{op_idx+1} P{i+1})")
+                # else: this pass starts where the last one ended — no line at all.
                 
                 zones = op.get("zones", [])
                 current_s_val = val_speed
@@ -4003,6 +4159,7 @@ class PathGenerator:
                 # starts where the forward ended (P3), so the roller flows straight in.
                 _bp_meta = getattr(self, 'last_back_pass_meta', {})
                 _back_follows = (global_path_idx + 1) in _bp_meta
+                _last_cut_feed = current_f_val if current_f_val > 0 else _last_cut_feed
                 if len(path) > 0 and not _back_follows:
                     last_pt = path[-1]
                     ret_x_off, ret_z_off = resolve_pass_retract(op, params)  # #90 per-op
@@ -4018,12 +4175,17 @@ class PathGenerator:
                     # (CAM_INTERFACE_SPEC section 4), so naming both costs
                     # nothing and the .nc stops depending on modal state to be
                     # read correctly.
+                    _ret_lines = []
                     for _rs in retract_segments(
                             last_pt, retract_x_offset_real(ret_x_off, ret_side),
                             ret_z_off, _ret_motion):
                         rx, rz = transform_pt([_rs[-1][0], 0, _rs[-1][2]])
-                        gcode.append(f"G0 X{rx:.3f} Z{rz:.3f} "
-                                     f"(Retract Op{op_idx+1} P{i+1})")
+                        _ret_lines.append(f"G0 X{rx:.3f} Z{rz:.3f} "
+                                          f"(Retract Op{op_idx+1} P{i+1})")
+                    if (global_path_idx + 1) in _links:
+                        _held_retract = (len(gcode), _ret_lines)   # the next start decides
+                    else:
+                        gcode.extend(_ret_lines)
 
                 gcode.append("")
                 _fwd_last_pt = path[-1] if len(path) > 0 else None
@@ -4073,14 +4235,26 @@ class PathGenerator:
                     if len(bp_path) > 0:
                         bl = bp_path[-1]
                         _bp_rx_off, _bp_rz_off = resolve_pass_retract(op, params)  # #90 per-op
+                        _ret_lines = []
                         for _rs in retract_segments(
                                 bl, retract_x_offset_real(_bp_rx_off, ret_side),
                                 _bp_rz_off, resolve_retract_motion(op)):
                             rx, rz = transform_pt([_rs[-1][0], 0, _rs[-1][2]])
-                            gcode.append(f"G0 X{rx:.3f} Z{rz:.3f} "
-                                         f"(Retract Op{op_idx+1} BP{i+1})")
+                            _ret_lines.append(f"G0 X{rx:.3f} Z{rz:.3f} "
+                                              f"(Retract Op{op_idx+1} BP{i+1})")
+                        if (global_path_idx + 1) in _links:
+                            _held_retract = (len(gcode), _ret_lines)   # the next start decides
+                        else:
+                            gcode.extend(_ret_lines)
+                    _last_cut_feed = current_bp_f if current_bp_f > 0 else _last_cut_feed
                     gcode.append("")
                     global_path_idx += 1
+
+        if _held_retract is not None:
+            # A held retract whose next pass never came: write it. Cannot happen
+            # while the record and the emission agree — this is the belt.
+            gcode[_held_retract[0]:_held_retract[0]] = _held_retract[1]
+            _held_retract = None
 
         if self.last_kinematic_warnings:
             logger.warning(f"[TILT] {len(self.last_kinematic_warnings)} kinematic reachability "

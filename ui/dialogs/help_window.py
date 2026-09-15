@@ -1495,6 +1495,25 @@ while the simulation showed it clearing. If you have ever worked
 around this by typing a negative number, your programs are unchanged
 — the number you typed already pointed the right way.
 
+NO RETRACT AT THE MANDREL END (reverse passes and back passes)
+A reverse pass, and a back pass, end at the mandrel end of the pass,
+and the next forward pass usually starts right there (0–10 mm away).
+Normally the roller still retracts and comes straight back: two extra
+stops and an air trip. Tick "No retract at mandrel end" on that
+operation (shown only on reverse operations and operations with a back
+pass; OFF by default) and that retract is replaced by one short SLOW
+feed line to the next pass start — or no line at all when it is the
+same point. The roller stays on the sheet there.
+
+It is only done when EVERY condition holds; otherwise the normal
+retract stays: the next pass is a forward roughing pass; no tool,
+spindle-speed or feed-mode change, no Point operation and no custom
+command on that pass (e.g. M41) in between; the distance is within
+"Max link (mm)" (default 15 mm); and the link line never passes closer
+to the part than its two ends. The last pass of the program always
+retracts. The cut lines themselves never change. In the 3D view a link
+is a short solid grey line instead of an orange dashed retract.
+
 
 CALCULATE
 ════════════════════════════════════════════════════════════════
@@ -2456,6 +2475,24 @@ yüzden negatif taraflı bir makinede POZİTİF bir geri çekilme takımı
 parçaya DOĞRU gönderiyordu — simülasyon ise uzaklaştığını gösteriyordu.
 Bunu negatif sayı yazarak aşmış olanların programları DEĞİŞMEZ —
 yazdığınız sayı zaten doğru yönü gösteriyordu.
+
+MANDREL UCUNDA GERİ ÇEKİLME YOK (ters paslar ve geri paslar)
+Ters pas ve geri pas, pasın MANDREL UCUNDA biter; sonraki ileri pas
+genelde tam oradan (0–10 mm) başlar. Normalde rulo yine geri çekilir
+ve dümdüz geri gelir: iki fazla duruş ve bir hava yolu. O operasyonda
+"Mandrel ucunda geri çekilme yok" kutusunu işaretleyin (sadece ters
+operasyonlarda ve geri paslı operasyonlarda görünür; varsayılan
+KAPALI): o geri çekilmenin yerine sonraki pasın başlangıcına kısa, YAVAŞ
+bir besleme çizgisi gider — aynı noktaysa hiç çizgi yoktur. Rulo orada
+sacın üzerinde kalır.
+
+Sadece TÜM koşullar sağlanırsa yapılır, yoksa normal geri çekilme kalır:
+sonraki pas ileri kaba pastır; arada takım, devir veya besleme modu
+değişimi, Nokta operasyonu ve o pasa bağlı özel komut (ör. M41) yoktur;
+mesafe "Maks. bağlantı (mm)" içindedir (varsayılan 15 mm); ve bağlantı
+çizgisi parçaya iki ucundan daha yakın geçmez. Programın son pası her
+zaman geri çekilir. Kesme çizgileri asla değişmez. 3D görünümde bağlantı,
+turuncu kesikli geri çekilme yerine kısa, düz gri bir çizgidir.
 
 
 HESAPLA

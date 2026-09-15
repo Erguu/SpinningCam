@@ -1508,6 +1508,22 @@ class SpinningApp:
                             self.actors["rapids"].append(act)
                         except: pass
 
+                # Mandrel-end links (mandrel_end_link.py): a short FEED line where a
+                # retract was dropped. Solid dark grey — not a dashed rapid, and
+                # drawn whatever show_rapids says — so the passes still visibly
+                # connect. Records come from the same calculation as the paths.
+                for _lb, _rec in (getattr(self.path_gen, "last_mandrel_links", None) or {}).items():
+                    try:
+                        if float(_rec.get("gap", 0.0)) < 0.05:
+                            continue
+                        _seg = np.array([_rec["from"], _rec["to"]], dtype=float)
+                        if self.params.get("show_tip_paths", False):
+                            _seg = self._shift_path_to_tip(_seg, self._rtool_for_pass(_lb))
+                        self.actors["rapids"].append(
+                            self.plotter.add_lines(_seg, color='dimgray', width=3))
+                    except Exception:
+                        pass
+
                 # The approach line is a rapid too (roller's current position ->
                 # first pass start), so it follows the same switch. Leaving one
                 # lone positioning line on screen after hiding the rest reads as

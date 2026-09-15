@@ -97,6 +97,7 @@ _BOOLS = frozenset((
     "conformal_clearance_operation_specific", "approach_follow_surface",
     "exit_bow_trim", "exit_mid_trim", "straight_line_mode",
     "tool_change_simultaneous", "point_rapid", "single_pass_sync",
+    "no_retract_mandrel_end",
 ))
 
 _TEXTS = frozenset(("name",))

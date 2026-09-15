@@ -27,6 +27,76 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 > `"1.032"` girdisi; test işi bilerek DIŞARIDA (operatör için görünmez).
 > Bu sürümde takım yolu DEĞİŞMEDİ — sadece ekranın söylediği düzeldi.
 
+## 2026-09-16b — Mandrel ucunda geri çekilme yok ("mandrel-end link")
+
+**Kullanıcı:** mandrel ucundaki geri çekilme için *"it can go"*; plan
+`backup/PLAN_2026-09-16_mandrel_end_link.md` (§0 = uyumadan önceki cevaplar).
+Branch `feature/mandrel-end-link`, **PUSH YOK**, sürüm 1.034 (değişmedi).
+
+**Neden:** ters pas ve geri pas MANDREL UCUNDA biter; sonraki ileri pas ölçülen
+gerçek programlarda tam oradan başlıyor (ters→ileri 0.00 mm, geri pas→ileri
+0.1–10.5 mm). Bugün: dur → 7–14 mm geri çekil → dur → dümdüz geri gel → dur.
+
+**Ne yapar:** op kutusu `no_retract_mandrel_end` (**varsayılan KAPALI**, sadece
+ters kaba op'ta ve geri paslı kaba op'ta görünür) + `mandrel_link_max_mm`
+(op başına, varsayılan 15 mm, kullanıcı kararı). Kural `mandrel_end_link.py`:
+A = geri pas veya ters kaba pas VE kutu açık; B = hemen sonraki toolpath, İLERİ
+KABA pas; arada başka etkin op / takım / devir / besleme modu değişimi / B'nin
+pas numarasına bağlı özel komut YOK; boşluk ≤ max; bağlantı çizgisinin clearance'ı
+iki ucun YAKIN olanından düşük değil (0.01 tol., ölçülemezse RED). Tutmayan her
+şey = bugünkü geri çekilme. Son pasın B'si yok → hep geri çekilir.
+
+**Nasıl:** `calculate_paths` mirror'dan ÖNCE `_apply_mandrel_end_links` ile BİR
+KEZ karar verir (toolpath listesi DEĞİŞMEZ; sim sequence'ında iki kesim arası
+rapidler silinip boşluk ≥0.05 mm ise ("cut", [A son, B baş]) eklenir; `rapids`
+sequence'tan yeniden kurulur, çift kalır). Kayıt `last_mandrel_links` (mirror'da
+X'i de aynalanır) / `last_mandrel_link_refused`. `generate_gcode` SADECE takip
+eder: A'nın geri çekilme satırlarını TUTAR, B'nin başında araya "makine satırı"
+girmiş mi bakar (yorum / boş / G98 / G99 değilse) → girmişse geri çekilmeyi TAM
+yerine geri koyar + `last_mandrel_link_fallbacks` + uyarı (güvenlik ağı). Değilse
+boşluk <0.05 mm → HİÇ satır; yoksa `G1 X Z F (Link OpN Pi)`, F = A'nın son / B'nin
+pas / temas beslemesinin EN DÜŞÜĞÜ. `recipe_to_scl`: `(Link Op` satırı `exact` →
+sürekli harekette CMD=1 (seçenek A: parçaya doğru hareket tam iner). 3B: bağlantı
+kısa DÜZ GRİ çizgi (turuncu kesikli değil), `show_rapids`'ten bağımsız.
+
+**⚠ 2 DURUŞ BİLEREK (kullanıcı, "fikrimi değiştirebilirim, not düş"):** boşluklu
+bağlantıda (geri pas→ileri) CMD=51 pas işaretçisi bağlantı satırından ÖNCE kalır →
+run biter → hem geri pas sonunda hem bağlantı sonunda durur. **1 duruş için:** bağlantı
+`G1`'ini `(--- OP n: ... PASO i ---)` başlığından ÖNCE yaz (kod yorumunda da yazılı,
+`generate_gcode` G0 başlangıç satırı). Aynı nokta (ters→ileri) zaten tek duruş.
+
+**Ölçüm (tüm uygun op'larda kutu açık):** 140926 3 bağlantı / bundan devam 5 /
+020926 1 (diğeri RED: sonraki pas yine ters) / kalin 0 (3 RED too_far, 25–41 mm) /
+kalin2 37 (2 RED: `M41 Clamp On` özel komut + devir değişimi; + sonraki-pas-ileri-değil) /
+v1 4 (1 RED özel komut). **Her programda kesim satırları .nc ve reçetede AYNI;
+güvenlik ağı hiç tetiklenmedi; her bağlantının clearance'ı bağımsız yeniden ölçüldü.**
+PLC ekibinin `split_recipe_db.py --check`'i sürekli hareket + işaretçi + bağlantılı
+reçeteyi (4×100, auto-fit 400) **140926 (131 satır) ve kalin2'de (400 satır, 37 bağlantı
+satırı) KABUL etti.** v1'i REDDETTİ — ama bağlantı KAPALIYKEN de aynı sebeple reddediyor
+(ölçüldü): **ÖNCEDEN VAR OLAN #107 kusuru**, aşağıda.
+
+**⚠ BULGU (#107 sürekli hareket, DÜZELTİLMEDİ, kullanıcıya soruluyor):** v1'de pas
+6'da P2 bölünmesinde 0.006 mm'lik neredeyse-kopya nokta (274.158, 209.997 → 210.003)
+CMD=2 olarak yazılıyor; PLC ön-taraması "CMD=2 zero-length" diye TÜM reçeteyi
+reddediyor (program başlamaz — güvenli tarafta, yanlış hareket yok). Bizim
+`check_scl_geometry` bunu YAKALAMIYOR. Mektup: "0.05 mm'den kısa segment yazma".
+Olası düzeltmeler (soruldu): ≤0.01 mm CMD=2 → CMD=1 (bir duruş eklenir, satır sayısı
+değişmez) ya da kopya noktayı düşürmek (satır sayısı değişir) + export'ta aynı kontrol.
+
+**Test:** `_test_mandrel_end_link.py` (kural 25 kontrol; 6 gerçek program × 11–12;
+güvenlik ağı ZORLA tetiklenir: `blockers` custom_command'ı yutacak şekilde yamanır,
+yazıcı M41'i görüp geri çekilmeyi komuttan ÖNCE geri koymalı) +
+`_test_mandrel_end_link_gui.py` (kutu sadece uygun op'larda, varsayılan kapalı,
+işaretle→anahtar+Maks alanı). `_test_param_wiring`: baseline'da boşluk 32–34 mm >
+15 → kutu "ölü" görünüyordu; KOŞUL max 200 mm (doğrulandı), prob 0.001.
+Golden 7/7 değişmedi (KAPALI bayt-aynı).
+
+**Açık/bilinen:** `calculate_estimated_time` bağlantıyı bilmez (süre tahmini
+eski geri çekilmeyle hesaplar — küçük sapma). Sahada HİÇ denenmedi.
+
+**Geri alma:** `calculate_paths`'teki `_apply_mandrel_end_links` çağrısını sil →
+kayıt boş kalır, yazıcı bugünkü gibi yazar.
+
 ## 2026-09-16 — 3B'de gerçek duruş noktaları (sürekli hareket)
 
 **Kullanıcı:** sürekli hareketi mutlak (duran) hareketten 3B'de ayırt etmek istedi;

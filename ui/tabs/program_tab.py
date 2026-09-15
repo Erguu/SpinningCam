@@ -27,6 +27,7 @@ import pass_colors
 OP_PARAM_DEFAULTS = {
     # ── Fixed-constant defaults ──────────────────────────────────────────
     "count": 1,
+    "mandrel_link_max_mm": 15,   # mandrel_end_link.DEFAULT_MAX_MM
     "start_z": 10,
     "p1_x": 40,
     "p1_z": 50,
@@ -129,6 +130,9 @@ OP_PARAM_UNIVERSE = {
         "start_z", "end_z", "p2_z_extend",
         "proj_extend_bottom", "proj_extend_top",
         "retract_x", "retract_z", "retract_motion",
+        # Mandrel-end link (mandrel_end_link.py): only live on reverse ops and ops
+        # with a back pass; the editor shows it only there.
+        "no_retract_mandrel_end", "mandrel_link_max_mm",
         "pass_shape", "p2_radius", "p2_radius_max_points", "exit_max_points",
         "exit_arc_angle", "exit_bow", "exit_bow_bias",
         # exit_mid_rotation is deliberately absent (#102): it is no longer an
@@ -180,6 +184,8 @@ OP_PARAM_LABELS = {
     "proj_extend_bottom": "lbl_proj_bottom", "proj_extend_top": "lbl_proj_top",
     "retract_x": "lbl_op_retract_x", "retract_z": "lbl_op_retract_z",
     "retract_motion": "lbl_retract_motion",
+    "no_retract_mandrel_end": "lbl_no_retract_mandrel_end",
+    "mandrel_link_max_mm": "lbl_mandrel_link_max",
     "plunge_start_x": "lbl_bend_start_x", "plunge_start_z": "lbl_bend_start_z",
     "plunge_end_x": "lbl_bend_end_x",     "plunge_end_z": "lbl_bend_end_z",
     "point_mode": "lbl_point_mode",
@@ -224,6 +230,7 @@ GROUP_DEPS = {
                           "back_pass_arc_x", "back_pass_arc_z"],
     "progressive_angle_enabled": ["progressive_angle_end"],
     "progressive_reach_enabled": ["progressive_reach_end"],
+    "no_retract_mandrel_end": ["mandrel_link_max_mm"],
 }
 
 # Section header id -> keys under it. A header is hidden when none of its keys
@@ -899,6 +906,49 @@ class ProgramTab:
             return f"{center + side * d:.2f} mm"
         except Exception:
             return "—"
+
+    def _add_mandrel_link_fields(self, idx, op, op_type):
+        """"No retract at mandrel end" + its max length (mandrel_end_link.py).
+
+        Shown only where it can do something: a roughing op whose passes END at
+        the mandrel — reverse, or with a back pass. Out-of-universe gating like
+        single_pass_sync: _apply_field_visibility does not know this rule, so the
+        gate is here. The max field appears only while the tickbox is on.
+        """
+        import mandrel_end_link as _mel
+        if op_type != "roughing" or not _mel.op_can_use(op, op_builds_back_pass(op)):
+            return
+        f_nr = ttk.Frame(self.f_prop_editor)
+        f_nr._pkey = _mel.OP_FLAG_KEY
+        f_nr.pack(fill="x", padx=2, pady=1)
+        ttk.Label(f_nr, text=t("lbl_no_retract_mandrel_end"), width=15).pack(side="left")
+        _nr_var = tk.BooleanVar(value=_mel.enabled(op))
+
+        def _toggle_nr(i=idx, v=_nr_var):
+            self.app.params["operations"][i][_mel.OP_FLAG_KEY] = bool(v.get())
+            # A toolpath-sequence change: recalc, then rebuild so the max field
+            # shows or hides straight away.
+            self._schedule_auto_calc()
+            self.on_op_select(None)
+        ttk.Checkbutton(f_nr, variable=_nr_var, command=_toggle_nr).pack(side="right")
+        self.helper.bind_tooltip(f_nr,
+            "Ters pas ve geri pas MANDREL UCUNDA biter; bir sonraki ileri pas genelde\n"
+            "tam aynı yerden (0–10 mm) başlar. Bugün rulo geri çekilip aynı yere\n"
+            "geri gelir (2 duruş + hava yolu). AÇIK: o geri çekilme yerine sonraki\n"
+            "pasın başlangıcına kısa, YAVAŞ bir besleme çizgisi gider; aynı noktaysa\n"
+            "hiç çizgi yoktur. VARSAYILAN KAPALI.\n"
+            "SADECE hepsi uygunsa yapılır, yoksa bugünkü geri çekilme KALIR: sonraki\n"
+            "pas ileri kaba pas olmalı; arada takım/devir/besleme modu değişimi, Nokta\n"
+            "operasyonu veya o pasa bağlı özel komut (ör. M41) olmamalı; mesafe aşağıdaki\n"
+            "sınırı aşmamalı; bağlantı çizgisi iki ucundan daha YAKIN geçmemeli\n"
+            "(clearance). Programın son pası her zaman geri çekilir.\n"
+            "Rulo o noktada sacın üzerinde durur (kaldırılmaz) — kullanıcı onayı 2026-09-16.")
+        if _mel.enabled(op):
+            self._add_prop_entry(idx, _mel.OP_MAX_KEY, t("lbl_mandrel_link_max"), op,
+                                 is_float=True, default_hint=_mel.DEFAULT_MAX_MM,
+                                 tooltip="Mandrel ucunda bağlantıya izin verilen en uzun mesafe (mm). "
+                                         "Sonraki pas daha uzaktan başlıyorsa geri çekilme kalır. "
+                                         "Boş, 0 veya geçersiz = 15 mm.")
 
     def _add_retract_motion_field(self, idx, op):
         """Axis order for this op's pass retract (2026-09-03).
@@ -2817,6 +2867,7 @@ class ProgramTab:
                              default_hint=50.0,
                              tooltip="Bu operasyonun pas geri çekilmesi için Z ofseti (mm). Boş = 50 mm.")
         self._add_retract_motion_field(idx, op)
+        self._add_mandrel_link_fields(idx, op, op_type)
 
         if op_type == "roughing":
             _hdr = self._add_section_header("path_shape", t("lbl_path_shape_hdr"))

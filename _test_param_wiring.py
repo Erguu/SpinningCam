@@ -105,6 +105,7 @@ BASE_ROUGH = {
     "tool_change_mode": "global", "tool_change_x": 300.0, "tool_change_z": 150.0,
     "tool_change_dx": 0.0, "tool_change_dz": 0.0, "tool_change_simultaneous": False,
     "p2_radius_max_points": "", "exit_max_points": "",
+    "no_retract_mandrel_end": False, "mandrel_link_max_mm": 15.0,
 }
 
 # ── probe values ──────────────────────────────────────────────────────────
@@ -125,6 +126,9 @@ PROBE = {
     "exit_max_points": 5,
     "point_mode": "surface",
     "point_motion": "x_first",
+    # Shorter than any back-pass -> forward gap in this baseline, so the links
+    # the condition's 200 mm allows are refused and the retracts come back.
+    "mandrel_link_max_mm": 0.001,
 }
 
 # ── conditions: what a key needs before it can bite ───────────────────────
@@ -173,6 +177,13 @@ CONDITIONS = {
     # the move has an explicit target; in global mode the approach to home is
     # already fixed.
     "tool_change_simultaneous": {"tool_change": "absolute"},
+    # Mandrel-end link. This baseline's back passes end 32-34 mm from the next
+    # pass start (a 50 mm approach arm), so the default 15 mm limit refuses every
+    # link and the tickbox looks dead. Verified 2026-09-16: with 200 mm both
+    # links are made. The length itself only matters once the tickbox is on.
+    "no_retract_mandrel_end": {"op": {"mandrel_link_max_mm": 200.0}},
+    "mandrel_link_max_mm": {"op": {"no_retract_mandrel_end": True,
+                                   "mandrel_link_max_mm": 200.0}},
 }
 
 # ── legitimately unable to move the G-code ────────────────────────────────
