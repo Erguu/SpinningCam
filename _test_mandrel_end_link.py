@@ -260,6 +260,14 @@ for name, path in cases:
         if not any("Retract" in l for l in between):
             kept.append(x)
     check(f"{name}: every refused mandrel end keeps its retract", not kept, kept[:3])
+    # PLC team, reply 3 (2026-09-16): a line with F = 0 is run at RAPID speed, and
+    # their pre-scan only refuses F = 0 on CMD=2. A link line runs a fraction of a
+    # millimetre from the part, so it must always carry a real feed.
+    F_RE = re.compile(r"F(\d*\.?\d+)")
+    feeds = [F_RE.search(l) for l in lines if mel.LINK_TAG in l]
+    check(f"{name}: every link line carries a feed > 0",
+          all(m and float(m.group(1)) > 0 for m in feeds),
+          [l for l in lines if mel.LINK_TAG in l][:2])
     tail = lines[spans[-1][1] + 1:]
     check(f"{name}: the last pass keeps its retract", any("Retract" in l for l in tail))
 

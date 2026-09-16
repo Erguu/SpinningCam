@@ -27,6 +27,38 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 > `"1.032"` girdisi; test işi bilerek DIŞARIDA (operatör için görünmez).
 > Bu sürümde takım yolu DEĞİŞMEDİ — sadece ekranın söylediği düzeldi.
 
+## 2026-09-16e — PLC ekibinin 3. mektubuna göre 4 küçük düzeltme
+
+**Kaynak:** `MexicoMetalSpinning/Program/docs/reply3_spinningcam_velocity_path.md`
+(PLC ekibi, 2026-09-16) — bizim `reply2_...md` sorularımıza cevap. Kullanıcı: "small
+fixes only" (fren parçası ÖNERİSİ yapılmadı, §5'te duruyor).
+
+1. **Duruş açısı TAVANI 90°** (`continuous_settings`: eski `min(...,180)` → `min(...,90)`).
+   Sebep: 90° üstünde PLC'nin "reverse blocked" guard'ı `16#000F` veriyor — hız komutu
+   eksenleri yolda GERİ süremez. Büyük değer artık 90 sayılır; tooltip + yardım yazıldı.
+2. **≤0.012 mm noktayı at** (eskiden 0.01). PLC testi `<= 0.01` ve float32; tam 0.01000
+   bizden geçip PLC'de reddedilebilirdi. Ölçümde 0.01–0.05 arası HİÇ nokta yok, bedava.
+3. **T artık "Sürücü yumuşatma T (s)"** — etiket + tooltip + yardım. Sayı DEĞİŞMEDİ
+   (0.045 doğru), anlamı değişti: PLC tarama süresi değil, SÜRÜCÜNÜN köşeden sonra hız
+   değiştirme süresi. PLC ekibinin kuralı `T ≈ 0.5·t1 + 0.015`; t1 şu an 0.06 s.
+   Ayrıca: **besleme override'ı %100'de kalmalı**, üstünde köşe planı geçersiz (yardımda).
+   Varsayılan 0.1 KASITLI olarak korundu — ölçülmemiş makinede daha yavaş/güvenli köşe.
+4. **Bağlantı satırının beslemesi > 0 testi.** PLC: `CMD=1` + `F=0` satırı RAPID hızda
+   koşuyor (`05:2084`) ve ön-tarama F=0'ı sadece CMD=2'de reddediyor. Bizim bağlantı
+   satırı zaten ≥1 mm/dak yazıyor; artık test ediyor.
+
+**Ayrıca öğrendik (kod değişikliği yok):** hatanın ASIL sebebi PLC tarama gecikmesi
+değil, sürücünün jerk sınırlı hız geçişiymiş (t1 0.3 → 0.06 s ile düzeldi); köşeden
+ÇIKAN satırı planlamamız (16c) PLC ekibince DOĞRULANDI — arada 499 planlıydı, çıkan
+satır 747 ile gitmiş. Kısa satır uyarımız "tavsiye" olarak kalsın dediler; gerçek sert
+sınır ~0.08 mm (catch-up limiti).
+
+**Test:** duruş açısı 90 tavanı + 100°'lik köşe tam duruş; 0.012 sınırı ve tam 0.01'in
+atılması; bağlantı satırı F>0. `_test_continuous_motion.py`, `_test_micro_segments.py`,
+`_test_mandrel_end_link.py` güncellendi.
+
+**Geri alma:** madde 1 `min(...,90.0)` → `180.0`; madde 2 sabiti 0.01'e çevir.
+
 ## 2026-09-16d — 0.01 mm'den kısa satır hız modunda ATILIYOR
 
 **Kullanıcı sorusu:** "gerçekten tam sıfır mı, yoksa bir sınırın altında mı?" →

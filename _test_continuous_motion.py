@@ -97,7 +97,10 @@ bad = cfg(plc_scan_time_s=0, plc_corner_tol_mm=-1, plc_feed_min="abc",
 check("zero / negative / unreadable / NaN fall back to defaults",
       (bad["scan_time_s"], bad["corner_tol_mm"], bad["feed_min"], bad["reversal_deg"])
       == (0.1, 0.1, 30, 90.0), repr(bad))
-check("stop angle is capped at 180", cfg(plc_reversal_deg=400)["reversal_deg"] == 180.0)
+# 90 is the ceiling, not 180: above it the PLC faults ("reverse blocked") instead
+# of blending. PLC team, reply 3 (2026-09-16).
+check("stop angle is capped at 90", cfg(plc_reversal_deg=400)["reversal_deg"] == 90.0)
+check("a stop angle below 90 is kept as typed", cfg(plc_reversal_deg=45)["reversal_deg"] == 45.0)
 check("feed_min is a whole number, at least 1", cfg(plc_feed_min=0.4)["feed_min"] == 1)
 
 # --- 2. OFF changes nothing -------------------------------------------------
@@ -171,6 +174,14 @@ check("2 deg corner at F300 keeps full feed", (g[0].cmd, g[0].f) == (CMD_LINEAR_
 g, st = corner(20, 10, plc_reversal_deg=10)
 check("stop angle 10: a 45 deg corner stops exactly instead of slowing",
       (g[0].cmd, g[0].f) == (CMD_LINEAR, 300), (g[0].cmd, g[0].f))
+
+# The PLC's "reverse blocked" guard fires above 90 deg (a velocity command may
+# never drive the axes back along the path), so a bigger stop angle would fault on
+# the machine instead of blending. PLC team, reply 3 (2026-09-16): keep it <= 90.
+g, st = corner(8.3, 9.8, plc_reversal_deg=120)      # a ~100 deg turn
+check("stop angle above 90 is used as 90: a 100 deg corner still stops exactly",
+      g[0].cmd == CMD_LINEAR, (g[0].cmd, g[0].f))
+check("...and it is counted as an exact corner", st["exact_corners"] == 1, st)
 
 g, st = corner(20, 10, plc_corner_tol_mm=0.001)
 check("tiny tolerance: feed never planned below F min (30)", g[0].f == 30, g[0].f)

@@ -216,7 +216,12 @@ def count_pass_markers(gcode: str) -> int:
 # against the soft limits. Hence opt-in, loudly labelled, and OFF byte-identical
 # (no CMD=2 anywhere).
 CONTINUOUS_DEFAULTS = {
-    "scan_time_s": 0.1,      # PLC scan time T -- the PLC team has NOT measured it yet
+    # T: the DRIVE's velocity-transition (smoothing/jerk) time, not the PLC scan time.
+    # PLC team, reply 3 (2026-09-16): the corner drift is the technology object's
+    # jerk-limited transition, and their fit is  T ~= 0.5 * t1 + 0.015 s.
+    # t1 = 0.06 s on the machine now -> 0.045. The 0.1 default is deliberately
+    # slower than that: a machine nobody has measured plans conservative corners.
+    "scan_time_s": 0.1,
     "corner_tol_mm": 0.1,    # allowed path error where two lines blend
     "feed_min": 30,          # floor for a planned corner feed, mm/min
     "reversal_deg": 90.0,    # corners at least this sharp stop exactly (CMD=1)
@@ -256,7 +261,12 @@ def continuous_settings(params):
             val = float(default)
         cfg[name] = val
     cfg["feed_min"] = max(1, int(cfg["feed_min"]))
-    cfg["reversal_deg"] = min(cfg["reversal_deg"], 180.0)
+    # Never above 90 deg: past that the PLC's "reverse blocked" guard fires
+    # (16#000F) -- a velocity command may never drive the axes back along the
+    # path. PLC team, reply 3 (2026-09-16): "the exact-stop angle must stay at
+    # or below 90". A larger number would simply fault on the machine, so it is
+    # capped here rather than shipped.
+    cfg["reversal_deg"] = min(cfg["reversal_deg"], 90.0)
     # In diameter mode the recipe X is a diameter; corner angles are measured on
     # the real (radius) geometry.
     cfg["diameter_mode"] = bool(params.get("machine_output_diameter_mode", False))
@@ -1414,13 +1424,13 @@ TIA Portal Import:
                             'planned. EXPERIMENTAL PLC ONLY -- a production PLC skips '
                             'CMD=2. Off by default.')
     parser.add_argument('--scan-time', type=float, default=CONTINUOUS_DEFAULTS['scan_time_s'],
-                       help='With --continuous: PLC scan time T in seconds (default: %(default)s)')
+                       help='With --continuous: T, the drive smoothing (jerk) time in seconds -- PLC team: T ~= 0.5 * t1 + 0.015 (default: %(default)s)')
     parser.add_argument('--corner-tol', type=float, default=CONTINUOUS_DEFAULTS['corner_tol_mm'],
                        help='With --continuous: corner tolerance in mm (default: %(default)s)')
     parser.add_argument('--feed-min', type=float, default=CONTINUOUS_DEFAULTS['feed_min'],
                        help='With --continuous: lowest planned corner feed, mm/min (default: %(default)s)')
     parser.add_argument('--reversal-deg', type=float, default=CONTINUOUS_DEFAULTS['reversal_deg'],
-                       help='With --continuous: corners at least this sharp stop exactly '
+                       help='With --continuous: corners at least this sharp stop exactly, max 90 '
                             '(default: %(default)s)')
     parser.add_argument('--stop-slowdown', action='store_true',
                        help='With --continuous: slow the last lines before every stop')

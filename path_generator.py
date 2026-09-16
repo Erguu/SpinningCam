@@ -33,10 +33,14 @@ TAIL_SHIFT_REPORT_MM = 1.0
 #
 # To re-enable: flip this to True and CSS reappears in the Program-tab combo.
 # Nothing else needs touching — every read goes through resolve_speed_mode().
-# A recipe line shorter than this is skipped by the PLC, and refused outright
-# when it is a continuous (CMD=2) line -- the same 0.01 mm test lives in
-# FB_RecipeHandler and in the PLC team's split_recipe_db.py --check.
-MICRO_SEGMENT_MM = 0.01
+# A recipe line shorter than this is skipped by the PLC, and refused outright when
+# it is a continuous (CMD=2) line -- the PLC's test is  length <= 0.01 mm, in
+# FB_RecipePreScan, FB_RecipeHandler and the PLC team's split_recipe_db.py --check.
+# We drop at 0.012, NOT 0.01: their test is INCLUSIVE and computed in float32, so a
+# point at exactly 0.01000 would pass us and then be refused by them (PLC team,
+# reply 3, 2026-09-16). Free in practice -- the real artefacts are 0.006 mm and
+# nothing at all was measured between 0.01 and 0.05 mm.
+MICRO_SEGMENT_MM = 0.012
 
 CSS_SPEED_MODE_ENABLED = False
 

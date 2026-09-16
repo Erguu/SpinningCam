@@ -3045,7 +3045,18 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  straight lines slows both of them. Rounding the corner (a P2 radius) avoids both:
                  many small turns keep running at full feed. Lower
                  the stop angle if you would rather stop at sharp
-                 corners than slow down before them.
+                 corners than slow down before them; 90 degrees is the
+                 ceiling, because above it the PLC faults instead of
+                 blending.
+
+                 "Drive smoothing T" is how long the DRIVE takes to
+                 change speed after a corner - not the PLC scan time.
+                 The corner feed is planned from it. The PLC team's
+                 rule is T = 0.5 x t1 + 0.015 s, where t1 is the drive
+                 smoothing time they set; t1 = 0.06 s today, so
+                 T = 0.045. Ask them before changing it, and keep the
+                 feed override at 100% in this mode - above it any
+                 corner plan is void.
 
                  SHORT LINES: the PLC re-aims a non-stop line about
                  once per scan, so a line should last a few scans
@@ -3596,7 +3607,16 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   yarıçapı) ikisini de önler: çok sayıda küçük dönüş
                   tam beslemeyle akar. Keskin köşelerde yavaşlamak
                   yerine durmayı tercih ediyorsanız duruş açısını
-                  düşürün.
+                  düşürün; TAVAN 90 derecedir, üstünde PLC harmanlamak
+                  yerine hata verir.
+
+                  "Sürücü yumuşatma T", bir köşeden sonra SÜRÜCÜNÜN
+                  hızını değiştirme süresidir - PLC tarama süresi
+                  değil. Köşe beslemesi buradan planlanır. PLC ekibinin
+                  kuralı: T = 0.5 x t1 + 0.015 s; şu an t1 = 0.06 s,
+                  yani T = 0.045. Değiştirmeden önce onlara sorun ve bu
+                  modda besleme override'ını %100'de tutun - üstünde
+                  köşe planı geçersizdir.
 
                   KISA SATIRLAR: PLC duraksız bir satırı yaklaşık her
                   taramada bir yeniden hedefler; bu yüzden bir satır

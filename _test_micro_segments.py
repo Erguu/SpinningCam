@@ -33,14 +33,21 @@ def check(name, cond, detail=""):
 
 
 print("A. the filter itself")
-check("the limit is the PLC's own 0.01 mm", MICRO_SEGMENT_MM == 0.01)
+check("we drop at 0.012, just past the PLC's inclusive 0.01 limit "
+      "(PLC team, reply 3: a point at exactly 0.01000 would pass us and be refused there)",
+      MICRO_SEGMENT_MM == 0.012)
+
+edge = np.array([[0, 0, 0], [0, 0, 0.01], [0, 0, 5.0]], float)
+check("a point at exactly 0.01 mm - the PLC's reject boundary - is dropped",
+      _drop_microsegments(edge).tolist() == [[0, 0, 0], [0, 0, 5.0]],
+      _drop_microsegments(edge).tolist())
 
 a = np.array([[0, 0, 0], [0, 0, 0.006], [0, 0, 5.0]], float)
 check("a point 0.006 mm from the previous one is dropped",
       _drop_microsegments(a).tolist() == [[0, 0, 0], [0, 0, 5.0]], _drop_microsegments(a).tolist())
 
 b = np.array([[0, 0, 0], [0, 0, 0.02], [0, 0, 5.0]], float)
-check("a point 0.02 mm away is kept (only at or under the limit goes)",
+check("a point 0.02 mm away is kept (only at or under 0.012 goes)",
       len(_drop_microsegments(b)) == 3)
 
 c = np.array([[0, 0, 0], [0, 0, 5.0], [0, 0, 5.004]], float)

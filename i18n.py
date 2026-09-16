@@ -970,13 +970,24 @@ STRINGS = {
                                    "Las esquinas agudas siguen con parada exacta; las pequeñas se ralentizan.\n"
                                    "SOLO para el PLC experimental de movimiento continuo: un PLC de\n"
                                    "producción omite las líneas CMD=2. Apagado = archivo igual que antes."},
-    "lbl_plc_scan_time":    {"EN": "PLC scan time T (s)",            "TR": "PLC tarama süresi T (s)",     "ES": "Tiempo de ciclo PLC T (s)"},
-    "tip_plc_scan_time":    {"EN": "How often the PLC looks at the next line. The PLC team will send\n"
-                                   "the measured value; 0.1 s is their estimate.",
-                             "TR": "PLC'nin bir sonraki satıra ne sıklıkla baktığı. PLC ekibi ölçülen\n"
-                                   "değeri gönderecek; 0.1 s onların tahmini.",
-                             "ES": "Cada cuánto el PLC mira la siguiente línea. El equipo PLC enviará\n"
-                                   "el valor medido; 0.1 s es su estimación."},
+    "lbl_plc_scan_time":    {"EN": "Drive smoothing T (s)",         "TR": "Sürücü yumuşatma T (s)",      "ES": "Suavizado del accionamiento T (s)"},
+    "tip_plc_scan_time":    {"EN": "How long the DRIVE takes to change speed after a corner - not the\n"
+                                   "PLC scan time. It decides how far the roller drifts past a corner,\n"
+                                   "so the corner feed is planned from it.\n"
+                                   "PLC team's rule: T = 0.5 x (drive smoothing time t1) + 0.015 s.\n"
+                                   "t1 = 0.06 s on the machine now, so T = 0.045. Ask them before\n"
+                                   "changing it: too small a value plans corners too fast.",
+                             "TR": "Bir köşenin ardından SÜRÜCÜNÜN hızını değiştirme süresi - PLC\n"
+                                   "tarama süresi DEĞİL. Rulonun köşeyi ne kadar aşacağını bu belirler,\n"
+                                   "köşe beslemesi buradan planlanır.\n"
+                                   "PLC ekibinin kuralı: T = 0.5 x (sürücü yumuşatma süresi t1) + 0.015 s.\n"
+                                   "Makinede şu an t1 = 0.06 s, yani T = 0.045. Değiştirmeden önce\n"
+                                   "onlara sorun: çok küçük değer köşeleri fazla hızlı planlar.",
+                             "ES": "Cuanto tarda el ACCIONAMIENTO en cambiar de velocidad tras una\n"
+                                   "esquina, no el tiempo de ciclo del PLC. De ahi se planifica el\n"
+                                   "avance en esquina.\n"
+                                   "Regla del equipo PLC: T = 0.5 x t1 + 0.015 s (t1 = 0.06 s ahora,\n"
+                                   "asi que T = 0.045). Consultales antes de cambiarlo."},
     "lbl_plc_corner_tol":   {"EN": "Corner tolerance (mm)",          "TR": "Köşe toleransı (mm)",         "ES": "Tolerancia de esquina (mm)"},
     "tip_plc_corner_tol":   {"EN": "How far the roller may cut inside a corner where two lines blend.\n"
                                    "Smaller = more slowing at corners.",
@@ -995,11 +1006,16 @@ STRINGS = {
     "tip_plc_reversal":     {"EN": "Corners that turn this much or more stop exactly on the point.\n"
                                    "Lower it (e.g. 10°) to stop at sharp corners instead of slowing\n"
                                    "the whole line before them. Rounded corners (P2 radius) turn\n"
-                                   "only a few degrees per point and keep running.",
+                                   "only a few degrees per point and keep running.\n"
+                                   "90 deg is the ceiling: above it the PLC faults instead of\n"
+                                   "blending (a velocity command may never drive the axes back),\n"
+                                   "so a larger number is used as 90.",
                              "TR": "Bu kadar veya daha çok dönen köşelerde makine noktada tam durur.\n"
                                    "Keskin köşelerde önceki satırın tamamını yavaşlatmak yerine\n"
                                    "durması için düşürün (örn. 10°). Yuvarlatılmış köşeler (P2\n"
-                                   "yarıçapı) nokta başına birkaç derece döner ve akmaya devam eder.",
+                                   "yarıçapı) nokta başına birkaç derece döner ve akmaya devam eder.\n"
+                                   "TAVAN 90°: üstünde PLC harmanlamak yerine hata verir (hız\n"
+                                   "komutu eksenleri geri süremez), büyük değer 90 sayılır.",
                              "ES": "Las esquinas que giran esto o más paran exactamente en el punto.\n"
                                    "Bájelo (p. ej. 10°) para parar en esquinas agudas en vez de\n"
                                    "ralentizar toda la línea anterior. Las esquinas redondeadas\n"
