@@ -3037,10 +3037,12 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  Where the path turns sharply the machine still
                  stops exactly on the point ("Exact stop at corners
                  from"). At smaller corners it slows down just
-                 enough to stay within the corner tolerance - but a
-                 feed belongs to a whole line, so a sharp corner at
-                 the end of a long straight line slows that whole
-                 line. Rounding the corner (a P2 radius) avoids both:
+                 enough to stay within the corner tolerance - the
+                 line INTO the corner and the line OUT of it, because
+                 after a turn the axes keep drifting for a moment
+                 while they already run the next line. A feed belongs
+                 to a whole line, so a sharp corner between two long
+                 straight lines slows both of them. Rounding the corner (a P2 radius) avoids both:
                  many small turns keep running at full feed. Lower
                  the stop angle if you would rather stop at sharp
                  corners than slow down before them.
@@ -3585,9 +3587,12 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   Yolun keskin döndüğü yerde makine yine noktada tam
                   durur ("Tam duruş: köşe açısı en az"). Daha küçük
                   köşelerde köşe toleransı içinde kalacak kadar
-                  yavaşlar - ama besleme bütün satıra aittir; uzun
-                  düz bir satırın sonundaki keskin köşe o satırın
-                  tamamını yavaşlatır. Köşeyi yuvarlatmak (P2
+                  yavaşlar - köşeye GİREN satır da köşeden ÇIKAN
+                  satır da, çünkü dönüşten sonra eksenler bir an
+                  eski yönde kaymaya devam ederken artık sonraki
+                  satırı sürerler. Besleme bütün satıra aittir; iki
+                  uzun düz satır arasındaki keskin köşe İKİSİNİ de
+                  yavaşlatır. Köşeyi yuvarlatmak (P2
                   yarıçapı) ikisini de önler: çok sayıda küçük dönüş
                   tam beslemeyle akar. Keskin köşelerde yavaşlamak
                   yerine durmayı tercih ediyorsanız duruş açısını

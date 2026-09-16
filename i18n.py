@@ -636,16 +636,17 @@ STRINGS = {
                                  "ES": "Marcadores de pasada: {n} líneas (el operador ve op y pasada en el HMI)"},
     "msg_scl_continuous_line":  {"EN": "!!! CONTINUOUS MOTION (CMD=2): load this file ONLY on the experimental "
                                        "continuous-motion PLC. A production PLC skips CMD=2 lines.\n"
-                                       "{n} non-stop lines, {exact} exact-stop corners, {slowed} slowed corners, "
-                                       "{stops} slowed stops",
+                                       "{n} non-stop lines, {exact} exact-stop corners, {slowed} slowed corners "
+                                       "(+{exits} lines leaving a corner), {stops} slowed stops",
                                  "TR": "!!! SÜREKLİ HAREKET (CMD=2): bu dosyayı YALNIZCA deneysel sürekli-hareket "
                                        "PLC'sine yükleyin. Üretim PLC'si CMD=2 satırlarını atlar.\n"
-                                       "{n} duraksız satır, {exact} tam duruşlu köşe, {slowed} yavaşlatılmış köşe, "
-                                       "{stops} yavaşlatılmış duruş",
+                                       "{n} duraksız satır, {exact} tam duruşlu köşe, {slowed} yavaşlatılmış köşe "
+                                       "(+{exits} köşeden çıkan satır), {stops} yavaşlatılmış duruş",
                                  "ES": "!!! MOVIMIENTO CONTINUO (CMD=2): cargue este archivo SOLO en el PLC "
                                        "experimental de movimiento continuo. Un PLC de producción omite las líneas CMD=2.\n"
                                        "{n} líneas sin parada, {exact} esquinas con parada exacta, "
-                                       "{slowed} esquinas ralentizadas, {stops} paradas ralentizadas"},
+                                       "{slowed} esquinas ralentizadas (+{exits} líneas que salen de una esquina), "
+                                       "{stops} paradas ralentizadas"},
     "msg_continuous_zero_feed": {"EN": "Recipe line {line} is a cutting move with feed 0.\n\n"
                                        "The continuous-motion PLC refuses such a recipe and it would not start. "
                                        "Give that operation a feed, or turn off 'Continuous-motion export' "

@@ -144,14 +144,23 @@ def corner(second_x, second_z, **over):
 g, st = corner(20, 10)          # exactly 45 degrees
 check("45 deg corner: arriving line slowed to floor(6/(0.1*sin45)) = 84",
       (g[0].cmd, g[0].f) == (CMD_LINEAR_CONTINUOUS, 84), (g[0].cmd, g[0].f))
-check("45 deg corner: the leaving line keeps its feed (it ends in a rapid)",
-      (g[1].cmd, g[1].f) == (CMD_LINEAR_CONTINUOUS, 300), (g[1].cmd, g[1].f))
+# Changed 2026-09-16 (user decision): the line LEAVING a blended corner is planned
+# too. After a turn the axes keep drifting along the old heading while they run the
+# NEW line, so its speed is what the corner tolerance has to cover. Before this,
+# 8-21 corners per real shop program left the corner faster than their own limit.
+check("45 deg corner: the leaving line is planned to the same 84",
+      (g[1].cmd, g[1].f) == (CMD_LINEAR_CONTINUOUS, 84), (g[1].cmd, g[1].f))
 check("45 deg corner counted as slowed", st["slowed_corners"] == 1, st)
+check("the leaving line is counted separately", st["slowed_exits"] == 1, st)
 
 g, st = corner(10, 10)          # exactly 90 degrees
 check("90 deg corner: arriving line is an exact stop (CMD=1)", g[0].cmd == CMD_LINEAR, g[0].cmd)
 check("90 deg corner: feed not planned (the stop does the work)", g[0].f == 300, g[0].f)
 check("90 deg corner counted as exact", st["exact_corners"] == 1, st)
+check("90 deg corner: the line leaving an EXACT STOP keeps full feed "
+      "(it starts from standstill, so there is nothing to drift)",
+      (g[1].cmd, g[1].f) == (CMD_LINEAR_CONTINUOUS, 300), (g[1].cmd, g[1].f))
+check("...and nothing is counted as a slowed exit", st["slowed_exits"] == 0, st)
 
 g, st = corner(0, 0.001)        # straight back: 180 degrees
 check("reversal stops exactly", g[0].cmd == CMD_LINEAR)
@@ -278,7 +287,7 @@ check("every new string has EN, TR and ES",
           for k in i18n_keys),
       [k for k in i18n_keys if k not in STRINGS])
 check("export message formats in all three languages",
-      all(STRINGS["msg_scl_continuous_line"][lang].format(n=1, exact=2, slowed=3, stops=4)
+      all(STRINGS["msg_scl_continuous_line"][lang].format(n=1, exact=2, slowed=3, exits=5, stops=4)
           and STRINGS["msg_continuous_zero_feed"][lang].format(line=7)
           for lang in ("EN", "TR", "ES")))
 

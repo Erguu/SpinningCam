@@ -1906,7 +1906,8 @@ class SpinningCamWindow(tk.Tk):
             if _cst:
                 msg += "\n\n" + t("msg_scl_continuous_line").format(
                     n=_cst['continuous'], exact=_cst['exact_corners'],
-                    slowed=_cst['slowed_corners'], stops=_cst['slowed_stops'])
+                    slowed=_cst['slowed_corners'], exits=_cst.get('slowed_exits', 0),
+                    stops=_cst['slowed_stops'])
             if autofit_note:
                 msg = f"{autofit_note}\n\n{msg}"
             messagebox.showinfo(t("msg_scl_complete_title"), msg)

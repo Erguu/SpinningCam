@@ -27,6 +27,45 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 > `"1.032"` girdisi; test işi bilerek DIŞARIDA (operatör için görünmez).
 > Bu sürümde takım yolu DEĞİŞMEDİ — sadece ekranın söylediği düzeldi.
 
+## 2026-09-16c — Köşeden ÇIKAN satır da planlanıyor (sürekli hareket)
+
+**Kullanıcı sorusu:** "besleme değiştiriciler (feed contact) hız moduyla iyi gider mi?"
+→ ölçüm sırasında ASIL bulgu çıktı ve kullanıcı **"her zaman açık"** dedi.
+
+**Bulgu (sahada koşan kodda vardı):** köşe planlayıcı SADECE köşeye GİREN satırı
+yavaşlatıyordu (mektubun kuralı). Ama makineyi düşüren sapma (`16#000F`, 499 → 747
+mm/dak, 15.5° dönüş) köşeden ÇIKARKEN oluyor: dönüşten sonra eksenler bir an eski
+yönde kayarken artık YENİ satırı sürüyor. Ölçüm (gerçek programlar, feed contact
+KULLANILMADAN): **140926 10, bundan devam 12, 020926 8, kalin2 21 köşede** çıkan satır
+o köşenin kendi sınırının ÜSTÜNDEydi (en kötü kalin2: 84.5°'de 180 → 360, sınır 133).
+
+**Değişiklik (`plan_continuous_motion`, opt-in DEĞİL — sürekli hareket zaten opt-in):**
+harmanlanan köşede `tol/(T·sinθ)` sınırı artık `lines[i]` VE `lines[i+1]` için
+uygulanır; yeni sayaç `slowed_exits` (SCL başlığı + dışa aktarım mesajı + CLI).
+Tam duruşlu köşe (θ ≥ duruş açısı) KAPSAM DIŞI: eksenler duruştan kalkar, kayacak
+hız yoktur. F yine sadece DÜŞER, satır eklenmez/silinmez.
+
+**Bedel (ölçüldü, kesme süresi modeli):** 140926 371→376 s (+%1.2), bundan devam
+525→533 s (+%1.5), **020926 100→127 s (+%27), kalin2 850→1025 s (+%21)** — pahalı
+olanlar 72–85°'lik köşeler; orada tam duruş (duruş açısını düşürmek) daha ucuz.
+Değişiklikten sonra 4 programın hiçbirinde sınır üstü köşe KALMADI.
+
+**Feed contact / bölge (zone) hakkında ölçülenler (kullanıcının 4 gerçek programında
+HİÇBİRİ kullanılmıyor):** (1) temas beslemesi reçeteye ULAŞIR ve mandrel yakınında
+yavaşlatır — iyi; sentetik testte 400→80 geçişi harmanlanan run İÇİNDE 80→400 adımı
+yaratıyordu, bu köşedeyse artık sınırlanıyor. (2) **Bölge DEVİR (S) değişimi reçeteye
+HİÇ GİRMİYOR:** dönüştürücü mil satırını sadece `M3` içeren satırdan üretir, kesme
+satırındaki `G97 S...` eki yok sayılır (.nc'de 2 satır, reçetede sadece baştaki mil
+satırı). Bölgenin BESLEMESİ geçer, DEVRİ sessizce düşer — sürekli harekete özel değil,
+tüm PLC export'ları için geçerli. DÜZELTİLMEDİ, kullanıcıya bildirildi.
+
+**Test:** `_test_continuous_motion.py` — 45° köşede çıkan satır artık 84 (eskiden 300,
+test GÜNCELLENDİ ve NEDENİ yazıldı), `slowed_exits` sayacı, 90°'de çıkan satır tam
+beslemede kalır. PLC ekibinin `split_recipe_db.py --check`'i 140926 (131 satır) ve
+kalin2'yi (400 satır, 37 bağlantı satırı) yine KABUL etti.
+
+**Geri alma:** `plan_continuous_motion` içindeki `lines[i + 1].f` bloğunu sil.
+
 ## 2026-09-16b — Mandrel ucunda geri çekilme yok ("mandrel-end link")
 
 **Kullanıcı:** mandrel ucundaki geri çekilme için *"it can go"*; plan

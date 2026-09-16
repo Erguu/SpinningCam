@@ -145,6 +145,13 @@ def find(name):
     return None
 
 
+def _strip(txt):
+    """Drop the wall-clock header line: two generations a second apart are not a
+    difference in the program (same rule as golden_snapshot)."""
+    keep = [l for l in txt.splitlines() if not l.strip().startswith("(Generated:")]
+    return chr(10).join(keep)
+
+
 def generate(params, overrides, mgr):
     pg = PathGenerator()
     res = pg.calculate_paths(params, overrides, mgr)
@@ -152,7 +159,7 @@ def generate(params, overrides, mgr):
     fb_nc = list(pg.last_mandrel_link_fallbacks)
     rec = pg.generate_gcode(params=dict(params, plc_mode=True), for_recipe=True)
     fb_rec = list(pg.last_mandrel_link_fallbacks)
-    return pg, res, nc, rec, fb_nc + fb_rec
+    return pg, res, _strip(nc), _strip(rec), fb_nc + fb_rec
 
 
 def cut_lines(txt):

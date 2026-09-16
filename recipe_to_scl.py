@@ -281,11 +281,14 @@ def plan_continuous_motion(lines, cfg) -> dict:
        there and stop" is a precise point by definition);
     3. where a blend would turn by ``reversal_deg`` or more, the line arriving
        at that corner goes back to CMD=1 -- an exact stop, no extra line;
-    4. at a smaller corner the arriving line's F is lowered to
-       ``tol / (T * sin theta)`` so the hand-off error stays within ``tol``.
-       F belongs to the WHOLE line, so this slows all of it -- which is why a
-       sharp corner on a long straight line is better made an exact stop, or
-       rounded with a P2 radius (user, 2026-09-14);
+    4. at a smaller corner the F of the line ARRIVING at it AND of the line
+       LEAVING it is lowered to ``tol / (T * sin theta)`` so the hand-off error
+       stays within ``tol``. The letter asks only for the arriving line; the
+       leaving one was added 2026-09-16 (user decision) because the drift that
+       faulted the machine happens while the axes run the NEW line. F belongs to
+       the WHOLE line, so this slows all of it -- which is why a sharp corner on a
+       long straight line is better made an exact stop, or rounded with a P2
+       radius (user, 2026-09-14);
     5. optional (``stop_slowdown``): the line that ends in a stop gets the
        90-degree feed (tol / T) and the blending line before it double that,
        as in the letter's example. A lone move that blends from nothing is left
@@ -354,7 +357,8 @@ def plan_continuous_motion(lines, cfg) -> dict:
             k += 1
         return None
 
-    stats = {"continuous": 0, "exact_corners": 0, "slowed_corners": 0, "slowed_stops": 0}
+    stats = {"continuous": 0, "exact_corners": 0, "slowed_corners": 0,
+             "slowed_exits": 0, "slowed_stops": 0}
     for i in range(n):
         if not blends(i):
             continue
@@ -374,6 +378,19 @@ def plan_continuous_motion(lines, cfg) -> dict:
         if limit < lines[i].f:
             lines[i].f = limit
             stats["slowed_corners"] += 1
+        # ...and the line LEAVING the corner (user decision, 2026-09-16: always on).
+        # The letter plans only the arriving line, which covers the late hand-off.
+        # It does not cover what actually faulted the machine (16#000F at a feed
+        # jump 499 -> 747 mm/min on a 15.5 deg turn): after a turn the axes keep
+        # drifting along the OLD heading while they run the NEW line, so the speed
+        # that matters there is the departing one. Measured before this change:
+        # 8-21 corners per real shop program left the corner faster than that
+        # corner's own limit (worst: 180 -> 360 where the limit was 133).
+        # Only for a BLENDED corner: past the stop angle the arriving line is an
+        # exact stop above, and the next line starts from standstill.
+        if limit < lines[i + 1].f:
+            lines[i + 1].f = limit
+            stats["slowed_exits"] += 1
 
     if cfg.get("stop_slowdown"):
         f_stop = max(f_min, _feed_floor(tol / T))
@@ -1128,7 +1145,8 @@ class GCodeToSCLConverter:
                 f"stop slow-down={'ON' if cm['stop_slowdown'] else 'OFF'}")
             scl_lines.append(
                 f"// CMD=2 lines: {st.get('continuous', 0)}, exact corners: "
-                f"{st.get('exact_corners', 0)}, slowed corners: {st.get('slowed_corners', 0)}, "
+                f"{st.get('exact_corners', 0)}, slowed corners: {st.get('slowed_corners', 0)} "
+                f"(+{st.get('slowed_exits', 0)} leaving), "
                 f"slowed stops: {st.get('slowed_stops', 0)}")
         scl_lines.append("// ============================================")
         if params:
@@ -1479,7 +1497,8 @@ TIA Portal Import:
         if stats.get('continuous'):
             c = stats['continuous']
             print(f"Continuous (CMD 2): {c['continuous']} lines, {c['exact_corners']} exact "
-                  f"corners, {c['slowed_corners']} slowed corners, {c['slowed_stops']} slowed "
+                  f"corners, {c['slowed_corners']} slowed corners "
+                  f"(+{c['slowed_exits']} leaving), {c['slowed_stops']} slowed "
                   f"stops -- EXPERIMENTAL PLC ONLY")
         print(f"SCL File Size: {stats['scl_size_bytes']:,} bytes")
         print(f"Est. PLC Memory: {stats['estimated_plc_bytes']:,} bytes")
