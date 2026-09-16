@@ -756,8 +756,11 @@ STRINGS = {
     "cb_show_blank_edge":     {"EN": "Show Predicted Sheet Edge",   "TR": "Tahmini Sac Kenarını Göster",     "ES": "Mostrar Borde de Chapa Estimado"},
     "cb_show_rapids":         {"EN": "Show Rapid (G0) Moves",       "TR": "Hızlı (G0) Hareketleri Göster",   "ES": "Mostrar Movimientos Rápidos (G0)"},
     "cb_show_motion_stops":   {"EN": "Show Stops (continuous motion)", "TR": "Duruşları Göster (sürekli hareket)", "ES": "Mostrar Paradas (movimiento continuo)"},
-    "lbl_no_retract_mandrel_end": {"EN": "No retract at mandrel end", "TR": "Mandrel ucunda geri çekilme yok", "ES": "Sin retracción en el mandril"},
-    "lbl_mandrel_link_max":   {"EN": "Max link (mm)",               "TR": "Maks. bağlantı (mm)",         "ES": "Enlace máx. (mm)"},
+    # Labels in the operation editor sit in a 15-character column (ttk.Label width=15)
+    # and are CUT beyond that - "No retract at mandrel end" showed as "No retract at m"
+    # and the user could not find it (2026-09-16). Keep these at 15 or less.
+    "lbl_no_retract_mandrel_end": {"EN": "No end retract", "TR": "Uçta çekme yok", "ES": "Sin retr. final"},
+    "lbl_mandrel_link_max":   {"EN": "Max link (mm)",               "TR": "Maks. bağ. (mm)",             "ES": "Enl. máx. (mm)"},
     "btn_save_cam_angle":   {"EN": "Save Current Angle",            "TR": "Mevcut Açıyı Kaydet",        "ES": "Guardar Ángulo Actual"},
     "btn_reset_cam":        {"EN": "Reset Camera",                  "TR": "Kamerayı Sıfırla",           "ES": "Restablecer Cámara"},
     "lbl_cam_presets":      {"EN": "Camera Presets:",               "TR": "Kamera Önayarları:",         "ES": "Presets de Cámara:"},

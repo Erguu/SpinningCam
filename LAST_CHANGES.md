@@ -35,6 +35,17 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 > `"1.032"` girdisi; test işi bilerek DIŞARIDA (operatör için görünmez).
 > Bu sürümde takım yolu DEĞİŞMEDİ — sadece ekranın söylediği düzeldi.
 
+## 2026-09-16g — "No retract" kutusunun etiketi KESİLİYORDU
+
+Kullanıcı kutuyu bulamadı. Sebep: op editöründe etiket sütunu 15 karakter
+(`ttk.Label(width=15)`), "No retract at mandrel end" → ekranda "No retract at m".
+Etiketler kısaltıldı: EN **"No end retract"**, TR **"Uçta çekme yok"**, ES "Sin retr. final";
+"Max link (mm)" / "Maks. bağ. (mm)" / "Enl. máx. (mm)". Yardım + changelog yeri
+gösteriyor ("Retract X / Z'nin hemen altında"). `_test_mandrel_end_link_gui.py`
+artık bu iki etiketin 3 dilde ≤15 karakter olduğunu kontrol ediyor. Kutunun
+kendisi doğru yerdeydi: 140926'da Op20/Op22'de görünüyor (Gelişmiş açık/kapalı),
+Op24'te (ileri, geri passız) bilerek görünmüyor.
+
 ## 2026-09-16f — EĞRİDE UZUN satır uyarısı + uyarı metinleri sadeleşti
 
 **Kaynak:** PLC tarafının simülasyonu (kullanıcı yapıştırdı): bugünkü

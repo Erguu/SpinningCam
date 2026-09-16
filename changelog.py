@@ -25,7 +25,7 @@ CHANGELOG = {
          "same recipe the export writes, so they always match the file. Switch "
          "them off under the rapid-moves tickbox.",
          "Process ▸ Show Stops (continuous motion)"),
-        ("No retract at the mandrel end",
+        ("No end retract: no lift at the mandrel end",
          "A reverse pass, and a back pass, end where the next pass begins — yet "
          "the roller still retracted and came straight back, which costs two "
          "stops and an air move. Tick this on that operation and the retract is "
@@ -36,7 +36,7 @@ CHANGELOG = {
          "start further away than the limit, or a move that would pass closer to "
          "the part than its own ends. The last pass of the program always "
          "retracts.",
-         "Program List ▸ a reverse operation or one with a back pass ▸ Advanced"),
+         "Program List ▸ a reverse operation or one with a back pass ▸ No end retract (under Retract X / Z)"),
         ("Corners are planned on both sides now",
          "Continuous motion used to slow only the line going INTO a corner. After "
          "a turn the machine keeps drifting for a moment while it already runs the "

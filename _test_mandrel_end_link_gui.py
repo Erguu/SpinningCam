@@ -108,5 +108,14 @@ assert app.params["operations"][0][mel.OP_FLAG_KEY] is False, "unticking did not
 assert mel.OP_MAX_KEY not in _pkeys(), "max field still shown after unticking"
 print("Off by default; tick writes the key and shows Max link; untick hides it OK")
 
+# ── 4. the labels fit the editor's 15-character label column ──────────────
+# ("No retract at mandrel end" was cut to "No retract at m"; the user could not
+# find the box, 2026-09-16)
+from i18n import STRINGS
+for key in ("lbl_no_retract_mandrel_end", "lbl_mandrel_link_max"):
+    for lang, text in STRINGS[key].items():
+        assert len(text) <= 15, f"{key} [{lang}] is {len(text)} characters: {text!r}"
+print("Both labels fit the 15-character label column in EN/TR/ES OK")
+
 root.destroy()
 print("\nAll mandrel-end link GUI checks passed.")

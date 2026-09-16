@@ -1499,9 +1499,9 @@ NO RETRACT AT THE MANDREL END (reverse passes and back passes)
 A reverse pass, and a back pass, end at the mandrel end of the pass,
 and the next forward pass usually starts right there (0–10 mm away).
 Normally the roller still retracts and comes straight back: two extra
-stops and an air trip. Tick "No retract at mandrel end" on that
-operation (shown only on reverse operations and operations with a back
-pass; OFF by default) and that retract is replaced by one short SLOW
+stops and an air trip. Tick "No end retract" on that operation
+(right under Retract X / Retract Z; shown only on reverse operations and
+operations with a back pass; OFF by default) and that retract is replaced by one short SLOW
 feed line to the next pass start — or no line at all when it is the
 same point. The roller stays on the sheet there.
 
@@ -2480,9 +2480,9 @@ MANDREL UCUNDA GERİ ÇEKİLME YOK (ters paslar ve geri paslar)
 Ters pas ve geri pas, pasın MANDREL UCUNDA biter; sonraki ileri pas
 genelde tam oradan (0–10 mm) başlar. Normalde rulo yine geri çekilir
 ve dümdüz geri gelir: iki fazla duruş ve bir hava yolu. O operasyonda
-"Mandrel ucunda geri çekilme yok" kutusunu işaretleyin (sadece ters
-operasyonlarda ve geri paslı operasyonlarda görünür; varsayılan
-KAPALI): o geri çekilmenin yerine sonraki pasın başlangıcına kısa, YAVAŞ
+"Uçta çekme yok" kutusunu işaretleyin (Geri Çekilme X / Z alanlarının
+hemen altında; sadece ters operasyonlarda ve geri paslı operasyonlarda
+görünür; varsayılan KAPALI): o geri çekilmenin yerine sonraki pasın başlangıcına kısa, YAVAŞ
 bir besleme çizgisi gider — aynı noktaysa hiç çizgi yoktur. Rulo orada
 sacın üzerinde kalır.
 
