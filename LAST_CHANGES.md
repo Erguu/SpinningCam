@@ -35,6 +35,63 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 > `"1.032"` girdisi; test işi bilerek DIŞARIDA (operatör için görünmez).
 > Bu sürümde takım yolu DEĞİŞMEDİ — sadece ekranın söylediği düzeldi.
 
+## 2026-09-16f — EĞRİDE UZUN satır uyarısı + uyarı metinleri sadeleşti
+
+**Kaynak:** PLC tarafının simülasyonu (kullanıcı yapıştırdı): bugünkü
+`DB_RecipeProgram1`'de çıkış eğrisi ~42 mm, 5 parça × ~8.4 mm, her noktada 10–15°
+dönüş → köşe yavaşlaması (650–767, 800 yerine) + parça başına ~0.2 mm eğri içi hata.
+2.4 mm parça ~2× besleme kaldırıyor. Kullanıcı: "add the long chord warning" +
+"simplify that warning, my operator doesn't understand it".
+
+**Kural (`short_segments.analyze_long`):** bir satır "eğride uzun" sayılır eğer
+uzunluk > 2 × hedef (hedef = max(2.5 mm, 5·F·T)) **VE** tam çözünürlüklü yol ondan
+> 0.05 mm sapıyorsa (kiriş hatası). İkinci şart düz çizgileri (yaklaşma kolu, düz
+çıkış, kırılma noktası çoklu çizgisi) DIŞARIDA tutar — ne kadar uzun olursa olsun.
+PLC noktaları tam yolun ALT KÜMESİ (RDP, sınırlar, 0.012 düşürme hep orijinal
+noktayı tutar) → her satırın altındaki gerçek eğri konumdan bulunur.
+
+**Öneri:** o bölümün nokta sınırı DOLUYSA → sınırı yükselt (ceil(uzunluk/hedef)+1);
+değilse o bölümün toleransı (çıkış → Çıkış Toleransı, diğerleri → Tolerans) —
+**formülle değil DENEMEYLE**: 0.2/0.1/0.05/0.02/0.01/0.005 içinden uzun satır
+bırakmayan EN BÜYÜK değer, path_gen'in SIĞ KOPYASINDA yeniden inceltilerek bulunur.
+(Sagitta formülü tek temiz yay varsayar ve 0.02 yetecekken 0.005 istedi.)
+Auto-tune açıksa tolerans önerilmez, "satır hedefini yükselt" denir. Daha çok nokta
+yolu yalnızca tam şekle yaklaştırır → clearance riski YOK.
+
+**Metinler sadeleşti (kısa satır uyarısı da):** operatör anlamıyordu. Artık tek
+cümle başlık, op başına tek satır ("N satır çok kısa / eğride çok uzun"), tek
+"→ X'i değiştirin: eski → yeni" satırı. "5 × besleme × T", "çoğu çıkış kolunda" vb.
+kalktı. İki liste TEK pencerede (`main_window._confirm_short_segments`, artık `_xp`
+params alıyor), başlık "Sürekli hareket için satır uzunlukları".
+
+**Test:** yeni `_test_long_chords.py` (yardımcılar, düz çizgi asla, dolu sınır →
+sınır önerisi ve uygulanınca temiz, tolerans denemesi ve uygulanınca temiz, önerinin
+gereksiz küçük olmaması, auto-tune, 3 dil, uygulamanın path_gen'i dokunulmaz,
+140926'da sessiz). `_test_short_segments.py` metin kontrolleri yeni ifadeye uyarlandı.
+
+**Geri alma:** `_confirm_short_segments` içinde `analyze_long` çağrısını sil.
+
+**Renkli pencere (kullanıcı: "önemli kısımları, parametre önerilerini renkle göster"):**
+`ui/dialogs/line_length_dialog.py` — messagebox renk gösteremediği için küçük modal
+pencere, AYNI metni (`short_segments` üretir, test edilebilir kalır) satır türüne
+göre boyar: "→ Değiştirin" satırı kalın YEŞİL bantta ve YENİ değer ayrıca koyu
+yeşil vurgulu; "• Op" satırı kalın; "(…)" not satırı gri italik; bölüm başlıkları
+kalın lacivert; son soru düz. Düğmeler "Yine de aktar" / "Geri dön"; düğme çubuğu
+ÖNCE ve altta paketlenir (DPI kuralı), `dialog_sizing.fit`. Pencere açılamazsa eski
+messagebox'a düşer. Test: `_test_line_length_dialog.py`.
+
+**⚠ Bu arada bulunan SAHA RİSKİ (canlı `gcodes/140926.ssp`, 16.09 15:14'te düzenlenmiş):**
+Op20 ve Op22 (ters) ile Op24 (SON op) geri çekilmesi **0/0** yapılmış — dün "güvenli
+değil" dediğimiz elle geçici çözüm. Ölçüldü: (1) Op24 bitince program sonu **önce Z**
+gidiyor, kaldırmadan, sac kenarından (bitmiş parçaya 58 mm ama şekillenmemiş flanş
+görünmez); (2) Op22'den sonra Op23 (kesme, T006) takım değişimi **parçanın üstünden
+kalkmadan** başlıyor ve programın kendi kontrolü o yolu **parçanın 35 mm İÇİNDEN**
+geçiyor diye raporluyor (`[TOOLCHG] ... op #23 'relative' path_gap=-35.2mm`);
+(3) Op20 zararsız (sonraki pas aynı noktadan başlıyor). Kullanıcıya bildirildi:
+Op22 ve Op24 −10/−10'a dönsün, Op20 için retract 0 yerine "Mandrel ucunda geri
+çekilme yok" kutusu. `_test_mandrel_end_link.py` canlı dosyaya sabit sayı beklemiyor
+artık ve retract 0'lı op'larda "geri çekilme satırı" aramıyor.
+
 ## 2026-09-16e — PLC ekibinin 3. mektubuna göre 4 küçük düzeltme
 
 **Kaynak:** `MexicoMetalSpinning/Program/docs/reply3_spinningcam_velocity_path.md`

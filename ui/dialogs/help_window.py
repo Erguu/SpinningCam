@@ -3069,6 +3069,21 @@ SCL (.scl)       Siemens TIA Portal format. Use when the machine
                  roller closer to the mandrel. Short lines are not unsafe,
                  only less smooth; you can export anyway.
 
+                 LONG LINES ON A CURVE: the opposite problem. A curve
+                 cut into a few long straight lines turns sharply at
+                 each point, so the machine slows there, and every
+                 line cuts inside the curve. Aim for about 2.5 mm per
+                 line on curves. The same window lists these too and
+                 says what to change: a bigger Exit Max Points or P2
+                 Max Points when that limit is what made them long,
+                 otherwise a smaller Exit Tolerance or Tolerance, or -
+                 with auto-tune on - a higher line target. Straight
+                 lines are never reported, however long. More points
+                 only bring the path closer to the true shape.
+
+                 In that window the green lines are what to change,
+                 and the value to type is highlighted.
+
                  The export message and the file header say how
                  many lines run non-stop, how many corners stop and
                  how many were slowed. Nothing about the toolpath
@@ -3629,6 +3644,21 @@ SCL (.scl)        Siemens TIA Portal formatı. Makine bir Siemens S7
                   ayarlar ruloyu mandrele yaklaştıracak değeri yine
                   reddeder. Kısa satırlar güvensiz değildir, sadece
                   daha az akıcıdır; yine de dışa aktarabilirsiniz.
+
+                  EĞRİDE UZUN SATIRLAR: tersi sorun. Birkaç uzun düz
+                  satıra bölünmüş bir eğri her noktada keskin döner;
+                  makine orada yavaşlar ve her satır eğrinin içinden
+                  keser. Eğrilerde satır başına yaklaşık 2.5 mm
+                  hedefleyin. Aynı pencere bunları da listeler ve neyi
+                  değiştireceğinizi söyler: satırları o sınır uzattıysa
+                  daha büyük Çıkış Maks. Nokta veya P2 Maks. Nokta,
+                  değilse daha küçük Çıkış Toleransı veya Tolerans, ya
+                  da otomatik ayar açıksa daha yüksek satır hedefi. Düz
+                  satırlar ne kadar uzun olursa olsun bildirilmez. Daha
+                  çok nokta yolu yalnızca gerçek şekle yaklaştırır.
+
+                  O pencerede yeşil satırlar değiştirilecek şeydir,
+                  yazılacak değer ayrıca vurgulanır.
 
                   Dışa aktarım mesajı ve dosya başlığı kaç satırın
                   duraksız aktığını, kaç köşede durulduğunu ve

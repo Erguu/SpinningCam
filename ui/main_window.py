@@ -690,24 +690,38 @@ class SpinningCamWindow(tk.Tk):
         except Exception:
             return True     # never block an export on a reporting bug
 
-    def _confirm_short_segments(self, cont):
+    def _confirm_short_segments(self, cont, params=None):
         """Continuous-motion export: list operations whose recipe lines are
-        shorter than the letter's 5 × v × T, with a simple value to try
+        shorter than the letter's 5 × v × T, and (2026-09-16) curves cut into
+        chords that are too LONG, each with a simple value to try
         (short_segments.py). Returns True to carry on, False to abort.
 
-        Advisory only — a short line is less smooth, not unsafe — so it never
-        blocks, and it is silent when continuous motion is off.
+        Advisory only — neither makes the recipe unsafe — so it never blocks,
+        and it is silent when continuous motion is off.
         """
         if not cont:
             return True
         try:
             import short_segments
             T = float(cont["scan_time_s"])
-            reports = short_segments.analyze(self.app.path_gen, T)
-            if not reports:
+            short = short_segments.analyze(self.app.path_gen, T)
+            long_ = short_segments.analyze_long(self.app.path_gen, T,
+                                                params if params is not None else self.app.params)
+            if not short and not long_:
                 return True
-            text = short_segments.format_report(reports, t, T)
-            return messagebox.askyesno(t("msg_short_title"), text, icon='warning')
+            parts = []
+            if short:
+                parts.append(short_segments.format_report(short, t, T, foot=False))
+            if long_:
+                parts.append(short_segments.format_long_report(long_, t, foot=False))
+            text = "\n\n".join(parts) + "\n\n" + t("msg_short_foot")
+            title = t("msg_chord_title") if long_ else t("msg_short_title")
+            try:
+                # Coloured window (user, 2026-09-16): the suggested values stand out.
+                from ui.dialogs.line_length_dialog import ask
+                return ask(self, title, text)
+            except Exception:
+                return messagebox.askyesno(title, text, icon='warning')
         except Exception:
             return True     # never block an export on a reporting bug
 
@@ -1781,7 +1795,7 @@ class SpinningCamWindow(tk.Tk):
         # Continuous motion only: lines too short for the PLC to blend well, with
         # a value to try. Reads the state of the LAST generate_gcode above, which
         # is the recipe about to be written (auto-tune regenerates just before).
-        if not self._confirm_short_segments(_cont):
+        if not self._confirm_short_segments(_cont, _xp):
             return
 
         default_name = db_name + ".scl"

@@ -134,7 +134,9 @@ SHOP = r"C:\Users\PC\Documents\Automation\Cursor\MexicoMetalSpinning\gcodes"
 CUT_RE = re.compile(r"^G1 .*\((Op\d+ (?:BP|P)\d+)\)\s*$")
 XZ_RE = re.compile(r"X(-?[\d.]+)\s+Z(-?[\d.]+)")
 # Links expected from the measurements of 2026-09-16 (None = no fixed number).
-EXPECTED = {"140926.ssp": 3, "bundan devam geçerli olan.ssp": 5, "020926.ssp": 1,
+# 140926.ssp is the shop's LIVE working file (edited 2026-09-16 15:14), so no
+# fixed number there; the others are frozen fixtures.
+EXPECTED = {"140926.ssp": None, "bundan devam geçerli olan.ssp": 5, "020926.ssp": 1,
             "kalin.ssp": 0, "kalin2.ssp": None, "v1.ssp": None}
 
 
@@ -254,8 +256,16 @@ for name, path in cases:
             wrong.append((bidx, "same point: expected no line", machine))
     check(f"{name}: linked passes have no retract, one link line or none, landing on the start",
           not wrong, wrong[:3])
+    # A mandrel end whose operation has retract 0/0 writes no retract line by
+    # the operator's own choice (the live 140926 does that) - nothing to keep.
+    from path_generator import resolve_pass_retract
+    def has_retract(path_index):
+        rx, rz = resolve_pass_retract(pg._path_op_map[path_index], pon)
+        return abs(float(rx)) > 1e-9 or abs(float(rz)) > 1e-9
     kept = []
     for x in refused:
+        if not has_retract(x["a"]):
+            continue
         between = lines[spans[x["a"]][1] + 1: spans[x["b"]][0]]
         if not any("Retract" in l for l in between):
             kept.append(x)
@@ -269,12 +279,13 @@ for name, path in cases:
           all(m and float(m.group(1)) > 0 for m in feeds),
           [l for l in lines if mel.LINK_TAG in l][:2])
     tail = lines[spans[-1][1] + 1:]
-    check(f"{name}: the last pass keeps its retract", any("Retract" in l for l in tail))
+    if has_retract(len(spans) - 1):
+        check(f"{name}: the last pass keeps its retract", any("Retract" in l for l in tail))
 
     rapids = res[4]
     check(f"{name}: simulation rapids and sequence stay pairwise",
           len(rapids) == sum(1 for it in pg.last_calculated_sequence if it[0] == "rapid"))
-    if links:
+    if any(has_retract(r["a"]) for r in links.values()):
         check(f"{name}: simulation lost rapids where links were made",
               len(rapids) < len(res0[4]), f"{len(res0[4])} -> {len(rapids)}")
 

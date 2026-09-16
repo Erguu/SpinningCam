@@ -51,6 +51,13 @@ CHANGELOG = {
          "angle now stops at 90 degrees: above that the machine faults instead of "
          "blending. Keep the feed override at 100% while continuous motion is on.",
          "Machine Settings ▸ PLC Output Mode"),
+        ("Clearer advice about line length",
+         "Before saving a continuous-motion program, the warning now uses plain "
+         "words and says exactly which setting to change, from what to what. It "
+         "also warns about the opposite problem: a curve cut into lines that are "
+         "too long, which slows the machine and cuts inside the curve. About "
+         "2.5 mm per line is best on curves.",
+         "Machine Settings ▸ PLC Output Mode ▸ Continuous-motion export ▸ Export SCL"),
     ],
     "1.034": [
         ("New option: continuous-motion export (experimental)",

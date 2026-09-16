@@ -117,7 +117,7 @@ pg_ol.last_render_split_idx = {0: (1, 2), 1: (1, 3)}
 ol = ss.analyze(pg_ol, 0.1)[0]
 txt_ol = ss.format_report([ol], t, 0.1)
 check("no 'Try' when the suggestion cannot change the pass that has the short line",
-      f"{t('lbl_p2_max_pts')}  ∞" not in txt_ol and "no point count reaches it" in txt_ol, txt_ol)
+      f"{t('lbl_p2_max_pts')}: ∞" not in txt_ol and "too short to fix with a setting" in txt_ol, txt_ol)
 
 
 def no_radius_points():
@@ -160,24 +160,24 @@ print("message")
 set_language("EN")
 txt = ss.format_report([r], t, 0.1)
 check("names the setting with current and suggested value",
-      f"{t('lbl_p2_max_pts')}  ∞ → 3" in txt and f"{t('lbl_exit_max_pts')}  ∞ → 3" in txt, txt)
-check("shows the rule and T", "5 × feed × T" in txt and "T = 0.1 s" in txt, txt)
+      f"{t('lbl_p2_max_pts')}: ∞ → 3" in txt and f"{t('lbl_exit_max_pts')}: ∞ → 3" in txt, txt)
+check("says the best length in plain words", "at least 2.5 mm" in txt, txt)
 check("shortest length has two decimals (a 0.007 mm line must not read 0.0)",
       "shortest 0.50 mm" in txt, txt)
 capped = copy.deepcopy(r)
 capped["current"] = {"fillet": 3, "exit": 8}
 txt2 = ss.format_report([capped], t, 0.1)
 check("no suggestion when the current cap is already as small",
-      f"{t('lbl_p2_max_pts')}  3" not in txt2 and f"{t('lbl_exit_max_pts')}  8 → 3" in txt2, txt2)
+      f"{t('lbl_p2_max_pts')}: 3" not in txt2 and f"{t('lbl_exit_max_pts')}: 8 → 3" in txt2, txt2)
 txt3 = ss.format_report([no_split], t, 0.1)
 check("lines outside P2 radius / exit get a plain note and NO 'Try' "
       "(lowering the auto-tune target was measured not to help, v1.ssp)",
-      t("msg_short_other_info") in txt3 and "Try" not in txt3 and "auto-tune" not in txt3, txt3)
+      t("msg_short_other_info") in txt3 and "→ Change" not in txt3 and "auto-tune" not in txt3, txt3)
 txt5 = ss.format_report([short_exit], t, 0.1)
-check("too-short section is explained", "no point count reaches it" in txt5, txt5)
+check("too-short section is explained", "too short to fix with a setting" in txt5, txt5)
 txt6 = ss.format_report([arm], t, 0.1)
 check("a short approach line is explained, with no setting offered",
-      t("msg_short_approach_info") in txt6 and "Try" not in txt6, txt6)
+      t("msg_short_approach_info") in txt6 and "→ Change" not in txt6, txt6)
 for lang in ("EN", "TR", "ES"):
     set_language(lang)
     try:
