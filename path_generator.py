@@ -33,6 +33,11 @@ TAIL_SHIFT_REPORT_MM = 1.0
 #
 # To re-enable: flip this to True and CSS reappears in the Program-tab combo.
 # Nothing else needs touching — every read goes through resolve_speed_mode().
+# A recipe line shorter than this is skipped by the PLC, and refused outright
+# when it is a continuous (CMD=2) line -- the same 0.01 mm test lives in
+# FB_RecipeHandler and in the PLC team's split_recipe_db.py --check.
+MICRO_SEGMENT_MM = 0.01
+
 CSS_SPEED_MODE_ENABLED = False
 
 
@@ -81,6 +86,38 @@ def zero_spindle_ops(params):
                         "type": op_type,
                         "rpm": rpm})
     return out
+
+
+def _drop_microsegments(points, eps=MICRO_SEGMENT_MM):
+    """Drop a point that sits within ``eps`` of the previous kept one.
+
+    The PLC skips a line shorter than 0.01 mm anyway, and with continuous motion
+    it REFUSES the whole recipe over one (``CMD=2 zero-length: repeats previous
+    point``, same 0.01 mm test in the handler and in the PLC team's checker). So
+    such a line is never worth a recipe slot. Measured 2026-09-16: never exactly
+    zero, always ~0.006 mm, and only where a P2 radius collapses because there is
+    almost no corner to round -- 1 line in v1.ssp, 1 in bigsheet2.ssp, none in the
+    other six real programs.
+
+    The END POINT always survives: if it falls inside ``eps`` of the last kept
+    point, it REPLACES it, so the pass still ends exactly where it must (the
+    retract, the mandrel-end link and the pass marker all read that point).
+    User decision 2026-09-16: drop the point rather than leave the line as an
+    exact stop.
+    """
+    pts = np.asarray(points, dtype=float)
+    if len(pts) < 3:
+        return pts
+    keep = [pts[0]]
+    for q in pts[1:-1]:
+        if math.hypot(q[0] - keep[-1][0], q[2] - keep[-1][2]) > eps:
+            keep.append(q)
+    last = pts[-1]
+    if math.hypot(last[0] - keep[-1][0], last[2] - keep[-1][2]) > eps:
+        keep.append(last)
+    else:
+        keep[-1] = last
+    return np.asarray(keep, dtype=float)
 
 
 def resolve_speed_mode(op):
@@ -4776,6 +4813,12 @@ class PathGenerator:
                         f"drop {_floor:.3f} → {_got:.3f} mm. Uncapped decimation kept.")
             # Back to the order the rest of the program expects (see _rev_flip).
             out.append(_best[::-1] if _rev_flip else _best)
+        # ONLY for a velocity-mode (continuous) recipe -- user, 2026-09-16: with every
+        # line an exact stop there is nothing to fix, so the file must not change.
+        # The flag pair is recipe_to_scl.continuous_settings' own condition, read
+        # here directly to keep this module import-free.
+        if (params or {}).get("plc_mode") and (params or {}).get("plc_continuous"):
+            return [_drop_microsegments(_p) for _p in out]
         return out
 
     def _straight_line_flatness_dev(self, mandrel_mgr, start_z, end_z, shell_offset=0.0):

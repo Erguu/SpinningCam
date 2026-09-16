@@ -833,6 +833,26 @@ değildi ama `_test_program_tab_toolbar.py` ilk hatada ölüyor ve **altındaki 
 kontrol hiç koşmuyordu.** Kırmızı bir takım okunmaz hâle gelir.
 
 ### 15. PLC mod decimation
+
+> **⚠ 0.01 mm KURALI (2026-09-16, kullanıcı kararı).** `decimate_all_paths` SONUNDA
+> `_drop_microsegments` (sabit `MICRO_SEGMENT_MM = 0.01`) bir önceki KORUNAN noktaya
+> 0.01 mm'den yakın noktayı ATAR. **SADECE hız modunda** (`plc_mode` VE
+> `plc_continuous`) — normal PLC export'u BAYT AYNI kalır, golden dosyalar oynamaz.
+> **Neden:** PLC 0.01 mm'den kısa satırı zaten atlar, ama CMD=2 ise TÜM reçeteyi
+> reddeder (`CMD=2 zero-length: repeats previous point`; aynı 0.01 eşiği
+> `05_RecipeHandler.scl` ve PLC ekibinin `split_recipe_db.py --check`'inde).
+> **Kaynak:** neredeyse düz bir P2 köşesinde P2 yarıçapı çöküyor → T1 ile T2 0.006 mm
+> kalıyor. Ölçüm: 8 gerçek programda TAM SIFIR hiç yok, ≤0.01 sadece v1.ssp ve
+> bigsheet2.ssp'de birer tane, 0.01–0.05 arası hiç yok.
+> **SON NOKTA HER ZAMAN KORUNUR** (yakınsa öncekinin YERİNE geçer): geri çekilme,
+> mandrel ucu bağlantısı ve pas işaretçisi o noktayı okur.
+> **Etkisi ölçüldü:** satır sayısı −1, checksum yeniden hesaplanır (dosyanın kendi
+> satırlarından üretilir, PLC checker doğruladı), **min clearance DEĞİŞMEDİ**
+> (−0.0064 → −0.0064), `.nc` AYNI, `check_scl_geometry` ✓, v1 artık checker'dan
+> GEÇİYOR (önce REDDEDİLİYORDU).
+> Yan etki: o pasta `short_segments.section_bounds` T1/T2'yi bulamayabilir → o pas
+> "other" diye sınıflanır (sadece tavsiye metni).
+
 | Ne | Dosya | Satır/Fonksiyon |
 |----|-------|-----------------|
 | Ana decimation fonksiyonu | `path_generator.py` | `_decimate_path_for_plc()` ~1518 |

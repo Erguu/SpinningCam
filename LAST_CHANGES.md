@@ -27,6 +27,35 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 > `"1.032"` girdisi; test işi bilerek DIŞARIDA (operatör için görünmez).
 > Bu sürümde takım yolu DEĞİŞMEDİ — sadece ekranın söylediği düzeldi.
 
+## 2026-09-16d — 0.01 mm'den kısa satır hız modunda ATILIYOR
+
+**Kullanıcı sorusu:** "gerçekten tam sıfır mı, yoksa bir sınırın altında mı?" →
+ÖLÇÜLDÜ: **tam sıfır HİÇ YOK**; PLC'nin (ve checker'ın) kuralı **≤ 0.01 mm**
+(`05_RecipeHandler.scl` ve `split_recipe_db.py` aynı float32 ifadesi). Bizim vakamız
+0.006 mm. 8 gerçek programda: v1.ssp 1 satır, bigsheet2.ssp 1 satır, diğer altısında
+HİÇ; 0.01–0.05 bandında da hiç yok. Kaynak: neredeyse düz köşede P2 yarıçapının
+çökmesi (T1–T2 0.006 mm).
+
+**Karar (kullanıcı):** noktayı AT (satırı CMD=1 bırakmak yerine) + **sadece hız modu
+açıkken** ("No need to change it if it has absolute for all of them").
+
+**Nerede:** `path_generator._drop_microsegments` + `MICRO_SEGMENT_MM = 0.01`,
+`decimate_all_paths`'in SONUNDA, `plc_mode` VE `plc_continuous` iken. Son nokta her
+zaman korunur (yakınsa öncekinin yerine geçer) — geri çekilme / mandrel ucu bağlantısı /
+pas işaretçisi o noktayı okur.
+
+**Ölçüldü (eski → yeni, hız modu AÇIK):** v1 58→57 satır, bigsheet2 114→113;
+140926 ve kalin2 DEĞİŞMEDİ. **Min clearance aynı** (v1 −0.0064 → −0.0064,
+bigsheet2 −0.0067 → −0.0067), `.nc` AYNI, `check_scl_geometry` ✓, checksum dosyanın
+kendi satırlarından yeniden hesaplanıyor ve PLC checker doğruluyor. **v1 artık PLC
+checker'dan GEÇİYOR** (dün REDDEDİLİYORDU). Hız modu KAPALIYKEN reçete bayt aynı →
+golden dosyalar oynamıyor.
+
+**Yan etki:** o pasta `short_segments.section_bounds` T1/T2'yi konumdan bulamayabilir
+→ pas "other" sınıfına düşer (yalnızca uyarı metnini etkiler).
+
+**Geri alma:** `decimate_all_paths` sonundaki `_drop_microsegments` çağrısını sil.
+
 ## 2026-09-16c — Köşeden ÇIKAN satır da planlanıyor (sürekli hareket)
 
 **Kullanıcı sorusu:** "besleme değiştiriciler (feed contact) hız moduyla iyi gider mi?"
