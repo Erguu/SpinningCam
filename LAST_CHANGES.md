@@ -5,6 +5,14 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+> **v1.035 = aşağıdaki 2026-09-16 / 16b / 16c / 16d / 16e girdileri** (3B duruş
+> noktaları, mandrel ucunda geri çekilme yok, köşenin İKİ yanının planlanması,
+> 0.012 mm kuralı, PLC reply3'ün 4 düzeltmesi). Operatöre görünen kısmı
+> `changelog.py`'deki `"1.035"` girdisi. Branch `feature/mandrel-end-link`,
+> **PUSH'LU** (operatör çeksin diye, kullanıcı isteği) — master'a MERGE YOK, EXE YOK,
+> **makinede HENÜZ DENENMEDİ**. Sürüm bu yüzden artırıldı: operatörün ekranındaki
+> numara `v1.034-field-tested` etiketiyle karışmasın.
+
 > **v1.034 = aşağıdaki iki 2026-09-15 / 2026-09-14 girdisi** (#107 sürekli
 > hareket CMD=2 dışa aktarımı + kısa satır uyarısı) **+ #106 açık pas tablosu
 > operasyon düzenlemesini anında gösterir** (commit 0256910). Operatöre görünen

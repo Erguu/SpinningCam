@@ -17,6 +17,41 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.035": [
+        ("See where the machine really stops",
+         "With continuous-motion export on, the 3D view now puts a black dot on "
+         "every point where the machine actually stops. A long stretch of a pass "
+         "with no dots runs without stopping. The dots are worked out from the "
+         "same recipe the export writes, so they always match the file. Switch "
+         "them off under the rapid-moves tickbox.",
+         "Process ▸ Show Stops (continuous motion)"),
+        ("No retract at the mandrel end",
+         "A reverse pass, and a back pass, end where the next pass begins — yet "
+         "the roller still retracted and came straight back, which costs two "
+         "stops and an air move. Tick this on that operation and the retract is "
+         "replaced by a short slow move to the next start, or by nothing at all "
+         "when it is the same point. It is OFF to start with, and it refuses "
+         "itself whenever something needs the roller clear: a tool change, a "
+         "spindle or feed change, a Point operation, a command on that pass, a "
+         "start further away than the limit, or a move that would pass closer to "
+         "the part than its own ends. The last pass of the program always "
+         "retracts.",
+         "Program List ▸ a reverse operation or one with a back pass ▸ Advanced"),
+        ("Corners are planned on both sides now",
+         "Continuous motion used to slow only the line going INTO a corner. After "
+         "a turn the machine keeps drifting for a moment while it already runs the "
+         "next line, so the line coming OUT of the corner is now slowed the same "
+         "way. This is what the machine's fault last time came from. Sharp corners "
+         "that stop exactly are unaffected.",
+         "Machine Settings ▸ PLC Output Mode ▸ Continuous-motion export"),
+        ("Two settings were corrected",
+         "\"PLC scan time T\" is now called \"Drive smoothing T\" — the number is "
+         "the same, but it means how long the drive takes to change speed after a "
+         "corner, which is what the corner feed is planned from. And the exact-stop "
+         "angle now stops at 90 degrees: above that the machine faults instead of "
+         "blending. Keep the feed override at 100% while continuous motion is on.",
+         "Machine Settings ▸ PLC Output Mode"),
+    ],
     "1.034": [
         ("New option: continuous-motion export (experimental)",
          "For the experimental PLC that can move from one line to the next "
