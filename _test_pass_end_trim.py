@@ -253,6 +253,84 @@ check("with a trim the link is refused, with its own reason",
       mel.blockers(ops_trim, 0, False, 1, False, 2, {}) == ["stop_short"])
 check("the reason has operator-facing text", "stop_short" in mel.REASONS)
 
+
+# == C. the two-operation chain (user scenario, 2026-09-20) =================
+# "one forward, one back short stop, forward where it left at previous short
+#  ended back pass, one full back or a reverse where forward ended"
+#
+# Op1 forward -> Op1 back pass TRIMMED -> Op2 forward -> Op2 full back (or a
+# reverse). Measured on the default cone, and the headline answer is written
+# into the checks below so it cannot drift unnoticed:
+#
+#   the next FORWARD does NOT pick up where the trim stopped. Its start comes
+#   from its own Start Z / P1 Z, out of reach of anything the previous stroke
+#   did - 44.4 mm away in this setup. Trimming a back pass shortens THAT
+#   stroke; it never moves the next operation.
+print()
+print("C. the two-operation chain")
+
+CHAIN_OP = dict(BASE, count=1)
+
+
+def chain(trim_op1, op2_reverse):
+    p = copy.deepcopy(PARAMS)
+    o1 = dict(CHAIN_OP, name="Op1", start_z=MIN_Z + 10, end_z=MIN_Z + 10,
+              back_pass_enabled=True)
+    o1[mel.OP_FLAG_KEY] = True
+    o1[mel.OP_MAX_KEY] = 200.0
+    if trim_op1:
+        o1[ss.OP_KEY] = TRIM
+    o2 = dict(CHAIN_OP, name="Op2", start_z=MIN_Z + 25, end_z=MIN_Z + 25)
+    if op2_reverse:
+        o2["direction"] = "reverse"
+    else:
+        o2["back_pass_enabled"] = True
+    p["operations"] = [o1, o2]
+    pg = PathGenerator()
+    tp = pg.calculate_paths(p, {}, mgr)[0]
+    return pg, tp
+
+
+def gap(a_end, b_start):
+    return float(np.hypot(b_start[0] - a_end[0], b_start[2] - a_end[2]))
+
+
+for op2_reverse in (False, True):
+    tag = "Op2 reverse" if op2_reverse else "Op2 forward+full back"
+    pg_off, tp_off = chain(False, op2_reverse)
+    pg_on, tp_on = chain(True, op2_reverse)
+
+    check(f"{tag}: the same strokes with and without the trim",
+          len(tp_off) == len(tp_on), f"{len(tp_off)} vs {len(tp_on)}")
+
+    # [0] Op1 forward, [1] Op1 back (trimmed), [2] Op2 ...
+    check(f"{tag}: Op1's FORWARD is unchanged",
+          np.allclose(tp_off[0], tp_on[0]))
+    d = polyline_length(tp_off[1]) - polyline_length(tp_on[1])
+    check(f"{tag}: Op1's back pass is {TRIM} mm shorter", abs(d - TRIM) < 1e-3, f"{d:.4f}")
+
+    # THE ANSWER: Op2 is untouched, and starts nowhere near the trimmed end.
+    for i in range(2, len(tp_off)):
+        check(f"{tag}: Op2 stroke {i} is point-for-point unchanged",
+              np.allclose(tp_off[i], tp_on[i]))
+    moved = gap(np.asarray(tp_on[1][-1], float), np.asarray(tp_on[2][0], float))
+    check(f"{tag}: Op2's start does NOT follow the trimmed end (it repositions)",
+          moved > 10.0, f"gap {moved:.3f} mm")
+
+    # ...while the last INWARD stroke still meets the forward it belongs to.
+    if not op2_reverse:
+        g = gap(np.asarray(tp_on[2][-1], float), np.asarray(tp_on[3][0], float))
+        check("Op2's FULL back pass starts exactly where its forward ended",
+              g < 1e-6, f"gap {g:.6f} mm")
+
+    # The link must refuse off the back of a trimmed stroke.
+    refused = [r for r in pg_on.last_mandrel_link_refused
+               if "stop_short" in (r.get("reasons") or [])]
+    check(f"{tag}: the mandrel-end link refuses, naming the trim",
+          len(refused) > 0 and pg_on.last_mandrel_links == {},
+          f"refused={pg_on.last_mandrel_link_refused} links={pg_on.last_mandrel_links}")
+
+
 print()
 if FAILED:
     print(f"{len(FAILED)} check(s) FAILED: {FAILED}")
