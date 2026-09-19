@@ -10,6 +10,7 @@ from logger_config import logger
 from kinematics import get_kinematics
 import exit_waypoints
 import exit_breaks
+import stop_short
 
 # #100: how far the iterative safety floor may move a pass that carries a
 # hand-drawn tail before the operator is told. The tail is measured FROM P2, so
@@ -993,6 +994,9 @@ class PathGenerator:
         self.last_mandrel_link_refused = []
         # Back passes asked for on a reverse op and deliberately not built (#49).
         self.last_back_pass_ignored = []
+        # Trims (stop_short_mm) asked for and NOT applied because the trim
+        # was longer than the stroke. Reported, never silently ignored.
+        self.last_stop_short_ignored = []
         self.last_render_split_idx = {}  # {path_list_index: (line_end_idx, arc_end_idx)}
         # Same pair remapped onto a REVERSED pass's array — advisory/UI only, see
         # the reverse block below for why it is not merged into the dict above.
@@ -1810,6 +1814,36 @@ class PathGenerator:
                                 projections[-1] = np.array(projections[-1])[::-1]
                             if len(deviations[-1]) > 0:
                                 deviations[-1] = np.array(deviations[-1])[::-1]
+                            # Stop short (stop_short_mm): a reverse pass IS the
+                            # inward stroke, so the trim lands on its end - the
+                            # far end of the straight approach arm. Done HERE,
+                            # before the split remap below, so the remap can be
+                            # built against the trimmed array.
+                            _ss_mm = stop_short.distance_mm(op)
+                            _n_rev_full = len(new_path)
+                            if _ss_mm > 0:
+                                _ss_cut = stop_short.plan(new_path, _ss_mm)
+                                if _ss_cut is None:
+                                    self.last_stop_short_ignored.append({
+                                        "op_name": op.get("name") or op.get("type", "?"),
+                                        "pass_name": pass_label,
+                                        "mm": _ss_mm,
+                                        "reason": "too_long",
+                                    })
+                                    logger.info(
+                                        f"[STOP-SHORT] '{pass_label}': {_ss_mm:.2f} mm trim "
+                                        f"NOT applied - longer than the stroke")
+                                else:
+                                    new_path = stop_short.apply(new_path, _ss_cut)
+                                    toolpaths[-1] = new_path
+                                    projections[-1] = stop_short.apply_parallel(
+                                        projections[-1], _ss_cut, _n_rev_full)
+                                    deviations[-1] = stop_short.apply_parallel(
+                                        deviations[-1], _ss_cut, _n_rev_full)
+                                    logger.info(
+                                        f"[STOP-SHORT] '{pass_label}': reverse pass stops "
+                                        f"{_ss_mm:.2f} mm short ({_n_rev_full} -> "
+                                        f"{len(new_path)} pts)")
                             self.last_render_split_idx.pop(_rev_idx, None)
                             # ADVISORY ONLY (#102 on reverse passes, 2026-08-29).
                             # The dropped split is what tells a UI which slice of
@@ -1831,10 +1865,15 @@ class PathGenerator:
                             # downstream rebuilds or swaps these arrays and the
                             # mapping keeps describing `toolpaths[_rev_idx]`.
                             if _fwd_split is not None:
-                                _n_rev = len(new_path)
+                                # PRE-trim length: the trim comes off the TAIL,
+                                # so an index counted from the start is where it
+                                # always was. Clamped into the array that now
+                                # exists, because a deep trim can reach the split.
+                                _n_rev = _n_rev_full
+                                _hi = len(new_path) - 1
                                 self.last_reverse_split_idx[_rev_idx] = (
-                                    _n_rev - 1 - _fwd_split[1],
-                                    _n_rev - 1 - _fwd_split[0],
+                                    max(0, min(_hi, _n_rev - 1 - _fwd_split[1])),
+                                    max(0, min(_hi, _n_rev - 1 - _fwd_split[0])),
                                 )
 
                         # ── Compute back pass path first (needed before sequence so swap can be applied) ──
@@ -1942,6 +1981,42 @@ class PathGenerator:
                             bck_feed = _bp_feed
                             bck_proj = _bp_proj
                             bck_devs = _bp_devs
+
+                        # ── Stop short (stop_short_mm) ───────────────────────
+                        # The rule is the DIRECTION of travel, not the order of
+                        # the strokes: trim the one that runs INWARD, toward the
+                        # mandrel. Unswapped that is the back pass (P3 -> T1);
+                        # swapped it is the reversed forward path (P3 -> the arm
+                        # start). Both of them are `bck_path` by the time we get
+                        # here, which is exactly why this sits AFTER the swap
+                        # instead of inside the back-pass build: trimming
+                        # `_bp_path` up there would cut the OUTWARD stroke
+                        # whenever the operator had ticked Swap.
+                        _ss_mm = stop_short.distance_mm(op)
+                        if _ss_mm > 0 and bck_path is not None and len(bck_path) > 1:
+                            _ss_n   = len(bck_path)
+                            _ss_cut = stop_short.plan(bck_path, _ss_mm)
+                            if _ss_cut is None:
+                                self.last_stop_short_ignored.append({
+                                    "op_name": op.get("name") or op.get("type", "?"),
+                                    "pass_name": pass_label,
+                                    "mm": _ss_mm,
+                                    "reason": "too_long",
+                                })
+                                logger.info(
+                                    f"[STOP-SHORT] '{pass_label}': {_ss_mm:.2f} mm trim "
+                                    f"NOT applied - longer than the stroke")
+                            else:
+                                bck_path = stop_short.apply(bck_path, _ss_cut)
+                                # Only the arrays that really are parallel; a
+                                # mismatched one would be cut at an index that
+                                # means nothing in it. See apply_parallel for
+                                # the one-short projection case it allows.
+                                bck_proj = stop_short.apply_parallel(bck_proj, _ss_cut, _ss_n)
+                                bck_devs = stop_short.apply_parallel(bck_devs, _ss_cut, _ss_n)
+                                logger.info(
+                                    f"[STOP-SHORT] '{pass_label}': inward stroke stops "
+                                    f"{_ss_mm:.2f} mm short ({_ss_n} -> {len(bck_path)} pts)")
 
                         start_pt = fwd_path[0]
                         end_pt   = fwd_path[-1]

@@ -1514,6 +1514,36 @@ to the part than its two ends. The last pass of the program always
 retracts. The cut lines themselves never change. In the 3D view a link
 is a short solid grey line instead of an orange dashed retract.
 
+STOP SHORT (mm) — end the stroke that comes BACK early
+Some strokes travel out to the blank edge, and some come back toward
+the mandrel. This number only touches the ones that come BACK:
+
+  back pass    runs P3 → the mandrel wall. Trimmed.
+  reverse pass runs P3 → the far end of the straight arm. Trimmed.
+  forward pass runs out to the blank edge. NEVER trimmed — use Reach
+               or the blank factor for that end.
+
+Type 10 and the inward stroke stops 10 mm before where it would have
+ended, measured ALONG the path (so a bowed or curled exit still gets a
+true 10 mm). Empty or 0 = off, which is the default, so no existing
+program moves. The field appears only on operations that have an
+inward stroke, with a grey reminder under it.
+
+With "Swap forward and back" ticked the two strokes trade places, and
+the trim still follows the one going INWARD — not simply the second
+one.
+
+On a reverse pass you can also end early by shortening P1 Z, the
+approach arm. The difference: the arm length also caps the P2 fillet,
+so past a point it quietly shrinks your corner radius. Stop short
+leaves the corner alone.
+
+Two things it refuses to do. A trim longer than the stroke is NOT
+applied — the pass runs full length and the program reports it, rather
+than shipping a stub. And it switches off "No end retract" for that
+operation, because a trimmed pass no longer ends at the mandrel, which
+is the one thing that option depends on.
+
 
 CALCULATE
 ════════════════════════════════════════════════════════════════
@@ -2493,6 +2523,33 @@ mesafe "Maks. bağlantı (mm)" içindedir (varsayılan 15 mm); ve bağlantı
 çizgisi parçaya iki ucundan daha yakın geçmez. Programın son pası her
 zaman geri çekilir. Kesme çizgileri asla değişmez. 3D görünümde bağlantı,
 turuncu kesikli geri çekilme yerine kısa, düz gri bir çizgidir.
+
+ERKEN DUR (mm) — GERİ gelen stroku erken bitir
+Bazı stroklar sac kenarına doğru DIŞA gider, bazıları mandrele doğru
+GERİ gelir. Bu sayı yalnızca GERİ gelenlere dokunur:
+
+  geri pas   P3 → mandrel duvarı. Kırpılır.
+  ters pas   P3 → düz kolun uzak ucu. Kırpılır.
+  ileri pas  sac kenarına doğru gider. ASLA kırpılmaz — o uç için
+             Reach veya Sac çarpanını kullanın.
+
+10 yazarsanız içeri giden strok, biteceği yerden 10 mm önce durur;
+mesafe YOL BOYUNCA ölçülür (bükülmüş veya kıvrılmış çıkışta da gerçek
+10 mm). Boş veya 0 = KAPALI, varsayılan budur; mevcut hiçbir program
+oynamaz. Alan yalnızca içeri giden stroku olan operasyonlarda görünür,
+altında gri bir hatırlatma ile.
+
+"İleri ve geri pası takas et" işaretliyse iki strok yer değiştirir ve
+kırpma yine İÇERİ gideni takip eder — ikinci olanı değil.
+
+Ters pasta P1 Z'yi (yaklaşma kolu) kısaltarak da erken bitirebilirsiniz.
+Farkı şu: kol uzunluğu P2 filetosunu da sınırlar, yani bir noktadan
+sonra köşe yarıçapınızı sessizce küçültür. Erken dur köşeye dokunmaz.
+
+Yapmayı REDDETTİĞİ iki şey var. Stroktan uzun bir kırpma UYGULANMAZ —
+pas tam boyunda koşar ve program bunu bildirir, güdük bir pas göndermez.
+Ve o operasyonda "Uçta çekme yok" seçeneğini kapatır: kırpılmış bir pas
+artık mandrelde bitmez, o seçenek ise tam olarak buna dayanır.
 
 
 HESAPLA

@@ -48,6 +48,7 @@ LINK_TAG = "(Link Op"
 REASONS = {
     "off": "the option is off on this operation",
     "not_mandrel_end": "this pass does not end at the mandrel (only reverse and back passes do)",
+    "stop_short": "this pass is trimmed to stop short of the mandrel, so it no longer ends there",
     "next_not_forward": "the next pass is not a forward roughing pass",
     "order": "the next toolpath belongs to an earlier operation",
     "operation_between": "another operation runs in between",
@@ -124,6 +125,17 @@ def blockers(ops, a_op_index, a_is_back_pass, b_op_index, b_is_back_pass,
         and a.get("direction", "forward") == "reverse")
     if not a_mandrel_end:
         out.append("not_mandrel_end")
+    # Stop short (stop_short_mm) cuts the end off the inward stroke, so A stops
+    # out in the flange instead of on the mandrel. The whole option rests on "A
+    # ends where B begins"; with a trim that is simply untrue, and the link
+    # would bridge from the wrong place. Refuse rather than link a guess.
+    # Read through the op dict so this module stays import-free.
+    try:
+        _ss = float(a.get("stop_short_mm", 0) or 0)
+    except (TypeError, ValueError):
+        _ss = 0.0
+    if _ss > 0:
+        out.append("stop_short")
     if (b_is_back_pass or b.get("type", "roughing") != "roughing"
             or b.get("direction", "forward") == "reverse"):
         out.append("next_not_forward")

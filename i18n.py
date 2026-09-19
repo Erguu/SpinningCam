@@ -761,6 +761,22 @@ STRINGS = {
     # and the user could not find it (2026-09-16). Keep these at 15 or less.
     "lbl_no_retract_mandrel_end": {"EN": "No end retract", "TR": "Uçta çekme yok", "ES": "Sin retr. final"},
     "lbl_mandrel_link_max":   {"EN": "Max link (mm)",               "TR": "Maks. bağ. (mm)",             "ES": "Enl. máx. (mm)"},
+    "lbl_stop_short":         {"EN": "Stop short (mm)",             "TR": "Erken dur (mm)",              "ES": "Parar antes"},
+    "note_stop_short":        {"EN": "only on back passes and reverse passes",
+                               "TR": "sadece geri paslarda ve ters paslarda",
+                               "ES": "solo en pasadas de vuelta e inversas"},
+    "tip_stop_short":         {"EN": "Ends the stroke that travels TOWARDS the mandrel this many mm early, measured along the path. "
+                                     "A back pass and a reverse pass both come back toward the mandrel, so both are trimmed. "
+                                     "The forward pass travels out to the blank edge and is never affected - use Reach or the blank factor for that end. "
+                                     "Empty or 0 = off. A trim longer than the stroke is refused and reported, not applied.",
+                               "TR": "Mandrele DOĞRU giden stroku bu kadar mm erken bitirir, yol boyunca ölçülür. "
+                                     "Geri pas da ters pas da mandrele geri döner, ikisi de kırpılır. "
+                                     "İleri pas sac kenarına doğru gider ve ASLA etkilenmez - o uç için Reach veya sac çarpanını kullan. "
+                                     "Boş veya 0 = kapalı. Stroktan uzun bir kırpma uygulanmaz, bildirilir.",
+                               "ES": "Termina la pasada que va HACIA el mandril estos mm antes, medido a lo largo del recorrido. "
+                                     "La pasada de vuelta y la inversa vuelven hacia el mandril, ambas se recortan. "
+                                     "La pasada de ida va hacia el borde del disco y nunca se ve afectada. "
+                                     "Vacío o 0 = apagado. Un recorte mayor que la pasada se rechaza y se informa."},
     "btn_save_cam_angle":   {"EN": "Save Current Angle",            "TR": "Mevcut Açıyı Kaydet",        "ES": "Guardar Ángulo Actual"},
     "btn_reset_cam":        {"EN": "Reset Camera",                  "TR": "Kamerayı Sıfırla",           "ES": "Restablecer Cámara"},
     "lbl_cam_presets":      {"EN": "Camera Presets:",               "TR": "Kamera Önayarları:",         "ES": "Presets de Cámara:"},

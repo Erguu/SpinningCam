@@ -106,6 +106,7 @@ BASE_ROUGH = {
     "tool_change_dx": 0.0, "tool_change_dz": 0.0, "tool_change_simultaneous": False,
     "p2_radius_max_points": "", "exit_max_points": "",
     "no_retract_mandrel_end": False, "mandrel_link_max_mm": 15.0,
+    "stop_short_mm": "",
 }
 
 # ── probe values ──────────────────────────────────────────────────────────
@@ -129,6 +130,9 @@ PROBE = {
     # Shorter than any back-pass -> forward gap in this baseline, so the links
     # the condition's 200 mm allows are refused and the retracts come back.
     "mandrel_link_max_mm": 0.001,
+    # The baseline builds a back pass (back_pass_enabled), so the inward stroke
+    # exists and 10 mm is well inside a 40 mm reach - no CONDITION needed.
+    "stop_short_mm": 10.0,
 }
 
 # ── conditions: what a key needs before it can bite ───────────────────────

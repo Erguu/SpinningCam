@@ -41,6 +41,7 @@ OP_PARAM_DEFAULTS = {
     "p2_radius": 0,
     "p2_radius_max_points": "off",  # empty = no cap on the fillet's PLC point count (#99)
     "exit_max_points": "off",       # empty = no cap on the exit leg's PLC point count (#101)
+    "stop_short_mm": "off",         # empty = the inward stroke runs to its normal end
     "exit_bow_bias": 0.5,
     "exit_mid_t": 0.5,
     "exit_mid_rotation": 0,
@@ -149,7 +150,7 @@ OP_PARAM_UNIVERSE = {
         "clearance", "rot",
         "contact_zone_mm", "feed_contact", "feed_contact_end",
         "back_pass_enabled", "back_pass_swapped", "back_pass_feed",
-        "back_pass_arc_x", "back_pass_arc_z",
+        "back_pass_arc_x", "back_pass_arc_z", "stop_short_mm",
     ],
     "finishing": _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + [
         "name", "tool_id", "count", "direction",
@@ -157,6 +158,9 @@ OP_PARAM_UNIVERSE = {
         "start_z", "end_z", "proj_extend_bottom", "proj_extend_top",
         "retract_x", "retract_z", "retract_motion",
         "clearance", "pass_shape", "straight_line_mode",
+        # Only reachable on a REVERSE finishing pass, which travels inward
+        # like any other reverse pass; the editor gates it (stop_short.op_can_use).
+        "stop_short_mm",
     ],
     "cutting":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + _CUT_BEND_POINTS + ["name", "tool_id", "retract_x", "retract_z", "retract_motion"],
     "bending":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + _CUT_BEND_POINTS + ["name", "tool_id", "retract_x", "retract_z", "retract_motion"],
@@ -209,6 +213,7 @@ OP_PARAM_LABELS = {
     "reach": "lbl_reach",
     "reach_follow_blank": "lbl_reach_follow",
     "reach_blank_factor": "lbl_reach_factor",
+    "stop_short_mm": "lbl_stop_short",
     "reach_blank_offset": "lbl_reach_offset",
     "pass_angle": "lbl_pass_angle",
     "progressive_angle_enabled": "lbl_progressive",
@@ -949,6 +954,44 @@ class ProgramTab:
                                  tooltip="Mandrel ucunda bağlantıya izin verilen en uzun mesafe (mm). "
                                          "Sonraki pas daha uzaktan başlıyorsa geri çekilme kalır. "
                                          "Boş, 0 veya geçersiz = 15 mm.")
+
+    def _add_stop_short_field(self, idx, op):
+        """"Stop short (mm)" - end the INWARD stroke early (stop_short.py).
+
+        Shown only where it can do something: an op that runs reverse, or that
+        builds a back pass. Out-of-universe gating like the mandrel link, for
+        the same reason - _apply_field_visibility does not know this rule.
+
+        Unlike the mandrel link this is NOT roughing-only: a reverse finishing
+        pass travels toward the mandrel like any other reverse pass.
+
+        The grey note under the field is the point of the user request
+        (2026-09-20): when the operator DOES see this field, it says out loud
+        which strokes it touches, so nobody waits for the forward pass to move.
+        """
+        import stop_short as _ss
+        if not _ss.op_can_use(op, op_builds_back_pass(op)):
+            return
+        self._add_prop_entry(idx, _ss.OP_KEY, t("lbl_stop_short"), op, is_float=True,
+                             default_hint="off",
+                             tooltip="Mandrele DOĞRU giden stroku bu kadar mm ERKEN bitirir; "
+                                     "mesafe yol boyunca ölçülür, düz çizgiyle değil.\n"
+                                     "Geri pas (P3→mandrel duvarı) ve TERS pas (P3→kol başı) "
+                                     "mandrele geri döner — ikisi de kırpılır. Takas açıksa da "
+                                     "kırpılan yine İÇERİ giden strok olur, ikinci olan değil.\n"
+                                     "İLERİ pas sac kenarına doğru gider, ASLA etkilenmez — o uç "
+                                     "için Reach / Sac çarpanı kullan.\n"
+                                     "Ters pasta P1 Z ile de kısaltabilirsin, AMA kol uzunluğu P2 "
+                                     "filetosunu da kısar; bu alan fileto'ya dokunmaz.\n"
+                                     "Boş veya 0 = KAPALI. Stroktan uzun kırpma UYGULANMAZ, "
+                                     "bildirilir. Mandrel ucu bağlantısını da kapatır (pas artık "
+                                     "mandrelde bitmiyor).")
+        f_note = ttk.Frame(self.f_prop_editor)
+        f_note._pkey = _ss.OP_KEY
+        f_note.pack(fill="x", padx=2)
+        tk.Label(f_note, text=t("note_stop_short"),
+                 fg=self.helper.HINT_COLOR, font=self.helper.HINT_FONT,
+                 anchor="w").pack(side="left", padx=(17, 2))
 
     def _add_retract_motion_field(self, idx, op):
         """Axis order for this op's pass retract (2026-09-03).
@@ -2868,6 +2911,7 @@ class ProgramTab:
                              tooltip="Bu operasyonun pas geri çekilmesi için Z ofseti (mm). Boş = 50 mm.")
         self._add_retract_motion_field(idx, op)
         self._add_mandrel_link_fields(idx, op, op_type)
+        self._add_stop_short_field(idx, op)
 
         if op_type == "roughing":
             _hdr = self._add_section_header("path_shape", t("lbl_path_shape_hdr"))

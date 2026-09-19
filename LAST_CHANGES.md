@@ -77,6 +77,62 @@ adıyla kilitliyor. ⚠ Bu dört satırın ÜÇÜ takım değişimi güvenlik bl
 
 **Geri alma:** `generate_gcode` sonundaki `drop_zero_length_rapids` çağrısını sil.
 
+## 2026-09-20 — ERKEN DUR: içeri giden stroku kırp (yeni özellik, varsayılan KAPALI)
+
+**Kullanıcının sorusu:** *"geri pas veya ters pas için, bitmesi gereken yerden
+önce bitirebileceğim bir özellik var mı?"* **Cevap: YOKTU.** Sac çarpanı
+(`reach_blank_factor`) o iki strokta YANLIŞ UÇTA çalışıyor — `reach`'i, yani
+P2→P3 çıkış kolunu ölçekler; bu uç ileri pasta BİTİŞ, ama geri ve ters pasta
+BAŞLANGIÇ'tır.
+
+**KURAL (kullanıcı, 2026-09-20): YÖN, sıra değil.** Sayı yalnızca mandrele
+DOĞRU giden stroku etkiler:
+* geri pas P3 → mandrel duvarı (T1) — **kırpılır**
+* ters pas P3 → düz kolun uzak ucu — **kırpılır**
+* ileri pas sac kenarına doğru — **ASLA**; o uç `reach` / sac çarpanının işi
+
+**Takas (back_pass_swapped) tuzağı:** takasta iki strok yer değiştirir. Kod bu
+yüzden `_bp_path`'i üretildiği yerde DEĞİL, **swap bloğundan SONRA `bck_path`
+üzerinde** kırpar — her iki durumda da içeri giden odur. Yukarıda kırpsaydık
+takas açıkken DIŞA gideni keserdik (flanşı sessizce kısaltırdı). Test §B3 tam
+olarak bunu ölçüyor.
+
+**Neden `p1_z` yetmiyordu (ters pas için):** kolu kısaltmak pası gerçekten erken
+bitirir, AMA kol uzunluğu P2 filetosunu da sınırlar
+(`_arc_fillet_at_p2`: `max_len = min(leg1, leg2) * 0.9`), yani bir noktadan
+sonra köşe yarıçapını SESSİZCE küçültür. Erken dur köşeye dokunmaz.
+
+**Uygulama:** saf modül `stop_short.py` — `plan(path, mm)` → `(keep, t)`,
+`apply`, `apply_parallel`. Mesafe **YOL BOYUNCA** ölçülür (bükülmüş/kıvrılmış
+çıkışta da gerçek mm), son nokta interpolasyonla tam yerine konur.
+Motor: `path_generator` iki noktada çağırır (ters dalda; swap sonrası).
+
+**Reddettiği iki şey:**
+1. **Stroktan uzun kırpma UYGULANMAZ** — pas tam boyunda koşar,
+   `last_stop_short_ignored` ile bildirilir. Güdük pas göndermek yok.
+2. **Mandrel ucu bağlantısını KAPATIR** — `mandrel_end_link`'e yeni sebep
+   `stop_short`. O seçenek "pas mandrelde biter" varsayımına dayanıyor;
+   kırpılmış pas orada bitmez.
+
+**Yan bulgu (BU ÖZELLİKTEN DEĞİL, düzeltilmedi):** motor linear_approach pasında
+yol noktasından **1 EKSİK projeksiyon** saklıyor (20 vs 21). Kırpma KAPALIYKEN de
+var. `apply_parallel` bu yüzden `n` veya `n-1` uzunluğu kabul eder — yoksa
+projeksiyon kırpılmadan kalıp kırpılmış yoldan UZUN olurdu, ki bu baştaki
+tutarsızlıktan daha kötü.
+
+**UI:** op alanı **"Erken dur (mm)"** (EN "Stop short (mm)", ES "Parar antes"),
+Geri Çekilme X/Z'nin altında, altında gri not: *sadece geri paslarda ve ters
+paslarda*. Alan yalnızca içeri giden stroku OLAN op'larda görünür
+(`stop_short.op_can_use`) — kaba VE perdah (ters perdah pası da içeri gider).
+Etiketler 15 karakter sütununa sığıyor, test kilitliyor.
+
+**Ölçüldü:** **110 test dosyası PASS** (golden ağı dâhil).
+`_test_param_wiring` alanın gerçekten kablolu olduğunu kanıtlıyor.
+**Boş/0 = KAPALI = eski çıktı, nokta nokta aynı** (test §B1).
+
+**Geri alma:** `path_generator`'daki iki `stop_short` bloğunu ve
+`mandrel_end_link`'teki `stop_short` sebebini sil.
+
 ## 2026-09-19b — Takım değişimi güvenlik satırları MUAF (AÇIK SORU, TODO #108)
 
 **Kullanıcı kararı.** `drop_zero_length_rapids` artık takım değişimi öncesi
