@@ -5,6 +5,17 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+> **v1.036 = aşağıdaki 2026-09-16g / 2026-09-18 / 2026-09-19 girdileri**
+> ("No end retract" etiketinin 15 karakterlik sütuna sığdırılması, satır uzunluğu
+> uyarısının düz dille yeniden yazılması + eğri üzerindeki UZUN kiriş uyarısı, ve
+> HİÇBİR YERE GİTMEYEN rapid'in artık yazılmaması). Operatöre görünen kısmı
+> `changelog.py`'deki `"1.036"` girdisi — orada yalnızca rapid maddesi var; satır
+> uzunluğu maddesi 1.035 listesinde kaldı (kod bump'tan sonra indi ama aynı
+> yayının parçası, o yayın henüz çıkmadı). Branch `feature/mandrel-end-link`,
+> **master'a MERGE YOK, EXE YOK.** Rapid kaldırma sahada DENENMEDİ; 9 saha
+> programından yalnızca 140926.ssp'de iki tane vardı. ⚠ 2026-09-19'da ölçüldü:
+> operatörün "3 saniye bekliyor" şikâyetinin sebebi BU DEĞİLDİ (düz koldu).
+
 > **v1.035 = aşağıdaki 2026-09-16 / 16b / 16c / 16d / 16e girdileri** (3B duruş
 > noktaları, mandrel ucunda geri çekilme yok, köşenin İKİ yanının planlanması,
 > 0.012 mm kuralı, PLC reply3'ün 4 düzeltmesi). Operatöre görünen kısmı
@@ -34,6 +45,72 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 > düzeltmesi + test altyapısı). Operatöre görünen kısmı `changelog.py`'deki
 > `"1.032"` girdisi; test işi bilerek DIŞARIDA (operatör için görünmez).
 > Bu sürümde takım yolu DEĞİŞMEDİ — sadece ekranın söylediği düzeldi.
+
+## 2026-09-18 — HİÇBİR YERE GİTMEYEN rapid artık YAZILMIYOR
+
+**ÖNCE SONUCU OKU:** bu değişiklik operatörün "3 saniye bekliyor" şikâyetini
+ÇÖZMEDİ. O şikâyetin gerçek sebebi 2026-09-19'da operatörün KENDİ dosyasında
+bulundu — aşağıdaki "3 saniyenin gerçek cevabı" girdisine bak. Bu satır
+kaldırma işi kendi başına doğru; sebep bu değildi.
+
+**Değişiklik:** `path_generator.drop_zero_length_rapids` — `generate_gcode`'un
+SONUNDA çalışan saf fonksiyon. Takımın ZATEN durduğu noktaya giden `G0` yazılmaz.
+Bir `G0` ancak **adını andığı HER eksen** zaten o değerdeyse atılır (B/tilt dahil).
+Besleme satırı ASLA atılmaz; 0.001 mm bile hareket eden rapid atılmaz; konum
+bilinmeden hiçbir şey atılmaz (program başındaki referans rapid'leri hep kalır);
+okunamayan satır hem kalır hem konumu unutturur.
+
+**Neden TUTULUYOR (sebep değişti):** PLC ekibi ölçtü — böyle bir satır ~0.135 s,
+yani ARANAN 3 saniye DEĞİL (`reply_plc_zero_length_rapid.md` §1). Ama:
+(a) hareket etmeyen bir hareket komutu yazmak zaten yanlış,
+(b) **1000 satırlık bütçeden yer yiyor** — operatörün 180926.ssp'si 568 satır ve
+    kayıtlı kapasite 500, yani satır BAŞINA sıkışık durumda,
+(c) PLC ekibi açıkça "drop them, hiçbir şey buna bağlı değil" dedi ve kuralın
+    dar kalmasını onayladı (özellikle "konum bilinmeden atma").
+
+**Ölçüldü:** 140926 iki satırını kaybediyor (199 → 197), 180926 de iki satır,
+**diğer 8 program BAYT AYNI**, golden dahil **108 test dosyası PASS**.
+Golden set 140926'yı KAPSAMAZ (canlı dosya, bilerek dışarıda) — onun yerine
+`_test_zero_rapids.py` o dosyayı adıyla kilitliyor.
+
+**Geri alma:** `generate_gcode` sonundaki `drop_zero_length_rapids` çağrısını sil.
+
+## 2026-09-19 — 3 saniyenin gerçek cevabı: DÜZ KOL (straight arm)
+
+**Operatörün gerçek dosyası `180926.ssp` ölçüldü** (gcodes klasörü). Bulgular:
+
+* **"No end retract" kutusu ÇALIŞIYOR.** 16 ters op'un hepsinde işaretli; 15 ters→ileri
+  dönüşün **14'ü BAĞLANMIŞ** (gap 0.00, araya HİÇBİR satır yazılmıyor). Tek ret
+  Op45→Op46 ve haklı: takım değişimi (parting). "Kutu çalışmıyor" şüphesi ASILSIZ.
+* **3 saniye = ileri pasın DÜZ KOLU.** Her ileri pas, yarıçap 0.1–0.26 mm değişirken
+  mandrel ekseni boyunca **19–77 mm** kayarak başlıyor. Rulo daha önce şekillendirilmiş
+  duvarın üzerinde ilerliyor, DIŞA doğru hiçbir şey olmuyor → operatör "duruyor"
+  görüyor. F1000'de **1.2–4.6 s**. 14 tanesinin HEPSİ ileri pas, hepsi bir ters
+  pasın hemen ardından. Toplam **28.6 s/parça**.
+* **Kendi bağlantımız görünür yaptı:** eskiden iki pas arasında kalkıp geri geliyordu,
+  duraklama "konumlanma" gibi okunuyordu. Artık ters pastan doğrudan 4 saniyelik
+  yürüyüşe giriyor, arada açıklayıcı hiçbir şey yok. Yürüyüşü BİZ yaratmadık,
+  onu gizleyen şeyi kaldırdık.
+
+**Ölçülen ama ayrı olan iki şey (bu şikâyetin sebebi DEĞİL):**
+
+* **Köşe toleransı 0.1 mm ona %50'ye mal oluyor:** programlandığı gibi 9.2 dk besleme,
+  hız modu 13.8 dk planlıyor. **0.2 mm'de 9.6 dk** → Makine sekmesinde TEK sayı,
+  **parça başına 4.2 dakika**. (T=0.045 zaten doğru, feed_min=180.)
+* **568 reçete satırı / kayıtlı kapasite 500** — auto-tune daha çok seyreltmek
+  zorunda kalır, satırlar uzar, köşe kuralı daha çok ısırır.
+* Satır 566/567: **arka arkaya İKİ `CMD=21`**. `CMD=20`'yi tekilleştiriyoruz,
+  `CMD=21`'i etmiyoruz.
+
+**Ders:** bir oturum boyunca BAŞKA dosyalardan akıl yürüttük ve makine hakkındaki
+tahminlerin hepsi yanlış çıktı (finishing op'ları, 15 mm sınırı, ilk satırın köşe
+yüzünden yavaşlaması, sıfır mesafeli rapid). Operatörün kendi .ssp'si 10 dakikada
+cevabı verdi. **Saha şikâyetinde ÖNCE dosyayı iste.**
+
+**Yapılmadı (bilerek):** ileri→ters dönüşlerin kapsanması (onun dosyasında retract 0,
+kazanç ~yok), 15 mm varsayılanının yükseltilmesi (kanıt yok), köşeye giren satırın
+bölünmesi (önce ücretsiz tolerans denensin), ret sebeplerinin arayüzde gösterilmesi
+(hâlâ değerli: bu oturumu başında bitirirdi).
 
 ## 2026-09-16g — "No retract" kutusunun etiketi KESİLİYORDU
 

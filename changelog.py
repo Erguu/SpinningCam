@@ -17,6 +17,17 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.036": [
+        ("Moves that go nowhere are no longer written",
+         "A program sometimes carried a fast move to the exact point the roller "
+         "was already standing on. It moved nothing, but the machine still had to "
+         "accept it, start it and report it done, and it used up one of the 1000 "
+         "lines a recipe can hold. Those lines are now left out. Only fast moves "
+         "are affected, and only when every axis named on the line is already "
+         "there — a cutting move is never removed, and neither is a move of even "
+         "a hundredth of a millimetre.",
+         "Nothing to switch on; it applies to every saved program and recipe"),
+    ],
     "1.035": [
         ("See where the machine really stops",
          "With continuous-motion export on, the 3D view now puts a black dot on "
