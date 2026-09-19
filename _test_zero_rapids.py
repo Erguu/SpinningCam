@@ -54,8 +54,29 @@ kept, n = drop(["G0 X10.000 Z20.000 B5.000", "G0 X10.000 Z20.000 B5.000"])
 check("same tilt, same place goes", n == 1, kept)
 
 # Modal: the second line names Z only, and Z has not moved.
-kept, n = drop(["G0 X10.000 Z20.000", "G0 Z20.000 (Tool Change Z, relative)"])
+kept, n = drop(["G0 X10.000 Z20.000", "G0 Z20.000 (Retract to safe Z)"])
 check("single-axis rapid judged on that axis alone", n == 1, kept)
+
+# 5. The pre-tool-change clearance block is never touched, even though every
+#    line in it moves nothing. It asserts a height rather than reaching one.
+TCH = "(--- TOOL CHANGE SAFETY ---)"
+kept, n = drop(["G0 X10.000 Z20.000", TCH,
+                "G0 Z20.000 (Tool Change Z, relative)",
+                "G0 X10.000 (Tool Change X, relative)"])
+check("the tool-change clearance block stays", n == 0, kept)
+
+kept, n = drop(["G0 X10.000 Z20.000", TCH,
+                "G0 Z20.000 (Tool Change Z, relative)",
+                "G97 S500 M3", "M6 T004 (ROUGHING)",
+                "G0 Z20.000 (approach)"])
+check("the block ends at the next real command", n == 1, kept)
+
+kept, n = drop(["G0 X10.000 Z20.000", TCH,
+                "G0 Z20.000 (Tool Change Z, relative)",
+                "M6 T004 (ROUGHING)",
+                "G1 X10.000 Z20.000 F400.000",
+                "G0 X10.000 Z20.000"])
+check("normal judging resumes after the block", n == 1, kept)
 
 kept, n = drop(["G0 X10.000 Z20.000", "G0 X99.000", "G0 Z20.000"])
 check("Z unchanged after an X-only move -> the Z rapid goes", n == 1, kept)
@@ -90,12 +111,15 @@ except Exception as e:                                          # pragma: no cov
 
 SHOP = r"C:\Users\PC\Documents\Automation\Cursor\MexicoMetalSpinning\gcodes"
 # Measured box off, recipe path. A file not listed here must lose NOTHING.
-#   140926.ssp (2026-09-18): two, one at the reverse -> forward turn.
+#   140926.ssp: one, the rapid into Op21's pass start, at the reverse ->
+#     forward turn the operator described. It has a SECOND redundant rapid,
+#     a "Tool Change Z", which is protected by the exemption below.
 #   180926.ssp (2026-09-19, the operator's own file, which arrived after the
-#     first measurement): two, both the "Tool Change Safety" G0 Z before a
-#     cutting op, written to the Z the tool already sits on. The G0 X right
-#     after each one is a real move and stays.
-EXPECTED = {"140926.ssp": 2, "180926.ssp": 2}
+#     first measurement): NOTHING. It has two rapids that move nothing, but
+#     both sit in the pre-tool-change clearance block, which is exempt (user,
+#     2026-09-19) - see drop_zero_length_rapids. This zero is the point of the
+#     exemption, not an absence of evidence.
+EXPECTED = {"140926.ssp": 1}
 
 if gs is not None:
     files = []

@@ -3,6 +3,48 @@
 
 ---
 
+## Zero-length rapids — 2026-09-19
+
+### 108. OPEN QUESTION — are the tool-change safety lines a move, or a promise?
+
+Background in one paragraph. Before every tool change the program writes a
+rapid that says "go to this height". Sometimes the tool is ALREADY at that
+height, so the line moves nothing. `path_generator.drop_zero_length_rapids`
+removes rapids that move nothing — but it deliberately SKIPS this block
+(user, 2026-09-19), because those lines can be read two ways:
+
+* **A move.** Then removing it is free, and it buys back a recipe line.
+* **A promise.** It states the height out loud every single time, whatever
+  happened before. Remove it and the program trusts OUR bookkeeping of where
+  the tool is, instead of telling the machine. The turret is the one place
+  where being wrong is a crash.
+
+**We chose the promise reading, without evidence either way.** The user did
+not have enough information to decide, and picked the safe side.
+
+Measured: 140926.ssp has one of these (protected), plus one real redundant
+rapid at the reverse → forward turn (removed). 180926.ssp has two, both
+protected, and so loses nothing at all.
+
+**What would settle it** — connect this to any of these if they come up later:
+- NOT the PLC team's timing answer — they already gave it (~0.135 s per line,
+  "drop them", `reply_plc_zero_length_rapid.md` §1). That settles the COST
+  question, not this one. This one is about whether the line is worth keeping
+  as a statement.
+- Any evidence that the machine's real position can differ from the position
+  our G-code thinks it is at (a manual jog between programs, a feed hold, an
+  abort). If that can never happen, the promise reading has no value and the
+  block can be treated like any other rapid.
+- Hitting the 1000-line recipe ceiling on a program with many tool changes,
+  where these lines would be worth reclaiming. 180926.ssp is already at 568
+  recipe lines against a saved capacity of 500 (LAST_CHANGES 2026-09-19).
+
+Code: `path_generator.TOOL_CHANGE_SAFETY_HEADER` — one constant, written by
+the emitter and read by the dropper, so a reworded header cannot silently
+stop protecting them. Test: `_test_zero_rapids.py` section 5.
+
+---
+
 ## PLC continuous motion — 2026-09-14
 
 ### 107. ⏳ IMPLEMENTED 2026-09-14 (headless verified; GUI smoke + MACHINE pending) — Continuous-motion export (CMD=2)

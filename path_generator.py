@@ -676,6 +676,11 @@ def retract_segments(end_pt, dx, dz, motion):
 
 _GCODE_WORD_RE = re.compile(r"([A-Z])(-?\d+(?:\.\d+)?)")
 
+# The line that opens the pre-tool-change clearance block. ONE constant: the
+# emitter writes it and drop_zero_length_rapids reads it, so a reworded header
+# cannot silently stop protecting those rapids.
+TOOL_CHANGE_SAFETY_HEADER = "(--- TOOL CHANGE SAFETY ---)"
+
 
 def drop_zero_length_rapids(lines):
     """Remove every ``G0`` that names only coordinates the tool already sits on.
@@ -698,15 +703,35 @@ def drop_zero_length_rapids(lines):
       * only lines whose motion word is G0 and which carry no other command
         (M, S, T, F) are considered;
       * an unparsable coordinate makes the line untouchable AND forgets the
-        position, so the next rapid is never judged against a stale one.
+        position, so the next rapid is never judged against a stale one;
+      * the pre-tool-change clearance block is left ALONE (user, 2026-09-19).
+        Those rapids are not only a move, they are an assertion: be at this
+        height before the turret indexes, stated every time whatever happened
+        before. Dropping one because our own bookkeeping says the tool is
+        already there swaps a stated fact for a trusted assumption, and the
+        turret is the one place where the wrong answer is a crash. Both of
+        180926.ssp's redundant rapids were in this block, and one of
+        140926.ssp's two. OPEN QUESTION, not a settled rule: TODO #108 lists
+        what would settle it (the PLC team's answer, or evidence that the
+        machine's real position can drift from ours, or running out of recipe
+        lines). Chosen without evidence either way, on the safe side.
 
     Pure. Returns ``(lines, dropped_count)``.
     """
     out, dropped = [], 0
     pos = {}
+    in_tool_change = False
     for raw in lines:
+        if (raw or '').strip() == TOOL_CHANGE_SAFETY_HEADER:
+            in_tool_change = True
+            out.append(raw)
+            continue
         s = (raw or "").split("(")[0].split(";")[0].strip().upper()
         if not s or not re.match(r"^G0*[01]\b", s):
+            # A blank or comment-only line does not end the block; a real
+            # command (the M6, the speed) does.
+            if s:
+                in_tool_change = False
             out.append(raw)
             continue
         rest = re.sub(r"^G0*[01]\b", "", s)
@@ -718,11 +743,16 @@ def drop_zero_length_rapids(lines):
         if re.sub(r"\s+", "", leftover):
             out.append(raw)
             pos = {}
+            in_tool_change = False
             continue
         moves = {axis: float(num) for axis, num in words if axis in "XZB"}
         others = [axis for axis, _ in words if axis not in "XZB"]
         is_rapid = re.match(r"^G0*0\b", s) is not None
-        if (is_rapid and moves and not others
+        # The clearance block is the run of rapids right after the header;
+        # a feed line ends it.
+        if not is_rapid:
+            in_tool_change = False
+        if (is_rapid and moves and not others and not in_tool_change
                 and all(axis in pos and abs(pos[axis] - v) < 1e-6
                         for axis, v in moves.items())):
             dropped += 1
@@ -3989,7 +4019,7 @@ class PathGenerator:
                  _tc_x_m, _tc_z_m = _xf_pt(float(_tc[0]), float(_tc[2]))
                  _tc_mode = str(op.get("tool_change_mode", "global") or "global").lower()
                  _tc_sim = bool(op.get("tool_change_simultaneous", False))
-                 gcode.extend(["", "(--- TOOL CHANGE SAFETY ---)"])
+                 gcode.extend(["", TOOL_CHANGE_SAFETY_HEADER])
                  if _tc_mode == "global":
                      gcode.append(f"G0 Z{_tc_z_m:.3f} (Home Z)")
                      gcode.append(f"G0 X{_tc_x_m:.3f} (Retract X)")

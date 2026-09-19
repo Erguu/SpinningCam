@@ -68,12 +68,49 @@ yani ARANAN 3 saniye DEĞİL (`reply_plc_zero_length_rapid.md` §1). Ama:
 (c) PLC ekibi açıkça "drop them, hiçbir şey buna bağlı değil" dedi ve kuralın
     dar kalmasını onayladı (özellikle "konum bilinmeden atma").
 
-**Ölçüldü:** 140926 iki satırını kaybediyor (199 → 197), 180926 de iki satır,
-**diğer 8 program BAYT AYNI**, golden dahil **108 test dosyası PASS**.
-Golden set 140926'yı KAPSAMAZ (canlı dosya, bilerek dışarıda) — onun yerine
-`_test_zero_rapids.py` o dosyayı adıyla kilitliyor.
+**Ölçüldü (İLK ölçüm — AŞAĞIDAKİ 2026-09-19b ile GÜNCELLENDİ):** 140926 iki
+satırını kaybediyor (199 → 197), 180926 de iki satır, **diğer 8 program BAYT
+AYNI**, golden dahil **108 test dosyası PASS**. Golden set 140926'yı KAPSAMAZ
+(canlı dosya, bilerek dışarıda) — onun yerine `_test_zero_rapids.py` o dosyayı
+adıyla kilitliyor. ⚠ Bu dört satırın ÜÇÜ takım değişimi güvenlik bloğundaydı ve
+2026-09-19b'de MUAF tutuldu; güncel sayılar orada.
 
 **Geri alma:** `generate_gcode` sonundaki `drop_zero_length_rapids` çağrısını sil.
+
+## 2026-09-19b — Takım değişimi güvenlik satırları MUAF (AÇIK SORU, TODO #108)
+
+**Kullanıcı kararı.** `drop_zero_length_rapids` artık takım değişimi öncesi
+güvenlik bloğuna DOKUNMUYOR — o bloktaki rapid hiçbir şeyi hareket ettirmese
+bile yazılır.
+
+**Sebep — satırı iki türlü okuyabilirsin:**
+* **Hareket:** o zaman silmek bedava, üstelik bir reçete satırı geri kazandırır.
+* **SÖZ:** "torete dönmeden önce şu yükseklikte ol" — öncesinde ne olduğuna
+  BAKMADAN, her seferinde açıkça söylenir. Silersen program makineye söylemek
+  yerine BİZİM konum defterimize güvenmiş olur. Torete tam da yanlış cevabın
+  çarpma demek olduğu yer.
+
+**Kanıt YOK, güvenli taraf seçildi** (kullanıcı, 2026-09-19: konuyu tam
+anlamadığı için dokunmama kararı). PLC ekibinin cevabı bunu ÇÖZMEZ: onlar
+satırın SÜRESİNİ ölçtü (~0.135 s) ve "atın" dedi; soru süre değil, konum
+güvenilirliği. Neyin bunu kapatacağı: **TODO #108**.
+
+**Uygulama:** `TOOL_CHANGE_SAFETY_HEADER` — TEK sabit, emitter yazar
+(`generate_gcode`), atıcı okur. Blok başlıkla başlar, ilk GERÇEK komutta
+(M6/hız) biter; arada boş satır ve yorum blokta sayılır, besleme satırı ve
+okunamayan satır bloğu KAPATIR. Böylece başlık yeniden yazılırsa koruma
+sessizce kalkamaz — iki taraf aynı sabiti kullanır.
+
+**Ölçüm DEĞİŞTİ (güncel sayılar bunlar):**
+* **140926.ssp: 1 atılıyor, 1 korunuyor.** Atılan `G0 X179.391 Z181.000
+  (Op21 P1)` — operatörün tarif ettiği ters → ileri dönüşteki pas girişi.
+  Korunan `G0 Z181.000 (Tool Change Z, relative)`.
+* **180926.ssp: 0 atılıyor, 2 korunuyor.** İkisi de "Tool Change Z". Yani bu
+  dosya artık HİÇBİR satır kaybetmiyor.
+* Diğer programlar zaten bayt aynıydı, öyle kaldı. **108 test dosyası PASS.**
+
+**Geri alma:** `drop_zero_length_rapids` içindeki `in_tool_change` bayrağını ve
+`not in_tool_change` koşulunu sil; blok yeniden normal muamele görür.
 
 ## 2026-09-19 — 3 saniyenin gerçek cevabı: DÜZ KOL (straight arm)
 
