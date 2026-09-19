@@ -674,6 +674,65 @@ def retract_segments(end_pt, dx, dz, motion):
             if np.linalg.norm(np.asarray(b) - np.asarray(a)) > 1e-9]
 
 
+_GCODE_WORD_RE = re.compile(r"([A-Z])(-?\d+(?:\.\d+)?)")
+
+
+def drop_zero_length_rapids(lines):
+    """Remove every ``G0`` that names only coordinates the tool already sits on.
+
+    Such a rapid moves nothing, but it is still a line the PLC must accept,
+    start and report done — and one of them sits exactly where the operator
+    reports the machine standing still, at the reverse → forward turn in the
+    shop's live 140926.ssp (2026-09-18). Whether the PLC really spends time on
+    it is an open question for the PLC team; writing a move to where the tool
+    already is is wrong either way, and it costs one of the 1000 recipe lines.
+
+    Modal by axis, which is how both the .nc reader and the recipe read it
+    (CAM_INTERFACE_SPEC §4, recipe_to_scl.py:472): a single-axis ``G0 Z…`` is
+    judged on Z alone. A line is dropped only when EVERY axis it names is
+    already at that value — B (tilt) included, so a tilt-only rapid survives.
+
+    Deliberately conservative:
+      * nothing is dropped until a position is known, so the program-start
+        homing rapids always stand;
+      * only lines whose motion word is G0 and which carry no other command
+        (M, S, T, F) are considered;
+      * an unparsable coordinate makes the line untouchable AND forgets the
+        position, so the next rapid is never judged against a stale one.
+
+    Pure. Returns ``(lines, dropped_count)``.
+    """
+    out, dropped = [], 0
+    pos = {}
+    for raw in lines:
+        s = (raw or "").split("(")[0].split(";")[0].strip().upper()
+        if not s or not re.match(r"^G0*[01]\b", s):
+            out.append(raw)
+            continue
+        rest = re.sub(r"^G0*[01]\b", "", s)
+        words = _GCODE_WORD_RE.findall(rest)
+        # Every word must parse, or the line is not understood: keep it and
+        # forget where we are, so no later rapid is judged against a stale
+        # position.
+        leftover = _GCODE_WORD_RE.sub("", rest)
+        if re.sub(r"\s+", "", leftover):
+            out.append(raw)
+            pos = {}
+            continue
+        moves = {axis: float(num) for axis, num in words if axis in "XZB"}
+        others = [axis for axis, _ in words if axis not in "XZB"]
+        is_rapid = re.match(r"^G0*0\b", s) is not None
+        if (is_rapid and moves and not others
+                and all(axis in pos and abs(pos[axis] - v) < 1e-6
+                        for axis, v in moves.items())):
+            dropped += 1
+            logger.info(f"[ZERO-RAPID] dropped a rapid that moves nothing: {raw.strip()}")
+            continue                             # position is unchanged by definition
+        pos.update(moves)                        # a feed line moves the tool too
+        out.append(raw)
+    return out, dropped
+
+
 def resolve_point_feed(op, params):
     """``(is_rapid, feed_mm_min)`` for a Point op.
 
@@ -787,6 +846,8 @@ class PathGenerator:
         self.last_mandrel_links = {}           # B path index -> {"a", "from", "to", "gap", "clearance"}
         self.last_mandrel_link_refused = []    # [{"a", "b", "reasons"}] mandrel ends the option could not link
         self.last_mandrel_link_fallbacks = []  # B indices where generate_gcode put the retract BACK
+        # Rapids that moved nothing and were removed (drop_zero_length_rapids).
+        self.last_zero_rapids_dropped = 0
 
     def _tc_radial_gap(self, pt, center_x, mandrel_mgr, params, r_tool):
         """Radial clearance (mm) between the roller contact at ``pt`` and the
@@ -4314,6 +4375,15 @@ class PathGenerator:
         footer_tmpl = params.get("gcode_footer", "M5\nM30")
         gcode.extend(footer_tmpl.splitlines())
         gcode.append("%")
+
+        # A rapid to the point the tool already stands on moves nothing. Drop it
+        # (see drop_zero_length_rapids). Measured on the shop's nine programs:
+        # only 140926.ssp has any — two — and one of them is at the reverse →
+        # forward turn where the operator reports the machine waiting.
+        gcode, self.last_zero_rapids_dropped = drop_zero_length_rapids(gcode)
+        if self.last_zero_rapids_dropped:
+            logger.info(f"[ZERO-RAPID] {self.last_zero_rapids_dropped} rapid(s) that move "
+                        f"nothing removed from the program")
         return "\n".join(gcode)
 
     def _safe_rapid_segments(self, p_from, p_to, safe_x):

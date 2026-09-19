@@ -1,0 +1,137 @@
+"""A rapid that moves nothing is not written (path_generator.drop_zero_length_rapids).
+
+Why: such a line still has to be accepted, started and reported done by the PLC,
+and it costs one of the 1000 recipe lines. Found 2026-09-18 while chasing "the
+machine waits about 3 seconds at some pass ends": the shop's live 140926.ssp
+carries two of them, one exactly at the reverse -> forward turn the operator
+describes. Every other shop program has none.
+
+What must hold, most important first:
+
+1. SAFETY. Only a bare G0 whose every named axis is ALREADY at that value goes.
+   A feed line never goes. A rapid that moves any axis, even a little, never
+   goes. A rapid carrying a tilt (B) change never goes.
+2. Modal by axis: a single-axis "G0 Z..." is judged on Z alone, because that is
+   how the .nc reader and the recipe read it.
+3. Nothing is dropped before a position is known, so the program-start homing
+   rapids always stand.
+4. On the real programs: 140926 loses exactly its two, every other file is
+   byte-identical.
+
+Run:  python _test_zero_rapids.py
+"""
+import os
+import sys
+
+from path_generator import drop_zero_length_rapids as drop
+
+FAILED = []
+
+
+def check(name, cond, detail=""):
+    if cond:
+        print(f"  ok   {name}")
+    else:
+        print(f"  FAIL {name}" + (f"  -- {detail}" if detail else ""))
+        FAILED.append(name)
+
+
+print("A. the rule")
+
+kept, n = drop(["G0 X10.000 Z20.000 (start)", "G0 X10.000 Z20.000 (again)"])
+check("a repeated rapid goes", n == 1 and len(kept) == 1, kept)
+
+kept, n = drop(["G0 X10.000 Z20.000", "G0 X10.001 Z20.000"])
+check("a rapid that moves 0.001 mm stays", n == 0, kept)
+
+kept, n = drop(["G0 X10.000 Z20.000", "G1 X10.000 Z20.000 F400.000"])
+check("a feed line never goes", n == 0, kept)
+
+kept, n = drop(["G0 X10.000 Z20.000 B5.000", "G0 X10.000 Z20.000 B7.000"])
+check("a tilt change stays", n == 0, kept)
+
+kept, n = drop(["G0 X10.000 Z20.000 B5.000", "G0 X10.000 Z20.000 B5.000"])
+check("same tilt, same place goes", n == 1, kept)
+
+# Modal: the second line names Z only, and Z has not moved.
+kept, n = drop(["G0 X10.000 Z20.000", "G0 Z20.000 (Tool Change Z, relative)"])
+check("single-axis rapid judged on that axis alone", n == 1, kept)
+
+kept, n = drop(["G0 X10.000 Z20.000", "G0 X99.000", "G0 Z20.000"])
+check("Z unchanged after an X-only move -> the Z rapid goes", n == 1, kept)
+
+kept, n = drop(["G0 Z181.000 (Program Start Z)", "G0 X273.000 (Program Start X)"])
+check("nothing goes before a position is known", n == 0, kept)
+
+kept, n = drop(["G0 X10.000 Z20.000", "G0 X10.000 Z20.000 M8", "G0 X10.000 Z20.000"])
+check("a rapid carrying another command stays", n == 1 and len(kept) == 2, kept)
+
+kept, n = drop(["G0 X10.000 Z20.000", "M6 T004 (ROUGHING)", "G0 X10.000 Z20.000"])
+check("an M line in between does not confuse the position", n == 1, kept)
+
+kept, n = drop(["G0 X10.000 Z20.000", "G0 XBAD Z20.000", "G0 X10.000 Z20.000"])
+check("an unreadable rapid stays and clears the position", n == 0, kept)
+
+kept, n = drop(["(comment)", "", "%", "G0 X1.000", "G0 X1.000"])
+check("comments and blanks are carried through", n == 1 and len(kept) == 4, kept)
+
+src = ["G0 X10.000 Z20.000", "G1 X30.000 Z20.000 F400.000", "G0 X30.000 Z20.000"]
+kept, n = drop(src)
+check("the position follows a feed line too", n == 1 and kept == src[:2], kept)
+
+print("\nB. real programs")
+try:
+    import copy
+    import golden_snapshot as gs
+    from path_generator import PathGenerator
+except Exception as e:                                          # pragma: no cover
+    gs = None
+    print(f"  SKIP - cannot import the engine ({e})")
+
+SHOP = r"C:\Users\PC\Documents\Automation\Cursor\MexicoMetalSpinning\gcodes"
+# Measured box off, recipe path. A file not listed here must lose NOTHING.
+#   140926.ssp (2026-09-18): two, one at the reverse -> forward turn.
+#   180926.ssp (2026-09-19, the operator's own file, which arrived after the
+#     first measurement): two, both the "Tool Change Safety" G0 Z before a
+#     cutting op, written to the Z the tool already sits on. The G0 X right
+#     after each one is a real move and stays.
+EXPECTED = {"140926.ssp": 2, "180926.ssp": 2}
+
+if gs is not None:
+    files = []
+    for d in (SHOP, getattr(gs, "FIXTURE_DIR", "")):
+        if d and os.path.isdir(d):
+            files += [os.path.join(d, f) for f in sorted(os.listdir(d))
+                      if f.lower().endswith(".ssp")]
+    seen = set()
+    files = [f for f in files if not (os.path.basename(f) in seen
+                                      or seen.add(os.path.basename(f)))]
+    if not files:
+        print("  SKIP - no real programs on this machine")
+    for f in files:
+        name = os.path.basename(f)
+        try:
+            params, overrides, step = gs.load_program(f)
+            mgr, ok = gs.build_mandrel(params, gs.resolve_step(step, (SHOP,)))
+            if not ok:
+                print(f"  SKIP {name} - STEP not found")
+                continue
+            p = copy.deepcopy(params)
+            p["plc_mode"] = True
+            pg = PathGenerator()
+            pg.calculate_paths(p, overrides, mgr)
+            txt = pg.generate_gcode(params=p, for_recipe=True)
+            got = pg.last_zero_rapids_dropped
+            want = EXPECTED.get(name, 0)
+            check(f"{name}: {want} rapid(s) that move nothing", got == want,
+                  f"dropped {got}")
+            again, left = drop(txt.splitlines())
+            check(f"{name}: none left behind", left == 0, f"{left} still there")
+        except Exception as e:                                  # pragma: no cover
+            check(f"{name} runs", False, f"{type(e).__name__}: {e}")
+
+print()
+if FAILED:
+    print(f"{len(FAILED)} check(s) FAILED: {FAILED}")
+    sys.exit(1)
+print("All zero-length rapid checks passed.")
