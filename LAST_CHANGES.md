@@ -77,6 +77,57 @@ adıyla kilitliyor. ⚠ Bu dört satırın ÜÇÜ takım değişimi güvenlik bl
 
 **Geri alma:** `generate_gcode` sonundaki `drop_zero_length_rapids` çağrısını sil.
 
+## 2026-09-20b — Takım yolu DÜZENİ tek kurala bağlandı (İKİ GERÇEK BUG düzeltildi)
+
+**Neden şimdi:** "M" özelliği (bir pasta 2 yerine 4 strok) düzen kuralını
+değiştirecek. Önce kuralın DOĞRU ve TEK olması gerekiyordu.
+
+**Araştırma bulgusu:** "TEK GERÇEK KAYNAK" diye belgelenmiş
+`op_toolpath_entries` üç kuraldan EN YANLIŞ olanıydı. Motorla karşılaştırıldı
+(gerçek referans: `len(toolpaths)` + `last_back_pass_meta`):
+
+| Program | motor | op_toolpath_entries | program_tab | pass_colors |
+|---|---|---|---|---|
+| Nokta op'u arada | **6** | **7** ✗ | 6 | 6 |
+| count = 0 | **2** | **3** ✗ | 2 | **3** ✗ |
+
+**İki kök neden:**
+1. `op_toolpath_entries` yalnızca cutting/bending'i ayırıyordu → **Nokta op'u 1
+   sayılıyordu**, oysa hiç takım yolu eklemiyor (`calculate_paths` içinde çıplak
+   `continue`).
+2. `int(op.get("count", 1) or 1)` → **yazılan 0, 1 oluyordu** (0 falsy).
+   `or 1` boş string içindi; ama boş alan anahtarı SİLİYOR ("" saklanmıyor) ve
+   motor zaten `int("")`'te patlıyor → hiçbir zaman ulaşılamayan bir durumu
+   savunuyordu.
+
+**Gerçek zarar ÖLÇÜLDÜ:** op A rulo 25 mm, Nokta, op B rulo 40 mm →
+`main._rtool_for_pass` 2. yola **25 mm** veriyor (40 olmalı). Nokta op'undan
+sonraki HER indeks bir kayıyor. `_active_fwd_pass_idx` de aynı şekilde:
+`[0,0,1,1,2,3,4,5,6,6,7,7,8]` yerine `[0,0,1,1,2,3,4,5,5,6,6,7,7]` olmalıydı.
+
+**Sadece EKRAN** — 3B rulo yarıçapı, pas renkleri, pas gezgini, PDF sayıları.
+G-code ETKİLENMİYOR; **golden ağı bu yüzden göremezdi**, testin var olma sebebi bu.
+
+**Düzeltme — ÜÇ AYRI büyüklük, bilerek ayrı:**
+* `op_forward_passes(op)` — İLERİ pas sayısı (Nokta = 0, cut/bend = 1)
+* `op_toolpath_stride(op)` — pas BAŞINA girdi (1 veya 2)
+* `op_toolpath_entries(op)` — op BAŞINA girdi = ikisinin çarpımı
+
+Tek bir sayıya indirgemek YANLIŞ olurdu; kopyalar zaten bu yüzden ayrışmıştı.
+`NO_PASS_OP_TYPES` de motora taşındı, `program_tab` artık onu ALIAS ediyor.
+Yeniden yazan yerler: `pass_colors.path_categories`,
+`program_tab._op_logical_count` / `_op_toolpath_stride`,
+`main._active_fwd_pass_idx`.
+
+**İki commit, bilerek:** `d1a229c` testi KIRMIZI ekledi (11 düşen kontrol =
+bugların kaydı), sonraki commit yeşile çevirdi. Depo tam BİR commit boyunca
+kırmızı; kanıt bir refactor'ün içine gömülmesin diye.
+
+**Ölçüldü:** **111 test dosyası PASS.** Test: `_test_pass_layout.py`.
+
+**Geri alma:** üç yardımcıyı eski tek fonksiyona döndür — ama o zaman Nokta
+op'lu programlarda rulo yarıçapı/renk kayması GERİ GELİR.
+
 ## 2026-09-20 — ERKEN DUR: içeri giden stroku kırp (yeni özellik, varsayılan KAPALI)
 
 **Kullanıcının sorusu:** *"geri pas veya ters pas için, bitmesi gereken yerden

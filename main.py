@@ -13,6 +13,7 @@ import copy
 from mandrel_analyzer import MandrelManager
 from path_generator import (PathGenerator, effective_clamp_length,
                             op_builds_back_pass, op_toolpath_entries,
+                            op_forward_passes, op_toolpath_stride,
                             resolve_conformal)
 import pass_colors
 from simulation_controller import SimulationController
@@ -1903,9 +1904,12 @@ class SpinningApp:
         for op in self.params.get("operations", []):
             if not op.get("enabled", True):
                 continue
-            is_cb  = op.get("type", "roughing") in ("cutting", "bending")
-            count  = 1 if is_cb else int(op.get("count", 1))
-            stride = 2 if op_builds_back_pass(op) else 1
+            # The engine's own rule, not a restated one. A Point op yields
+            # ZERO forward passes here, so it consumes no entry - restating it
+            # as `1 if cutting/bending else count` counted one the engine never
+            # built and slid every later pass by one (_test_pass_layout.py).
+            count  = op_forward_passes(op)
+            stride = op_toolpath_stride(op)
             for _ in range(count):
                 if entry == tp_idx:
                     return fwd

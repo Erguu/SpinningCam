@@ -207,25 +207,67 @@ def op_builds_back_pass(op):
     return True
 
 
+# Op types that contribute no per-pass geometry. A cutting or bending op is ONE
+# typed feed line whatever its count; a Point op is a positioning move and
+# appends no toolpath at all (see the `continue` in calculate_paths).
+NO_PASS_OP_TYPES = ("cutting", "bending", "point")
+
+
+def op_forward_passes(op):
+    """How many FORWARD passes this op contributes.
+
+    Zero for a Point op: it is a positioning move, the engine appends no
+    toolpath for it, and counting it as one shifts every later index by one -
+    which handed the roller-tip view the previous operation's radius and the
+    pass navigator someone else's pass (measured 2026-09-20,
+    _test_pass_layout.py).
+
+    A typed 0 means zero. It used to read as 1, because `count or 1` treats 0
+    as falsy; the `or 1` was there to survive an empty string, but an emptied
+    field POPS the key rather than storing "", and calculate_paths itself
+    raises on int("") - so it was defending a state nothing can reach.
+    """
+    op = op or {}
+    t = op.get("type", "roughing")
+    if t == "point":
+        return 0
+    if t in ("cutting", "bending"):
+        return 1
+    raw = op.get("count", 1)
+    if raw is None or raw == "":
+        return 1
+    try:
+        return max(int(float(raw)), 0)
+    except (TypeError, ValueError):
+        return 1
+
+
+def op_toolpath_stride(op):
+    """Toolpath-list entries per forward pass: 2 when a back pass follows each
+    one, else 1. See `op_builds_back_pass` for why the checkbox is not the rule.
+    """
+    if (op or {}).get("type", "roughing") in NO_PASS_OP_TYPES:
+        return 1
+    return 2 if op_builds_back_pass(op) else 1
+
+
 def op_toolpath_entries(op):
     """How many toolpath-list entries this op contributes.
 
     The layout `calculate_paths` produces: a cutting/bending op is always ONE
-    feed line (its `count` is ignored), any other type emits `count` forward
-    passes, and each forward pass is followed by a back pass exactly when
-    `op_builds_back_pass` says so.
+    feed line (its `count` is ignored), a Point op is NONE, any other type emits
+    `count` forward passes, and each forward pass is followed by a back pass
+    exactly when `op_builds_back_pass` says so.
 
     Disabled ops emit nothing; skipping them is the caller's job, because every
     caller already has to do it before this point.
+
+    THE THREE QUANTITIES ARE SEPARATE ON PURPOSE. This one is per OPERATION;
+    `op_toolpath_stride` is per PASS; `op_forward_passes` counts passes, not
+    toolpaths. Consumers need different ones - collapsing them into a single
+    number is how the copies drifted in the first place.
     """
-    op = op or {}
-    if op.get("type", "roughing") in ("cutting", "bending"):
-        return 1
-    try:
-        n = int(op.get("count", 1) or 1)
-    except (TypeError, ValueError):
-        n = 1
-    return max(n, 0) * (2 if op_builds_back_pass(op) else 1)
+    return op_forward_passes(op) * op_toolpath_stride(op)
 
 
 def representative_feed_mm_min(op, path, params, center_x=0.0):

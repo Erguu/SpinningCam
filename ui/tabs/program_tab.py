@@ -7,7 +7,9 @@ from ui.dialogs.tool_manager import ToolManager
 from ui.helpers_ui import _fmt_num, scroll_not_edit
 from i18n import t
 from ui import dialog_sizing
-from path_generator import (op_builds_back_pass, point_surface_x,
+from path_generator import (NO_PASS_OP_TYPES, op_builds_back_pass,
+                            op_forward_passes,
+                            op_toolpath_stride, point_surface_x,
                             conformal_is_inherited, resolve_conformal,
                             resolve_point_mode, resolve_point_motion,
                             resolve_retract_motion, retract_motion_is_risky,
@@ -121,8 +123,10 @@ _POINT_KEYS = ["point_mode", "point_x", "point_z", "point_standoff",
 # Op types with no per-pass geometry: nothing to split, unite, tabulate, or fit
 # a reach/angle to. Cutting and bending are one typed feed line; a Point is one
 # typed positioning move. Kept as one name so a future type cannot be added to
-# four guards and missed in the fifth.
-_NO_PASS_OP_TYPES = ("cutting", "bending", "point")
+# four guards and missed in the fifth - and ALIASED to the engine's own tuple,
+# not restated, so the editor and the path builder cannot disagree about which
+# types those are.
+_NO_PASS_OP_TYPES = NO_PASS_OP_TYPES
 
 OP_PARAM_UNIVERSE = {
     "roughing": _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + [
@@ -522,12 +526,7 @@ class ProgramTab:
         later pass's index by one and hand the pass navigator, the 3D highlight
         and the pass table someone else's pass.
         """
-        op_type = op.get("type", "roughing")
-        if op_type == "point":
-            return 0
-        if op_type in ("cutting", "bending"):
-            return 1
-        return int(op.get("count", 1))
+        return op_forward_passes(op)
 
     def _op_toolpath_stride(self, op):
         """Toolpath-list entries per forward pass: 2 when the engine really does
@@ -537,9 +536,7 @@ class ProgramTab:
         `back_pass_enabled` — a reverse pass IS the return stroke and gets no
         back pass, so the checkbox alone counted a path that is never built.
         """
-        if op.get("type", "roughing") in _NO_PASS_OP_TYPES:
-            return 1
-        return 2 if op_builds_back_pass(op) else 1
+        return op_toolpath_stride(op)
 
     def _get_pass_type_list(self):
         """Returns one (op_type, tool_id, is_back, r_tool, op_idx) tuple per actual entry in

@@ -23,7 +23,7 @@ a selection indicator, not an operation kind, so it is deliberately not in this
 palette and always wins.
 """
 
-from path_generator import op_builds_back_pass
+from path_generator import op_builds_back_pass, op_forward_passes
 
 # Order matters: it is the order the palette editor lists them in.
 CATEGORIES = ("roughing", "finishing", "reverse", "back", "cutting", "bending",
@@ -118,9 +118,10 @@ def path_categories(ops):
         # docstring is about.
         if category == "point":
             continue
-        count = 1 if category in ("cutting", "bending") else int(op.get("count", 1) or 1)
+        # The engine's own count, not a restated one - see op_forward_passes.
+        count = op_forward_passes(op)
         has_back = op_builds_back_pass(op)
-        for _ in range(max(count, 0)):
+        for _ in range(count):
             out.append(category)
             if has_back:
                 out.append("back")
