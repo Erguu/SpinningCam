@@ -632,6 +632,25 @@ class ProgramTab:
             txt.config(state="disabled")
             return
 
+        # "Start from last" MOVED a pass to meet the previous stroke, so the
+        # Start Z that ran is not the Start Z that was typed. Said here, at the
+        # top, where it is always on screen - a shift the operator cannot see is
+        # the program moving on its own.
+        _shifts = getattr(self.app.path_gen, "last_start_from_last_shifts", None) or []
+        for _sh in _shifts:
+            _typed, _used = _sh.get("start_z_typed"), _sh.get("start_z_used")
+            _dz = f"{_sh.get('dz', 0.0):+.2f}"
+            if _typed is None or _used is None:
+                _msg = t("pass_info_shifted_plain").format(
+                    op=_sh.get("op_name", "?"), dz=_dz)
+            else:
+                _msg = t("pass_info_shifted").format(
+                    op=_sh.get("op_name", "?"),
+                    typed=f"{_typed:.2f}", used=f"{_used:.2f}", dz=_dz)
+            txt.insert("end", _msg + "\n", "dim")
+        if _shifts:
+            txt.insert("end", "\n")
+
         last_op_idx = -1
         all_ops = self.app.params.get("operations", [])
 
@@ -1020,6 +1039,9 @@ class ProgramTab:
                         "Pas normal kurulur (kol + P2 filetosu + çıkış kolu), sonra o NOKTADAN "
                         "ÖNCEKİ kısmı KESİLİR — kalan parça sacın içinden başlar ve P3'e gider.\n"
                         "Noktayı sen yazmazsın: önceki kısa bitmiş geri/ters pasın UCUNDAN okunur. "
+                        "PAS O NOKTAYA KAYDIRILIR — program gereken Başlangıç Z'yi kendi hesaplar, "
+                        "senin yazdığın sayı yalnızca başlangıç tahminidir. Kaydırma pas bilgisi "
+                        "kutusunda YAZAR (gizli değil).\n"
                         "Kesim o noktaya EN YAKIN yere yapılır (X eşlemesi değil — geri pas, yayı ve "
                         "clearance kayması yüzünden ileri pasın tersi DEĞİLDİR), sonra pas rulonun "
                         "gerçek yerinden başlar ve kısa bir birleşme çizgisiyle kendi çizgisine biner. "

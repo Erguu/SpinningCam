@@ -198,10 +198,33 @@ check("the cut pass begins at the X the lead ended at",
       abs(start_x - anchor_x) < 1e-6, f"{start_x} vs {anchor_x}")
 check("it really did lose points",
       len(tp_on[1]) < len(tp_off[1]), f"{len(tp_on[1])} vs {len(tp_off[1])}")
-check("the END of the pass did not move",
-      np.allclose(np.asarray(tp_on[1], float)[-1],
-                  np.asarray(tp_off[1], float)[-1]))
 check("nothing was refused", pg_on.last_start_from_last_ignored == [])
+
+# The pass is MOVED to meet the anchor (user, 2026-09-20: "make the program
+# calculate itself. shifting maybe" - he had been raising Start Z by hand), so
+# its END moves with it. It is one number and it is REPORTED, never silent.
+_sh = pg_on.last_start_from_last_shifts
+check("the shift is recorded, not silent", len(_sh) == 1, _sh)
+if _sh:
+    check("the record names the Start Z typed and the one used",
+          _sh[0]["start_z_typed"] is not None
+          and abs((_sh[0]["start_z_used"] - _sh[0]["start_z_typed"])
+                  - _sh[0]["dz"]) < 1e-9, _sh[0])
+check("moving the pass moved its end too",
+      not np.allclose(np.asarray(tp_on[1], float)[-1],
+                      np.asarray(tp_off[1], float)[-1]))
+
+# THE POINT OF THE SHIFT: whatever Start Z is typed, the pass lands in the same
+# place - the one the previous stroke decides. Measured on the user's own file:
+# typed 8, 10, 11, 12, 13 all converge, and typed 10 reproduces his hand-tuned
+# 12.0 to 0.0045 mm.
+_ends = []
+for _sz in (OP["start_z"] - 2.0, OP["start_z"], OP["start_z"] + 2.0):
+    _pg, _tp = run(pair(True, {"start_z": _sz, "end_z": _sz}))
+    _ends.append(np.asarray(_tp[1], float)[-1])
+check("the typed Start Z no longer decides where the pass lands",
+      all(np.allclose(_ends[0], e, atol=0.05) for e in _ends[1:]),
+      [tuple(np.round(e, 3)) for e in _ends])
 
 # -- B3. FIRST PASS ONLY --
 pg3_off, tp3_off = run(pair(False, {"count": 3}))

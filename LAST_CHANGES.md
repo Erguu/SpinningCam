@@ -77,6 +77,64 @@ adıyla kilitliyor. ⚠ Bu dört satırın ÜÇÜ takım değişimi güvenlik bl
 
 **Geri alma:** `generate_gcode` sonundaki `drop_zero_length_rapids` çağrısını sil.
 
+## 2026-09-20e — Pas artık KENDİ KAYIYOR (kullanıcı: "program kendisi hesaplasın")
+
+**Kullanıcı:** *"what I wanted was make the program calculate itself. shifting
+maybe. right now to shift it I have to increase zone start z 12 from 10."*
+
+Yani birleşme çizgisi yetmiyordu; pasın KENDİSİ önceki strokun bittiği noktaya
+oturmalıydı — kullanıcı bunu elle Başlangıç Z'yi 10'dan 12'ye çıkararak yapıyordu.
+
+**ÖLÇÜLDÜ (kullanıcının dosyası) — ıskalama Başlangıç Z ile DOĞRUSAL:**
+1.866 mm @10 · 0.933 @11 · **0.000 @12** · 0.931 @13 → tek bir cevap var,
+aranmasına gerek yok, ÇÖZÜLEBİLİR.
+
+**Uygulama:** `start_from_last.shift_to_meet(path, anchor, move_dir, ...)`.
+`move_dir` = mandrel yüzey teğeti (`[dr/dz, 0, 1]`) — Başlangıç Z'yi büyütmek
+pası BİRİNCİ MERTEBEDEN bu yönde taşır, cevabın kullanıcının elle bulduğu sayıyla
+aynı çıkmasının sebebi bu. Motor: kaydır → clearance'ı yeniden otur → TEKRAR çöz
+(4 tura kadar).
+
+**İKİ TUZAK, ikisi de ÖLÇÜMLE yakalandı:**
+1. **İlk çözücü KİRİŞİ kullanıyordu → +7.3 mm sapma** (doğrusu +2.0). Çıkış kolu
+   EĞRİ: çapa kirişten 6.86 mm uzaktaydı ama YOLUN KENDİSİNDEN sadece 1.87 mm.
+   Düzeltme: gerçek poliçizgi üzerinde EN YAKIN NOKTA + YEREL TEĞET. (`rate`
+   zaten doğruydu: 0.9386, ölçülen 0.933.)
+2. **Tek turluk çözüm 0.45 mm artık bırakıyordu** — clearance düzeltmesi pası
+   yerleştirdikten SONRA radyal itiyor. Motor tarafında döngüye alındı.
+
+**SONUÇ — ne yazarsan yaz aynı pas:**
+
+| yazılan | kayma dZ | kalan birleşme |
+|---|---|---|
+| 8.0 | +4.002 | 0.011 mm |
+| 10.0 | **+1.999** | 0.002 mm |
+| 11.0 | +1.000 | 0.006 mm |
+| 12.0 | +0.000 | 0.007 mm |
+| 13.0 | −1.000 | 0.007 mm |
+
+Otomatik (yazılan 10) ile kullanıcının elle bulduğu 12.0 arasındaki fark:
+**0.0045 mm.** Yani program artık onun elle yaptığını kendisi yapıyor.
+
+**⚠ KABUL EDİLEN BAĞLILIK:** pasın mandrele NEREDE değdiğine artık ÖNCEKİ STROK
+karar veriyor, yazılan sayı değil. Önceki op'un `stop_short`'unu değiştirirsen bu
+pas duvar boyunca kayar. Kullanıcı seçenek olarak sunulduğunda "otomatik
+kaydır"ı seçti. **Bu yüzden kayma GÖRÜNÜR:** `last_start_from_last_shifts` →
+pas bilgisi kutusunun EN ÜSTÜNDE "Başlangıç Z 10.00 → 12.00 (+2.00 mm)".
+Görünmeyen bir kayma, programın kendi kendine oynaması demektir.
+
+**Birleşme çizgisi KALDI** (kullanıcı "another time için faydalı olabilir" dedi):
+kaydırmadan sonra artakalan milimetrenin kesrini kapatıyor.
+
+**YAN DÜZELTME — `test_app_structure` PRE-EXISTING çöküşü.** Mock'lu ortamda
+`np.linalg.norm(...).sum()` numpy'ın NESNE dizisi indirgeme yoluna düşüp kendi
+sentineli üzerinde patlıyordu (`float() ... not '_NoValueType'`). Kanıt: değişiklik
+`git stash`'lenince de düşüyordu. Düzeltme: `np.sum(..., dtype=float)` + saf
+yardımcılara "ölçemiyorsan None döndür" koruması (`isfinite`, try/except).
+**Saf bir geometri yardımcısı programı ASLA yere sermemeli.**
+
+**Ölçüldü:** **113 test dosyası PASS.**
+
 ## 2026-09-20d — Sahadan iki rapor: BOŞLUK ve geri pasın nokta tavanı
 
 Kullanıcı kendi dosyasında (`shortend-continuefromlastpass-test.ssp`) denedi.

@@ -95,11 +95,22 @@ def plan(path, mm):
     """
     if mm <= 0:
         return None
-    pts = np.asarray(path, dtype=float)
-    if pts.ndim != 2 or len(pts) < 2:
+    # A pure geometry helper must never take the program down. Anything it
+    # cannot measure - a path that will not convert, a NaN from a degenerate
+    # build - means "do nothing", which is this feature's safe answer anyway.
+    try:
+        pts = np.asarray(path, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if pts.ndim != 2 or len(pts) < 2 or not np.all(np.isfinite(pts)):
         return None
     segs = np.linalg.norm(np.diff(pts, axis=0), axis=1)
-    total = float(segs.sum())
+    # dtype forced: without it numpy takes its object-array reduction path in a
+    # mocked environment and dies on its own sentinel (test_app_structure).
+    try:
+        total = float(np.sum(segs, dtype=float))
+    except (TypeError, ValueError):
+        return None
     if total <= 0:
         return None
     target = total - float(mm)

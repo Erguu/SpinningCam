@@ -94,9 +94,13 @@ def plan(path, anchor, exit_start=0):
 
     Pure. Never mutates ``path``.
     """
-    pts = np.asarray(path, dtype=float)
-    a = np.asarray(anchor, dtype=float)
-    if pts.ndim != 2 or len(pts) < 2:
+    try:
+        pts = np.asarray(path, dtype=float)
+        a = np.asarray(anchor, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if (pts.ndim != 2 or len(pts) < 2 or a.size < 3
+            or not np.all(np.isfinite(pts)) or not np.all(np.isfinite(a))):
         return None
     lo = max(0, min(int(exit_start), len(pts) - 2))
 
@@ -125,10 +129,108 @@ def plan(path, anchor, exit_start=0):
     cut_pt = pts[i] + t * (pts[i + 1] - pts[i])
     remain = float(np.linalg.norm(tail[0] - cut_pt)) if len(tail) else 0.0
     if len(tail) > 1:
-        remain += float(np.linalg.norm(np.diff(tail, axis=0), axis=1).sum())
+        # dtype forced - see the same note in stop_short.plan: numpy takes its
+        # object-array reduction path in a mocked environment and dies on its
+        # own sentinel.
+        remain += float(np.sum(np.linalg.norm(np.diff(tail, axis=0), axis=1),
+                               dtype=float))
     if remain < MIN_REMAIN_MM:
         return None
     return (i, t)
+
+
+def _closest(pts, a, lo):
+    """(index, t, distance) of the closest point on the polyline, from ``lo`` on."""
+    best = None
+    for i in range(lo, len(pts) - 1):
+        p0, p1 = pts[i], pts[i + 1]
+        d = p1 - p0
+        den = float(d[0] * d[0] + d[2] * d[2])
+        t = 0.0 if den < 1e-18 else float(
+            ((a[0] - p0[0]) * d[0] + (a[2] - p0[2]) * d[2]) / den)
+        t = min(max(t, 0.0), 1.0)
+        q = p0 + t * d
+        dist = float(np.hypot(q[0] - a[0], q[2] - a[2]))
+        if best is None or dist < best[2]:
+            best = (i, t, dist)
+    return best
+
+
+def _cross(u, v):
+    """2D cross product in the XZ plane."""
+    return float(u[0] * v[2] - u[2] * v[0])
+
+
+def shift_to_meet(path, anchor, move_dir, exit_start=0, max_shift_mm=25.0,
+                  tol_mm=1e-3, iters=12):
+    """How far to MOVE the whole pass so it runs through ``anchor``.
+
+    The operator was doing this by hand: on his own program he raised Start Z
+    from 10 to 12 and the pass met the previous stroke exactly. Measured there,
+    the miss falls off a clean straight line - 1.866 mm at Start Z 10, 0.933 at
+    11, 0.000 at 12 - so there is one answer and it can be solved for.
+
+    ``move_dir`` is the direction the pass travels when Start Z changes: the
+    mandrel surface tangent at the contact, [dr/dz, 0, 1]. Moving along it is
+    what raising Start Z does, to first order, which is why the answer matches
+    what he typed.
+
+    SOLVED ON THE REAL POLYLINE, not on a straight line through it. The first
+    attempt used the chord of the exit leg and overshot badly - 7.3 mm where the
+    answer was 2.0 - because the leg is CURVED and the anchor sat 6.86 mm from
+    the chord while being only 1.87 mm from the path itself. So each step
+    measures the closest point on the path and its LOCAL tangent, and the loop
+    absorbs whatever curvature is left.
+
+    Returns the displacement as a 3-vector, or ``None`` when there is nothing to
+    do or the answer is absurd (further than ``max_shift_mm`` - a pass that far
+    from the anchor is not the one the operator meant to continue).
+
+    Pure. Never mutates ``path``.
+    """
+    # A pure geometry helper must never take the program down - see the same
+    # guard in stop_short.plan.
+    try:
+        pts = np.asarray(path, dtype=float)
+        a = np.asarray(anchor, dtype=float)
+        m = np.asarray(move_dir, dtype=float)
+    except (TypeError, ValueError):
+        return None
+    if (pts.ndim != 2 or len(pts) < 2 or a.size < 3
+            or not np.all(np.isfinite(pts)) or not np.all(np.isfinite(a))
+            or not np.all(np.isfinite(m))):
+        return None
+    mn = float(np.hypot(m[0], m[2]))
+    if mn < 1e-9:
+        return None
+    m = m / mn
+    lo = max(0, min(int(exit_start), len(pts) - 2))
+
+    cur = pts.copy()
+    total = 0.0
+    for _ in range(int(iters)):
+        i, t, _ = _closest(cur, a, lo)
+        q = cur[i] + t * (cur[i + 1] - cur[i])
+        tan = cur[i + 1] - cur[i]
+        tn = float(np.hypot(tan[0], tan[2]))
+        if tn < 1e-12:
+            break
+        tan = tan / tn
+        off = _cross(a - q, tan)          # signed miss, zero when on the line
+        rate = _cross(m, tan)             # how fast it closes as the pass moves
+        if abs(rate) < 1e-9:
+            break                         # the pass moves along its own line
+        step = off / rate
+        if abs(total + step) > float(max_shift_mm):
+            return None
+        cur = cur + m * step
+        total += step
+        if abs(step) < float(tol_mm):
+            break
+
+    if abs(total) < 1e-9:
+        return None
+    return m * total
 
 
 def apply(arr, cut):

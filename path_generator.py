@@ -1042,6 +1042,11 @@ class PathGenerator:
         self.last_stop_short_ignored = []
         # Cuts (start_from_last) asked for and NOT made. Reported, never silent.
         self.last_start_from_last_ignored = []
+        # Passes MOVED to meet the previous stroke. The operator typed a Start Z
+        # and the program used a different one, so this must be visible.
+        # [{"op_index", "op_name", "pass_name", "dz", "dist", "start_z_typed",
+        #   "start_z_used"}]
+        self.last_start_from_last_shifts = []
         # Path indices whose beginning was cut away: all exit leg, no split.
         self.last_exit_only_paths = set()
         self.last_render_split_idx = {}  # {path_list_index: (line_end_idx, arc_end_idx)}
@@ -1930,6 +1935,75 @@ class PathGenerator:
                                     max(0, min(_hi, _n_rev - 1 - _fwd_split[1])),
                                     max(0, min(_hi, _n_rev - 1 - _fwd_split[0])),
                                 )
+
+                        # ── Start from last, step 1: MOVE the pass to meet it ──
+                        # The operator was doing this by hand - raising Start Z
+                        # from 10 to 12 on his own program made the pass meet
+                        # the previous stroke exactly. Solved for here instead.
+                        #
+                        # BEFORE the back pass is built, deliberately: the back
+                        # pass mirrors this same pass, so it has to mirror the
+                        # MOVED one. (The front CUT is the opposite - it waits
+                        # until after, or the return stroke gets shortened too.)
+                        _sfl_shift = None
+                        if (i == 0 and start_from_last.enabled(op)
+                                and _sfl_anchor is not None and len(new_path) > 1):
+                            _sfl_sp0 = self.last_render_split_idx.get(len(toolpaths) - 1)
+                            # The direction the pass travels when Start Z moves:
+                            # the mandrel surface tangent at the contact. Moving
+                            # along it IS raising Start Z, to first order.
+                            _dz = 1.0
+                            _r_hi = mandrel_mgr.get_radius_fast(target_z + _dz)
+                            _r_lo = mandrel_mgr.get_radius_fast(target_z - _dz)
+                            _mv = np.array([(_r_hi - _r_lo) / (2.0 * _dz), 0.0, 1.0])
+                            # Solve, move, RE-SEAT, solve again. The clearance
+                            # correction pushes the pass radially after it has
+                            # been placed, which puts it back off the anchor -
+                            # measured 0.45 mm left over from a single pass of
+                            # this. Two or three rounds close it; the loop stops
+                            # as soon as a round asks for less than 1 micron.
+                            _sfl_shift = None
+                            for _sfl_it in range(4):
+                                _d = start_from_last.shift_to_meet(
+                                    new_path, _sfl_anchor, _mv,
+                                    exit_start=(_sfl_sp0[1] if _sfl_sp0 else 0))
+                                if _d is None:
+                                    break
+                                new_path = np.asarray(new_path, dtype=float) + _d
+                                # Moved off its clearance, so re-seat it the same
+                                # way every other shifted path is re-seated.
+                                new_path = self._correct_clearance_uniform(
+                                    new_path, mandrel_mgr, center_x, r_tool,
+                                    blank_thick, shell_offset, eff_clearance)
+                                _sfl_shift = _d if _sfl_shift is None else _sfl_shift + _d
+                                if float(np.hypot(_d[0], _d[2])) < 1e-3:
+                                    break
+                            if _sfl_shift is not None:
+                                toolpaths[-1] = new_path
+                                _npr, _ndv = self._compute_proj_and_devs(
+                                    new_path, mandrel_mgr, center_x,
+                                    shell_offset, blank_thick, r_tool, op)
+                                projections[-1] = _npr
+                                deviations[-1] = _ndv
+                                _sfl_d = float(np.hypot(_sfl_shift[0], _sfl_shift[2]))
+                                try:
+                                    _sz_typed = float(op.get("start_z", 0.0) or 0.0)
+                                except (TypeError, ValueError):
+                                    _sz_typed = None
+                                self.last_start_from_last_shifts.append({
+                                    "op_index": op_index,
+                                    "op_name": op.get("name") or op.get("type", "?"),
+                                    "pass_name": pass_label,
+                                    "dz": float(_sfl_shift[2]),
+                                    "dist": _sfl_d,
+                                    "start_z_typed": _sz_typed,
+                                    "start_z_used": (None if _sz_typed is None
+                                                     else _sz_typed + float(_sfl_shift[2])),
+                                })
+                                logger.info(
+                                    f"[START-LAST] '{pass_label}': pass moved "
+                                    f"{_sfl_d:.3f} mm (dZ {_sfl_shift[2]:+.3f}) to meet "
+                                    f"the previous stroke")
 
                         # ── Compute back pass path first (needed before sequence so swap can be applied) ──
                         _bp_path = None

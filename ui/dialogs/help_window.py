@@ -1553,10 +1553,21 @@ before that point. What is left starts out in the sheet and runs
 to P3.
 
 You do not type the point. It is read from wherever the roller was
-when the previous stroke finished. The cut is made at the place on the
-pass CLOSEST to that point, and the pass then begins at the point
-itself, joining its own line with one short move. The pass is never
-moved — its clearance and its P3 stay exactly where you set them.
+when the previous stroke finished.
+
+THE PASS IS MOVED to meet it. The program works out the Start Z that
+makes the pass run through that point and uses it — the number you
+type is only a starting guess. Whatever you type, the pass lands in
+the same place, the one the previous stroke decides. The shift is
+printed in the pass-info box, so it is never silent.
+
+That also means the previous stroke now decides where this pass
+touches the mandrel. Change "Stop short" on the operation before it
+and this pass moves up or down the wall with it.
+
+Whatever is left over after the move — a fraction of a millimetre —
+is closed by starting the pass at the point itself and joining its own
+line with one short move.
 
 Why closest, and not simply the same X: a back pass is not the forward
 pass reversed. Give it a bow and it rides several millimetres off that
@@ -2597,10 +2608,21 @@ pası her zamanki gibi kurar, sonra o noktadan ÖNCEKİ kısmı siler.
 Kalan parça sacın içinden başlar ve P3'e gider.
 
 Noktayı siz yazmazsınız. Önceki strok bittiğinde rulo neredeyse
-oradan okunur. Kesim, pasın o noktaya EN YAKIN yerinde yapılır; pas
-sonra noktanın kendisinden başlar ve kısa bir birleşme hareketiyle
-kendi çizgisine biner. Pas hiçbir zaman kaydırılmaz — clearance'ı ve
-P3'ü girdiğiniz yerde kalır.
+oradan okunur.
+
+PAS O NOKTAYA KAYDIRILIR. Program, pası o noktadan geçirecek
+Başlangıç Z'yi kendisi hesaplar ve onu kullanır — sizin yazdığınız
+sayı yalnızca bir başlangıç tahminidir. Ne yazarsanız yazın pas aynı
+yere oturur; yeri önceki strok belirler. Kaydırma, pas bilgisi
+kutusunda yazar; gizli değildir.
+
+Bu şu anlama da gelir: bu pasın mandrele nerede değdiğine artık
+önceki strok karar verir. Önceki operasyonun "Erken dur" değerini
+değiştirirseniz bu pas da duvar boyunca yukarı ya da aşağı kayar.
+
+Kaydırmadan sonra artakalan (milimetrenin kesri kadar) pay, pasın
+noktanın kendisinden başlatılması ve kısa bir birleşme hareketiyle
+kendi çizgisine binmesiyle kapatılır.
 
 Neden en yakın nokta, neden aynı X değil: geri pas, ileri pasın tersi
 değildir. Ona bir yay verirseniz o çizgiden birkaç milimetre uzakta
