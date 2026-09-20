@@ -1553,9 +1553,18 @@ before that point. What is left starts out in the sheet and runs
 to P3.
 
 You do not type the point. It is read from wherever the roller was
-when the previous stroke finished. Only the FIRST pass is cut: in a
-3-pass operation, passes 2 and 3 begin at the mandrel as they always
-did. The grey note under the box says so.
+when the previous stroke finished. The cut is made at the place on the
+pass CLOSEST to that point, and the pass then begins at the point
+itself, joining its own line with one short move. The pass is never
+moved — its clearance and its P3 stay exactly where you set them.
+
+Why closest, and not simply the same X: a back pass is not the forward
+pass reversed. Give it a bow and it rides several millimetres off that
+line, so the same X sits somewhere quite different.
+
+Only the FIRST pass is cut: in a 3-pass operation, passes 2 and 3
+begin at the mandrel as they always did. The grey note under the box
+says so.
 
 Put together with "Stop short", the two draw the letter M:
 
@@ -1569,9 +1578,9 @@ removed — so its point count is set by "Exit Max Points", not by
 "P2 Max Points". The corner that one governs is no longer there.
 
 Two things it will not do. If nothing ran before the operation there
-is no point to start from; and if the pass never reaches that X, the
-cut cannot be made. Either way the pass runs whole and the program
-says so, rather than quietly doing nothing.
+is no point to start from; and if the pass passes nowhere near that
+point, the cut cannot be made. Either way the pass runs whole and the
+program says so, rather than quietly doing nothing.
 
 
 CALCULATE
@@ -2588,9 +2597,17 @@ pası her zamanki gibi kurar, sonra o noktadan ÖNCEKİ kısmı siler.
 Kalan parça sacın içinden başlar ve P3'e gider.
 
 Noktayı siz yazmazsınız. Önceki strok bittiğinde rulo neredeyse
-oradan okunur. Yalnızca İLK pas kesilir: 3 paslı bir operasyonda
-2. ve 3. pas eskisi gibi mandrelden başlar. Kutunun altındaki gri
-not bunu söyler.
+oradan okunur. Kesim, pasın o noktaya EN YAKIN yerinde yapılır; pas
+sonra noktanın kendisinden başlar ve kısa bir birleşme hareketiyle
+kendi çizgisine biner. Pas hiçbir zaman kaydırılmaz — clearance'ı ve
+P3'ü girdiğiniz yerde kalır.
+
+Neden en yakın nokta, neden aynı X değil: geri pas, ileri pasın tersi
+değildir. Ona bir yay verirseniz o çizgiden birkaç milimetre uzakta
+gider, dolayısıyla aynı X bambaşka bir yere düşer.
+
+Yalnızca İLK pas kesilir: 3 paslı bir operasyonda 2. ve 3. pas eskisi
+gibi mandrelden başlar. Kutunun altındaki gri not bunu söyler.
 
 "Erken dur" ile birlikte ikisi M harfini çizer:
 
@@ -2604,7 +2621,8 @@ silindi — bu yüzden nokta sayısını "Çıkış Maks. Nokta" belirler,
 "P2 Maks. Nokta" değil. Onun yönettiği köşe artık orada yok.
 
 Yapmayacağı iki şey var. Operasyondan önce hiçbir şey koşmadıysa
-başlanacak nokta yoktur; pas o X'e hiç ulaşmıyorsa da kesim yapılamaz.
+başlanacak nokta yoktur; pas o noktanın yakınından hiç geçmiyorsa da
+kesim yapılamaz.
 Her iki durumda da pas tam boyunda koşar ve program bunu bildirir,
 sessizce hiçbir şey yapmaz.
 

@@ -1017,13 +1017,17 @@ class ProgramTab:
         ttk.Checkbutton(f_sfl, variable=_sfl_var, command=_toggle_sfl).pack(side="right")
         self.helper.bind_tooltip(f_sfl,
                         "Bu operasyonun İLK pasını, ÖNCEKİ strokun bittiği yerden başlatır. "
-                        "Pas normal kurulur (kol + P2 filetosu + çıkış kolu), sonra o X'ten "
+                        "Pas normal kurulur (kol + P2 filetosu + çıkış kolu), sonra o NOKTADAN "
                         "ÖNCEKİ kısmı KESİLİR — kalan parça sacın içinden başlar ve P3'e gider.\n"
-                        "X'i sen yazmazsın: önceki kısa bitmiş geri/ters pasın ucundan okunur.\n"
+                        "Noktayı sen yazmazsın: önceki kısa bitmiş geri/ters pasın UCUNDAN okunur. "
+                        "Kesim o noktaya EN YAKIN yere yapılır (X eşlemesi değil — geri pas, yayı ve "
+                        "clearance kayması yüzünden ileri pasın tersi DEĞİLDİR), sonra pas rulonun "
+                        "gerçek yerinden başlar ve kısa bir birleşme çizgisiyle kendi çizgisine biner. "
+                        "Pas KAYDIRILMAZ — clearance'ı ve P3'ü yerinde kalır.\n"
                         "SADECE İLK PAS. 3 paslı bir op'ta 2. ve 3. pas eskisi gibi mandrelden başlar.\n"
                         "Kesilen pasın TAMAMI çıkış kolu sayılır → nokta sayısını "
                         "\"Çıkış Maks. Nokta\" yönetir (P2 Maks. Nokta değil, köşe kesilip gitti).\n"
-                        "Önünde hiçbir şey yoksa ya da pas o X'e hiç ulaşmıyorsa UYGULANMAZ, bildirilir.")
+                        "Önünde hiçbir şey yoksa ya da pas o noktanın yakınından hiç geçmiyorsa UYGULANMAZ, bildirilir.")
         f_note = ttk.Frame(self.f_prop_editor)
         f_note._pkey = _sfl.OP_KEY
         f_note.pack(fill="x", padx=2)

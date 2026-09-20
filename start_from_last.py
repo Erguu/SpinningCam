@@ -6,9 +6,14 @@ calculated in the previous back or reverse short-ended pass."
 
 So this is NOT a new kind of pass. The engine builds an ordinary forward pass -
 approach arm, P2 fillet, exit leg, with every one of its own settings - and then
-the part before a given X is cut away. What survives starts out in the sheet and
-runs to P3. Nothing about its shape is new, which is why it needs no parameters
-of its own: one tickbox, and the X comes from the previous toolpath's end.
+the part before a given point is cut away. What survives starts out in the sheet
+and runs to P3. Nothing about its shape is new, which is why it needs no
+parameters of its own: one tickbox, and the point comes from the previous
+toolpath's end.
+
+"That X" turned out to be the wrong reading of it, corrected on the user's own
+program (2026-09-20): matching the anchor's X left a 1.998 mm gap, because a
+back pass is not the forward pass reversed. See `plan`.
 
 Reading the previous toolpath's end is not a new idea here either: a Point op in
 "relative" mode and a "relative" tool-change position both anchor on
@@ -18,7 +23,7 @@ Together with ``stop_short`` this makes the letter M:
 
     Op1  forward (normal)                out
          back pass, stopped short        in, partway     <- stop_short
-    Op2  forward, cut at that X          out             <- this module
+    Op2  forward, cut at that point      out             <- this module
          back pass (normal)              in, all the way
 
 FIRST PASS ONLY (user, 2026-09-20). An operation with three passes cuts only
