@@ -51,35 +51,56 @@ def check(name, cond, detail=""):
 
 
 # == A. the pure geometry ===================================================
-print("A. plan / apply")
+print("A. plan / apply / join")
 
 # X climbs 0 -> 100 along Z, like an exit leg heading out.
 LEG = np.array([[float(x), 0.0, float(x) * 0.5] for x in range(0, 101, 10)])
 
-check("a value below the start is not found", sfl.plan(LEG, -5.0) is None)
-check("a value past the end is not found", sfl.plan(LEG, 150.0) is None)
 
-cut = sfl.plan(LEG, 25.0)
+def pt(x, z):
+    return np.array([float(x), 0.0, float(z)])
+
+
+# CLOSEST POINT, not "where the path reaches this X". The stroke that ran before
+# is a different curve - a back pass carries a bow and its own clearance shift -
+# so its end does not sit on this path at all.
+cut = sfl.plan(LEG, pt(25.0, 12.5))          # exactly on the line
 out = sfl.apply(LEG, cut)
-check("the new first point sits exactly at the X asked for",
-      abs(out[0][0] - 25.0) < 1e-9, out[0][0])
+check("an anchor ON the line cuts exactly there",
+      abs(out[0][0] - 25.0) < 1e-9 and abs(out[0][2] - 12.5) < 1e-9, out[0])
 check("the END is untouched", np.allclose(out[-1], LEG[-1]))
 check("the points before it are gone", len(out) == 9, len(out))
 
+# An anchor 2 mm OFF the line - the case the user's file actually hit.
+off = pt(25.0, 14.5)
+cut_off = sfl.plan(LEG, off)
+near = sfl.apply(LEG, cut_off)
+check("an anchor OFF the line cuts at the nearest point, not at its X",
+      abs(near[0][0] - 25.0) > 1e-6, near[0])
+joined, d = sfl.join(near, off)
+check("join puts the anchor first, so the pass STARTS on the roller",
+      abs(joined[0][0] - off[0]) < 1e-9 and abs(joined[0][2] - off[2]) < 1e-9,
+      joined[0])
+check("join reports the distance it bridged", 0.0 < d < 3.0, d)
+check("join adds exactly one point", len(joined) == len(near) + 1)
+check("join on a point already there adds nothing",
+      sfl.join(near, near[0])[0].shape == near.shape)
+
 # Landing exactly on a sample point must not duplicate it.
-on_pt = sfl.apply(LEG, sfl.plan(LEG, 30.0))
+on_pt = sfl.apply(LEG, sfl.plan(LEG, pt(30.0, 15.0)))
 check("a cut landing on a point leaves no duplicate",
       len(on_pt) == 8 and abs(on_pt[0][0] - 30.0) < 1e-9,
       f"{len(on_pt)} pts, {on_pt[0][0]}")
 
 check("a cut leaving almost nothing is refused",
-      sfl.plan(LEG, 100.0) is None)
+      sfl.plan(LEG, pt(100.0, 50.0)) is None)
 
-# exit_start: the arm sits at constant X, so a naive search would cut there.
+# exit_start: the arm sits at constant X and can be the closest thing of all.
 ARM = np.array([[10.0, 0.0, float(z)] for z in range(0, 40, 10)])
 PATH = np.vstack([ARM, LEG[1:]])
-naive = sfl.plan(PATH, 10.0, exit_start=0)
-guided = sfl.plan(PATH, 10.0, exit_start=len(ARM))
+A = pt(10.5, 20.0)                            # right beside the ARM
+naive = sfl.plan(PATH, A, exit_start=0)
+guided = sfl.plan(PATH, A, exit_start=len(ARM))
 check("searching from 0 finds the ARM (the trap)",
       naive is not None and naive[0] < len(ARM), naive)
 check("searching from the exit leg skips the arm",
@@ -244,6 +265,32 @@ check("the uncapped cut pass really has points to lose",
 check(f"Exit Max Points ({CAP}) reaches the cut pass",
       len(tp_cap[1]) <= CAP and len(tp_cap[1]) < len(tp_nocap[1]),
       f"capped {len(tp_cap[1])}, uncapped {len(tp_nocap[1])}")
+
+
+# -- B8. Exit Max Points reaches BACK passes too (user report, 2026-09-20) ----
+# "point number modifiers doesn't effect back passes at all". Measured on his
+# own program: a back pass of 293 points came out at 49 under a cap of 10. Same
+# cause as the cut pass - a back pass is the FORMING part driven backwards, so
+# it is all exit leg and carries no split, and a path with no split reads its
+# cap as zero. The cap uses the NORMAL tolerance, not plc_exit_tolerance:
+# applying the exit tolerance to a whole stroke took that back pass to 3 points,
+# which changes the shape rather than the point count.
+print()
+print("B8. the back-pass point cap")
+
+BOWED = {"back_pass_enabled": True, "pass_shape": "linear_full",
+         "exit_bow": 12.0, "exit_mid_radius": ""}
+_, tp_plain = run(pair(False, BOWED), plc=True)
+_, tp_cap = run(pair(False, dict(BOWED, exit_max_points=3)), plc=True)
+# layout: [0] lead fwd, [1] probe fwd, [2] probe BACK
+check("the uncapped back pass has points to lose",
+      len(tp_plain[2]) > 3, len(tp_plain[2]))
+check("Exit Max Points reaches the BACK pass",
+      len(tp_cap[2]) <= 3 and len(tp_cap[2]) < len(tp_plain[2]),
+      f"capped {len(tp_cap[2])}, uncapped {len(tp_plain[2])}")
+check("a back pass is marked exit-only",
+      2 in run(pair(False, BOWED))[0].last_exit_only_paths,
+      run(pair(False, BOWED))[0].last_exit_only_paths)
 
 print()
 if FAILED:

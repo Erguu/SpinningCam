@@ -77,6 +77,81 @@ adıyla kilitliyor. ⚠ Bu dört satırın ÜÇÜ takım değişimi güvenlik bl
 
 **Geri alma:** `generate_gcode` sonundaki `drop_zero_length_rapids` çağrısını sil.
 
+## 2026-09-20d — Sahadan iki rapor: BOŞLUK ve geri pasın nokta tavanı
+
+Kullanıcı kendi dosyasında (`shortend-continuefromlastpass-test.ssp`) denedi.
+İlk pası KOPYALADI, kutuyu işaretledi, **kaymasını bekledi**.
+
+### 1. X'e göre kesmek YANLIŞTI — 1.998 mm boşluk
+
+**Ölçüldü:**
+```
+Op0 geri pas BİTİŞ    X = -153.383   Z = 39.042
+Op1 kesilmiş pas BAŞ  X = -153.383   Z = 37.044   ← 1.998 mm AŞAĞIDA
+```
+
+**Kök neden: geri pas, ileri pasın TERSİ DEĞİL.** Operatör
+`back_pass_arc_z = 2.0` (2 mm yay) girmiş; ayrıca kendi clearance düzeltmesi var.
+Ölçüm: geri pas, uzunluğunun büyük kısmında ileri çizgiden **5.6–8.0 mm** X
+uzakta, yalnızca P3'te sıfırlanıyor. `stop_short` onu tam da yayın en büyük
+olduğu YERDE (orta bölgede) bitiriyor. Sonuç: boşluk = **tam olarak girdiği 2 mm
+yay**. İlk dosyada 0.001 mm çıkması TESADÜFTÜ.
+
+**Düzeltme: kesim artık EN YAKIN NOKTAYA yapılıyor, X'e değil**
+(`start_from_last.plan(path, anchor)`), ve pas **çapanın kendisinden BAŞLIYOR**:
+`join()` rulonun gerçekten bulunduğu noktayı yolun önüne koyuyor, kısa bir
+birleşme çizgisi kendi çizgisine bağlıyor. **Boşluk artık 0.000 mm.**
+
+**Neden PASI KAYDIRMADIK** (kullanıcı "kaymasını bekledim" dedi, seçenek sunuldu,
+ajan gerekçesiyle ikinciyi önerdi, kullanıcı onayladı):
+* kaydırmak pasın clearance'ını geçersiz kılar (yeniden düzeltme → geri iter → döngü),
+* **P3'ü de taşır** — sac kenarının şekillendiği yer; operatör reach'i onun için girdi,
+* kayma miktarı KEYFÎ: başka bir strokun yayı kadar. Yayı değiştirsen sonraki
+  pasın ucu oynardı — "program yine tuhaf" sınıfı gizli bağ.
+Bedeli: birleşme yerinde bir köşe → sürekli harekette tam duruş. Kullanıcı
+duruşları zaten kabul etmişti.
+
+### 2. Nokta tavanı geri paslara HİÇ ULAŞMIYORDU
+
+**Ölçüldü (kullanıcının dosyası, `exit_max_points = 10`):** ileri pas 294 → 10
+(tavan çalışıyor), **geri pas 293 → 49 (tavan YOK SAYILIYOR)**.
+
+**Kök neden — ÜÇÜNCÜ kez aynı hata:** tavan, yolun hangi kısmının çıkış kolu
+olduğunu bilmek zorunda; motor bunu SADECE ileri pas için kaydediyor. Geri pasın
+split'i yok → `_cap_of` 0 döndürüyor → tavan sessizce ölü. Aynı sessiz ölüm ters
+paslarda 2026-08-30'a kadar vardı, kesilmiş paslarda da dün vardı.
+
+**Düzeltme:** geri pas da `last_exit_only_paths`'e giriyor — zaten TANIM GEREĞİ
+tamamı şekillendirme kolu (düz yaklaşma kolu yapısal olarak dışarıda).
+
+**⚠ TOLERANS DEĞİL, TAVAN.** İlk denemede `exit_only` dalı `plc_exit_tolerance`
+kullanıyordu → geri pas 142 → **3** noktaya düştü. O ŞEKLİ değiştirir, istenen
+buydu değil. Normal `tolerance`'a çevrildi: tavan yokken çıktı AYNI (142 → 17).
+
+**SAHA PROGRAMLARINDA ETKİ ÖLÇÜLDÜ — golden ağı bunu GÖREMEZ** (7 golden
+dosyasının HİÇBİRİ `exit_max_points` kullanmıyor; kullanan üç dosya
+140926/16092026/180926 golden'da DEĞİL):
+
+| dosya | tavan | satır | nokta |
+|---|---|---|---|
+| 140926 | 10 | 179 → 179 | 112 → 112 |
+| 16092026 | 6 | 136 → 136 | 110 → 110 |
+| 180926 | 5, 10 | 525 → 525 | 456 → 456 |
+| diğer 7 | yok | değişmedi | değişmedi |
+| kullanıcının test dosyası | 10 | **69 → 55** | **54 → 40** |
+
+Yani **hiçbir üretim programı oynamadı**; geri pasları zaten tavanın altında
+inceliyordu. Kullanıcının vakasında 14 satır kazanç.
+
+### 3. `_test_zero_rapids` artık kullanıcının deneme dosyalarını ATLIYOR
+
+Adında `test` geçen dosyalar hariç tutuldu: kullanıcı özelliği denerken onları
+sürekli değiştiriyor, kilitlemek testi kodla ilgisiz sebeplerle düşürüyordu.
+⚠ Hariç tutmadan önce ÖLÇÜLDÜ: **1 rapid atılıyor ve DOĞRU olan** — M artık tam
+oturduğu için (boşluk 0.000) iki strok arasındaki rapid hiçbir yere gitmiyor.
+
+**Ölçüldü:** **113 test dosyası PASS.**
+
 ## 2026-09-20c — KALDIĞI YERDEN: ileri pasın başını kes (M harfi tamamlandı)
 
 **Kullanıcının tarifi (aynen):** *"a normal roughing pass that the part below a

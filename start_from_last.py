@@ -36,7 +36,7 @@ MIN_REMAIN_MM = 1.0
 
 REASONS = {
     "no_anchor": "nothing ran before this operation, so there is no point to start from",
-    "not_reached": "this pass never reaches the X the previous stroke stopped at",
+    "not_reached": "this pass passes nowhere near where the previous stroke stopped",
     "too_short": "cutting there would leave almost nothing of the pass",
 }
 
@@ -60,46 +60,70 @@ def op_can_use(op):
     return op.get("direction", "forward") != "reverse"
 
 
-def plan(path, x_value, exit_start=0):
-    """Where to cut ``path`` so it begins at ``x_value``.
+def plan(path, anchor, exit_start=0):
+    """Where to cut ``path`` so it begins at ``anchor``.
+
+    ``anchor`` is the POINT the previous stroke ended at, [x, y, z]. The cut
+    lands on the path point CLOSEST to it - not merely where the path reaches
+    the anchor's X.
+
+    Why not X (the first attempt, corrected 2026-09-20 on the user's own test
+    program): a back pass is NOT the forward pass reversed. A bow
+    (``back_pass_arc_z``) and the clearance correction both move it off that
+    line - measured 5.6 to 8.0 mm of X over most of its length on that file. So
+    the X where the return stroke stopped sits somewhere quite different on the
+    forward line, and matching X alone left a 1.998 mm gap in Z - exactly the
+    2.0 mm bow the operator had set. Closest point cannot drift that way.
 
     ``exit_start`` is the index where the P2->P3 leg begins (the engine's
-    ``last_render_split_idx``); the search starts there because X is NOT unique
-    over a whole pass - the approach arm runs at nearly constant X and a naive
-    search would cut in the arm instead of the exit leg. 0 means "search the
-    whole path", which is what a shape with no recorded split gets.
-
-    Coordinates here are CANONICAL (+X outward), which is what calculate_paths
-    works in until it mirrors at the very end - so X grows along the exit leg
-    and the first crossing is the one wanted.
+    ``last_render_split_idx``); the search starts there because the approach arm
+    can pass close to the anchor too, and cutting inside the arm is never meant.
+    0 means "search the whole path", which is what a shape with no recorded
+    split gets.
 
     Returns ``None`` when there is nothing to do, else ``(i, t)``: the new path
     is one point interpolated ``t`` of the way from ``path[i]`` to
-    ``path[i + 1]``, followed by ``path[i + 1:]``.
+    ``path[i + 1]``, followed by ``path[i + 1:]``. The caller puts the anchor
+    itself in front of that, so the pass starts exactly where the roller is and
+    runs a short join onto its own line.
 
     Pure. Never mutates ``path``.
     """
     pts = np.asarray(path, dtype=float)
+    a = np.asarray(anchor, dtype=float)
     if pts.ndim != 2 or len(pts) < 2:
         return None
     lo = max(0, min(int(exit_start), len(pts) - 2))
 
+    # Closest point on the polyline, segment by segment, in the XZ plane.
+    best = None
     for i in range(lo, len(pts) - 1):
-        x0, x1 = pts[i][0], pts[i + 1][0]
-        if x0 <= x_value <= x1 or x1 <= x_value <= x0:
-            span = x1 - x0
-            t = 0.0 if abs(span) < 1e-12 else (x_value - x0) / span
-            t = float(min(max(t, 0.0), 1.0))
-            # Enough pass left after the cut to be worth emitting?
-            tail = pts[i + 1:]
-            cut_pt = pts[i] + t * (pts[i + 1] - pts[i])
-            remain = float(np.linalg.norm(tail[0] - cut_pt))
-            if len(tail) > 1:
-                remain += float(np.linalg.norm(np.diff(tail, axis=0), axis=1).sum())
-            if remain < MIN_REMAIN_MM:
-                return None
-            return (i, t)
-    return None
+        p0, p1 = pts[i], pts[i + 1]
+        d = p1 - p0
+        den = float(d[0] * d[0] + d[2] * d[2])
+        if den < 1e-18:
+            t = 0.0
+        else:
+            t = float(((a[0] - p0[0]) * d[0] + (a[2] - p0[2]) * d[2]) / den)
+            t = min(max(t, 0.0), 1.0)
+        q = p0 + t * d
+        dist = float(np.hypot(q[0] - a[0], q[2] - a[2]))
+        if best is None or dist < best[0]:
+            best = (dist, i, t)
+
+    if best is None:
+        return None
+    _, i, t = best
+
+    # Enough pass left after the cut to be worth emitting?
+    tail = pts[i + 1:]
+    cut_pt = pts[i] + t * (pts[i + 1] - pts[i])
+    remain = float(np.linalg.norm(tail[0] - cut_pt)) if len(tail) else 0.0
+    if len(tail) > 1:
+        remain += float(np.linalg.norm(np.diff(tail, axis=0), axis=1).sum())
+    if remain < MIN_REMAIN_MM:
+        return None
+    return (i, t)
 
 
 def apply(arr, cut):
@@ -121,6 +145,30 @@ def apply(arr, cut):
         return a[i + 1:]
     first = np.asarray(a[i] + t * (a[i + 1] - a[i]))
     return np.concatenate([first.reshape((1,) + a.shape[1:]), a[i + 1:]])
+
+
+def join(path, anchor, max_join_mm=None):
+    """Put ``anchor`` in front of ``path`` so the pass STARTS where the roller is.
+
+    The cut lands on the pass's own line, which is generally not the anchor: the
+    stroke before it was a different curve (see ``plan``). Rather than move the
+    pass - which would carry its clearance, its P3 and the flange edge with it,
+    by an amount that is really just the back pass's bow - the pass stays
+    exactly where it was designed and one short move joins the two.
+
+    Returns ``(path, join_mm)``. A zero-length join adds nothing.
+    """
+    pts = np.asarray(path, dtype=float)
+    a = np.asarray(anchor, dtype=float)
+    if len(pts) == 0:
+        return path, 0.0
+    d = float(np.hypot(pts[0][0] - a[0], pts[0][2] - a[2]))
+    if d <= 1e-6:
+        return pts, 0.0
+    if max_join_mm is not None and d > float(max_join_mm):
+        return pts, d               # caller decides what to do about it
+    first = np.array([[a[0], pts[0][1], a[2]]], dtype=float)
+    return np.concatenate([first, pts]), d
 
 
 def apply_parallel(arr, cut, n_path_before):

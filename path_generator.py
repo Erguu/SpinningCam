@@ -2096,17 +2096,37 @@ class PathGenerator:
                                 _sfl_sp = self.last_render_split_idx.get(
                                     len(toolpaths) - 1)
                                 _sfl_cut = start_from_last.plan(
-                                    fwd_path, float(_sfl_anchor[0]),
+                                    fwd_path, _sfl_anchor,
                                     exit_start=(_sfl_sp[1] if _sfl_sp else 0))
                                 if _sfl_cut is None:
                                     _sfl_why = "not_reached"
                                 else:
                                     fwd_path = start_from_last.apply(fwd_path, _sfl_cut)
-                                    toolpaths[-1] = fwd_path
                                     projections[-1] = start_from_last.apply_parallel(
                                         projections[-1], _sfl_cut, _sfl_n)
                                     deviations[-1] = start_from_last.apply_parallel(
                                         deviations[-1], _sfl_cut, _sfl_n)
+                                    # The cut lands on the pass's OWN line, which
+                                    # is not the anchor: the stroke before it was
+                                    # a different curve (a back pass carries the
+                                    # bow and its own clearance shift - measured
+                                    # 2 mm on the user's file, exactly the
+                                    # back_pass_arc_z he had set). Start the pass
+                                    # AT the roller and let one short move join
+                                    # it to its line, rather than moving the pass
+                                    # and dragging its clearance and its P3 with
+                                    # it by what is really somebody else's bow.
+                                    fwd_path, _sfl_join = start_from_last.join(
+                                        fwd_path, _sfl_anchor)
+                                    toolpaths[-1] = fwd_path
+                                    if _sfl_join > 1e-6:
+                                        # The parallel arrays gain no entry for
+                                        # the join point; they are already one
+                                        # short of the path on these shapes, and
+                                        # apply_parallel allows exactly that.
+                                        logger.info(
+                                            f"[START-LAST] '{pass_label}': joined "
+                                            f"{_sfl_join:.3f} mm onto its own line")
                                     # No arm, no fillet: the remainder is ALL exit
                                     # leg. Drop the split (it describes a shape
                                     # that no longer exists) and say so, so the
@@ -2148,6 +2168,16 @@ class PathGenerator:
                             # a safe move if a bp_arc bow / clearance shift moved the back
                             # pass start away from the forward end.
                             self.last_back_pass_meta[len(toolpaths)] = {"feed": bck_feed}
+                            # A back pass is the FORMING part of the pass driven
+                            # backwards - the straight approach arm is excluded
+                            # by construction. So it is all exit leg, and it
+                            # carries no split of its own. Without saying so, the
+                            # decimator reads its point cap as zero and Exit Max
+                            # Points does NOTHING on a back pass: measured on the
+                            # user's own program 2026-09-20, 293 points in and 49
+                            # out under a cap of 10. Same silent failure reverse
+                            # passes had until 2026-08-30.
+                            self.last_exit_only_paths.add(len(toolpaths))
                             toolpaths.append(bck_path)
                             projections.append(bck_proj)
                             control_points.append(np.array([]))
@@ -4895,7 +4925,13 @@ class PathGenerator:
         if exit_only:
             if exit_verbatim:
                 return pts
-            dec = self._decimate_path_for_plc(pts, _exit_tol, center_x)
+            # The NORMAL tolerance, not `exit_tolerance`. The separate exit
+            # tolerance (`plc_exit_tolerance`) exists to thin the tail of a pass
+            # that still has an arm and a fillet carrying its shape. Applying it
+            # to a WHOLE stroke is a different thing entirely: measured on the
+            # user's program it took a back pass from 49 points to 3. The ask
+            # was for the point CAP to work here, not for the shape to change.
+            dec = self._decimate_path_for_plc(pts, tolerance, center_x)
             if max_exit_points:
                 dec = self._thin_evenly(dec, max_exit_points)
             return dec
