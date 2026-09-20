@@ -77,6 +77,65 @@ adıyla kilitliyor. ⚠ Bu dört satırın ÜÇÜ takım değişimi güvenlik bl
 
 **Geri alma:** `generate_gcode` sonundaki `drop_zero_length_rapids` çağrısını sil.
 
+## 2026-09-20c — KALDIĞI YERDEN: ileri pasın başını kes (M harfi tamamlandı)
+
+**Kullanıcının tarifi (aynen):** *"a normal roughing pass that the part below a
+specific X is removed. But that X, actually that point, is already calculated in
+the previous back or reverse short-ended pass."*
+
+Yani YENİ bir pas türü DEĞİL: motor sıradan bir ileri pas kurar (kol + P2
+filetosu + çıkış kolu, pasın KENDİ tüm ayarlarıyla), sonra o X'ten öncesini
+SİLER. Bu yüzden **kendine ait tek bir parametresi yok** — bir kutu, o kadar.
+
+**ÖLÇÜLDÜ — M harfi, iki özellik birlikte:**
+
+| strok | nokta | uzunluk | başlangıç X/Z | bitiş X/Z |
+|---|---|---|---|---|
+| Op1 ileri | 21 | 85.449 | 87.000 / −40.000 | 116.641 / 30.000 |
+| Op1 geri (erken durdu) | 13 | 22.044 | 117.438 / 30.000 | **99.165** / 17.671 |
+| Op2 ileri (KESİLMİŞ) | 12 | 20.975 | **99.165** / 22.268 | 116.553 / 34.000 |
+| Op2 geri (TAM) | 20 | 37.044 | 116.553 / 34.000 | 86.912 / 12.405 |
+
+Dönüş noktası birebir tutuyor: Op1'in geri pası X=99.165'te bitti, Op2'nin ileri
+pası X=99.165'te başlıyor.
+
+**ÜÇ TASARIM KARARI, hepsi kullanıcıdan:**
+1. **SADECE İLK PAS** (`i == 0`). 3 paslı op'ta 2. ve 3. pas eskisi gibi
+   mandrelden başlar. Durma noktası OPERASYONDAN öncesine aittir, her pasa değil.
+2. **Stroke 3 ayrı parametre seti ALMAZ.** Kesilen pas zaten normal bir pas.
+3. **X yazılmaz** — önceki strokun ucundan okunur (`_sfl_anchor`). Nokta op'unun
+   `relative` modunun kullandığı ÇAPAYLA AYNI.
+
+**ÜÇ TUZAK (hepsi kodda yorumlu + testli):**
+* **Arama yalnızca ÇIKIŞ KOLUNDA.** Yaklaşma kolu neredeyse sabit X'te; tüm yolda
+  arasan kesim KOLUN İÇİNE düşerdi. `exit_start = split[1]`.
+* **Kesim, geri pas kurulduktan SONRA.** Geri pas `new_path[_line_end:]`'i
+  aynalıyor; önce kesersen dönüş stroku da kısalır — oysa M'in bütün mantığı
+  dönüşün TAM olması. (Takas tuzağının birebir kardeşi.)
+* **`exit_max_points` ölmesin.** Kesilen pasın kolu ve köşesi yok → split'i
+  düşürülüyor; split'siz bir yolda nokta tavanı SESSİZCE ölür (2026-08-30'da ters
+  paslarda tam olarak bu olmuştu). Çözüm: `last_exit_only_paths` +
+  `_decimate_path_for_plc(exit_only=True)` — "bu yolun TAMAMI çıkış kolu".
+  `p2_radius_max_points` uygulanmaz; yönettiği köşe kesilip gitti.
+  **Saha kanıtı:** 180926.ssp her op'ta `exit_max_points: 10` kullanıyor ve dosya
+  568 reçete satırında (kayıtlı kapasite 500) — tavanı sessizce kaybetmek
+  kabul edilemezdi.
+
+**Reddettiği iki şey (bildirilir, sessizce atlanmaz):** önce hiçbir şey koşmadıysa
+`no_anchor`; pas o X'e ulaşmıyorsa `not_reached` → `last_start_from_last_ignored`.
+
+**Test altyapısı notu:** `_test_param_wiring`'e `lead` koşulu eklendi (probe'dan
+ÖNCE bir op koşar). İKİ tuzak vardı: temel op geri pas kuruyor → lead'in SON
+stroku mandrelde bitiyor, probe'un çıkış kolu oraya hiç ulaşmıyor; ve tam boy
+lead probe'un kendi P3'ünde bitiyor → kesilecek bir şey kalmıyor. İkisinde de
+CANLI alan ÖLÜ raporlanıyordu. Lead artık geri passız ve kısa reach'li.
+
+**Ölçüldü:** **113 test dosyası PASS** (golden ağı dâhil).
+**Kutu KAPALI = eski çıktı, nokta nokta aynı.**
+
+**Geri alma:** `path_generator`'daki `start_from_last` bloğunu ve decimator'daki
+`exit_only` dalını sil.
+
 ## 2026-09-20b — Takım yolu DÜZENİ tek kurala bağlandı (İKİ GERÇEK BUG düzeltildi)
 
 **Neden şimdi:** "M" özelliği (bir pasta 2 yerine 4 strok) düzen kuralını

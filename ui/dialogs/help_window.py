@@ -1544,6 +1544,35 @@ than shipping a stub. And it switches off "No end retract" for that
 operation, because a trimmed pass no longer ends at the mandrel, which
 is the one thing that option depends on.
 
+START FROM LAST — begin a pass where the last stroke stopped
+Tick this and the operation's FIRST pass begins where the previous
+stroke ended, instead of down at the mandrel. It is an ordinary pass
+in every other way — same angle, same reach, same curve, same P2
+radius. The engine builds it as usual and then removes the part
+before that point. What is left starts out in the sheet and runs
+to P3.
+
+You do not type the point. It is read from wherever the roller was
+when the previous stroke finished. Only the FIRST pass is cut: in a
+3-pass operation, passes 2 and 3 begin at the mandrel as they always
+did. The grey note under the box says so.
+
+Put together with "Stop short", the two draw the letter M:
+
+  operation 1   forward pass            out to the sheet edge
+                back pass, stopped      part way back
+  operation 2   forward, cut            out again from there
+                back pass               all the way in
+
+A cut pass is all exit leg — its approach arm and its P2 corner were
+removed — so its point count is set by "Exit Max Points", not by
+"P2 Max Points". The corner that one governs is no longer there.
+
+Two things it will not do. If nothing ran before the operation there
+is no point to start from; and if the pass never reaches that X, the
+cut cannot be made. Either way the pass runs whole and the program
+says so, rather than quietly doing nothing.
+
 
 CALCULATE
 ════════════════════════════════════════════════════════════════
@@ -2550,6 +2579,34 @@ Yapmayı REDDETTİĞİ iki şey var. Stroktan uzun bir kırpma UYGULANMAZ —
 pas tam boyunda koşar ve program bunu bildirir, güdük bir pas göndermez.
 Ve o operasyonda "Uçta çekme yok" seçeneğini kapatır: kırpılmış bir pas
 artık mandrelde bitmez, o seçenek ise tam olarak buna dayanır.
+
+KALDIĞI YERDEN — pası, önceki strokun bittiği yerden başlat
+Bunu işaretlerseniz operasyonun İLK pası, mandrelin dibinden değil,
+önceki strokun bittiği yerden başlar. Başka her açıdan sıradan bir
+pastır — aynı açı, aynı reach, aynı eğri, aynı P2 yarıçapı. Motor
+pası her zamanki gibi kurar, sonra o noktadan ÖNCEKİ kısmı siler.
+Kalan parça sacın içinden başlar ve P3'e gider.
+
+Noktayı siz yazmazsınız. Önceki strok bittiğinde rulo neredeyse
+oradan okunur. Yalnızca İLK pas kesilir: 3 paslı bir operasyonda
+2. ve 3. pas eskisi gibi mandrelden başlar. Kutunun altındaki gri
+not bunu söyler.
+
+"Erken dur" ile birlikte ikisi M harfini çizer:
+
+  operasyon 1   ileri pas              sac kenarına doğru
+                geri pas, erken durur  yolun bir kısmı geri
+  operasyon 2   ileri, kesilmiş        oradan yine dışarı
+                geri pas               ta içeri kadar
+
+Kesilmiş pasın TAMAMI çıkış kolu sayılır — yaklaşma kolu ve P2 köşesi
+silindi — bu yüzden nokta sayısını "Çıkış Maks. Nokta" belirler,
+"P2 Maks. Nokta" değil. Onun yönettiği köşe artık orada yok.
+
+Yapmayacağı iki şey var. Operasyondan önce hiçbir şey koşmadıysa
+başlanacak nokta yoktur; pas o X'e hiç ulaşmıyorsa da kesim yapılamaz.
+Her iki durumda da pas tam boyunda koşar ve program bunu bildirir,
+sessizce hiçbir şey yapmaz.
 
 
 HESAPLA

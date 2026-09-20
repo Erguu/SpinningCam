@@ -11,6 +11,7 @@ from kinematics import get_kinematics
 import exit_waypoints
 import exit_breaks
 import stop_short
+import start_from_last
 
 # #100: how far the iterative safety floor may move a pass that carries a
 # hand-drawn tail before the operator is told. The tail is measured FROM P2, so
@@ -1039,6 +1040,10 @@ class PathGenerator:
         # Trims (stop_short_mm) asked for and NOT applied because the trim
         # was longer than the stroke. Reported, never silently ignored.
         self.last_stop_short_ignored = []
+        # Cuts (start_from_last) asked for and NOT made. Reported, never silent.
+        self.last_start_from_last_ignored = []
+        # Path indices whose beginning was cut away: all exit leg, no split.
+        self.last_exit_only_paths = set()
         self.last_render_split_idx = {}  # {path_list_index: (line_end_idx, arc_end_idx)}
         # Same pair remapped onto a REVERSED pass's array — advisory/UI only, see
         # the reverse block below for why it is not merged into the dict above.
@@ -1742,6 +1747,14 @@ class PathGenerator:
                 pass_label = f"{op.get('type').capitalize()} {i+1}"
                 
                 prev_paths_len = len(toolpaths)
+                # start_from_last: where the roller actually is when this pass is
+                # about to begin - the END of whatever ran before it. Captured
+                # HERE because once _create_and_store_pass has appended, this
+                # pass's own path is toolpaths[-1] and the anchor is lost. The
+                # same anchor a "relative" Point op and a "relative" tool-change
+                # position use, for the same reason.
+                _sfl_anchor = (np.asarray(toolpaths[prev_paths_len - 1][-1], dtype=float)
+                               if prev_paths_len > 0 else None)
                 
                 m_min_z = mandrel_mgr.props.get("min_z", 0.0)
                 m_top_z = mandrel_mgr.props.get("top_z", 100.0)
@@ -2059,6 +2072,60 @@ class PathGenerator:
                                 logger.info(
                                     f"[STOP-SHORT] '{pass_label}': inward stroke stops "
                                     f"{_ss_mm:.2f} mm short ({_ss_n} -> {len(bck_path)} pts)")
+
+                        # ── Start from last (start_from_last) ────────────────
+                        # Cut the beginning off this forward pass so it starts
+                        # where the previous stroke stopped. FIRST PASS ONLY
+                        # (user, 2026-09-20): the stop point belongs to what ran
+                        # before the OPERATION, not to each pass inside it.
+                        #
+                        # AFTER the back pass was built, on purpose. The back
+                        # pass mirrors new_path[_line_end:], so cutting earlier
+                        # would shorten the return stroke too - and the whole
+                        # point of the shape is that the return runs FULL.
+                        if (i == 0 and start_from_last.enabled(op)
+                                and len(fwd_path) > 1):
+                            _sfl_why = None
+                            if _sfl_anchor is None:
+                                _sfl_why = "no_anchor"
+                            else:
+                                _sfl_n = len(fwd_path)
+                                # Search only the exit leg: the approach arm runs
+                                # at nearly constant X, so a whole-path search
+                                # would cut in the arm instead.
+                                _sfl_sp = self.last_render_split_idx.get(
+                                    len(toolpaths) - 1)
+                                _sfl_cut = start_from_last.plan(
+                                    fwd_path, float(_sfl_anchor[0]),
+                                    exit_start=(_sfl_sp[1] if _sfl_sp else 0))
+                                if _sfl_cut is None:
+                                    _sfl_why = "not_reached"
+                                else:
+                                    fwd_path = start_from_last.apply(fwd_path, _sfl_cut)
+                                    toolpaths[-1] = fwd_path
+                                    projections[-1] = start_from_last.apply_parallel(
+                                        projections[-1], _sfl_cut, _sfl_n)
+                                    deviations[-1] = start_from_last.apply_parallel(
+                                        deviations[-1], _sfl_cut, _sfl_n)
+                                    # No arm, no fillet: the remainder is ALL exit
+                                    # leg. Drop the split (it describes a shape
+                                    # that no longer exists) and say so, so the
+                                    # decimator keeps Exit Max Points working.
+                                    self.last_render_split_idx.pop(len(toolpaths) - 1, None)
+                                    self.last_exit_only_paths.add(len(toolpaths) - 1)
+                                    logger.info(
+                                        f"[START-LAST] '{pass_label}': begins at "
+                                        f"X={_sfl_anchor[0]:.3f} ({_sfl_n} -> "
+                                        f"{len(fwd_path)} pts)")
+                            if _sfl_why:
+                                self.last_start_from_last_ignored.append({
+                                    "op_name": op.get("name") or op.get("type", "?"),
+                                    "pass_name": pass_label,
+                                    "reason": _sfl_why,
+                                })
+                                logger.info(
+                                    f"[START-LAST] '{pass_label}': NOT applied "
+                                    f"({_sfl_why})")
 
                         start_pt = fwd_path[0]
                         end_pt   = fwd_path[-1]
@@ -4753,7 +4820,8 @@ class PathGenerator:
                                exit_tolerance=None,
                                max_fillet_points=None,
                                max_exit_points=None,
-                               exit_verbatim=False):
+                               exit_verbatim=False,
+                               exit_only=False):
         """
         Decimates a toolpath for PLC point-to-point output.
 
@@ -4816,6 +4884,21 @@ class PathGenerator:
             return pts
 
         _exit_tol = exit_tolerance if exit_tolerance is not None else tolerance
+
+        # A pass whose beginning was cut away (start_from_last) is ALL exit leg:
+        # its arm and its P2 fillet are gone, so there are no regions to split
+        # and no index to split them at. Said explicitly rather than squeezed
+        # into approach_end_idx=0, which the guard below reads as "no arm" and
+        # would drop straight through to the single-region path - taking
+        # Exit Max Points with it, the way it silently died on reverse passes
+        # until 2026-08-30.
+        if exit_only:
+            if exit_verbatim:
+                return pts
+            dec = self._decimate_path_for_plc(pts, _exit_tol, center_x)
+            if max_exit_points:
+                dec = self._thin_evenly(dec, max_exit_points)
+            return dec
 
         _has_app = approach_end_idx is not None and 0 < approach_end_idx < len(pts) - 1
         _has_arc = (arc_end_idx is not None and _has_app
@@ -4940,16 +5023,23 @@ class PathGenerator:
             _app_end = _split[0] if _split is not None else None
             _arc_end = _split[1] if _split is not None else None
             _verb = _pi in getattr(self, "last_exit_verbatim", set())
+            # start_from_last cut this pass's beginning off: no arm, no fillet,
+            # all exit leg. It has no split (there is nothing to split), so the
+            # flag is what keeps Exit Max Points alive for it.
+            _xonly = _pi in getattr(self, "last_exit_only_paths", set())
             _plain = self._decimate_path_for_plc(_p, tolerance, center_x,
                                                  approach_end_idx=_app_end,
                                                  arc_end_idx=_arc_end,
                                                  exit_tolerance=exit_tolerance,
-                                                 exit_verbatim=_verb)
+                                                 exit_verbatim=_verb,
+                                                 exit_only=_xonly)
 
             _op = self._path_op_map[_pi] if _pi < len(self._path_op_map) else None
 
-            def _cap_of(key, _o=_op, _s=_split):
-                if params is None or _o is None or _s is None:
+            def _cap_of(key, _o=_op, _s=_split, _x=_xonly):
+                # An exit-only path has no split by design, so the split is not
+                # the test for "can this path carry a cap".
+                if params is None or _o is None or (_s is None and not _x):
                     return 0
                 try:
                     _raw = _o.get(key, None)
@@ -4987,6 +5077,7 @@ class PathGenerator:
                     _p, tolerance, center_x,
                     approach_end_idx=_app_end, arc_end_idx=_arc_end,
                     exit_tolerance=exit_tolerance, exit_verbatim=_verb,
+                    exit_only=_xonly,
                     **{**_accepted, _kw: _cap})
                 if len(_try) >= len(_best):
                     continue                    # this cap changed nothing

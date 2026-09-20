@@ -106,7 +106,7 @@ BASE_ROUGH = {
     "tool_change_dx": 0.0, "tool_change_dz": 0.0, "tool_change_simultaneous": False,
     "p2_radius_max_points": "", "exit_max_points": "",
     "no_retract_mandrel_end": False, "mandrel_link_max_mm": 15.0,
-    "stop_short_mm": "",
+    "stop_short_mm": "", "start_from_last": False,
 }
 
 # ── probe values ──────────────────────────────────────────────────────────
@@ -188,6 +188,10 @@ CONDITIONS = {
     "no_retract_mandrel_end": {"op": {"mandrel_link_max_mm": 200.0}},
     "mandrel_link_max_mm": {"op": {"no_retract_mandrel_end": True,
                                    "mandrel_link_max_mm": 200.0}},
+    # Starts the FIRST pass where the previous stroke stopped, so it needs a
+    # previous stroke. Alone it refuses with "no_anchor" and reports as dead -
+    # the same shape of trap as the Point op's "relative" mode below.
+    "start_from_last": {"lead": True},
 }
 
 # ── legitimately unable to move the G-code ────────────────────────────────
@@ -285,7 +289,22 @@ def sweep_key(base_op, key):
     pov = cond.get("params", {})
 
     try:
-        if tc_mode:
+        if cond.get("lead"):
+            # Needs a stroke to have run BEFORE it. Same need the Point op's
+            # "relative" mode has, and probed the same way: alone, a live field
+            # reports as dead because there is nothing to be relative to.
+            # The lead must END somewhere the probe pass actually passes
+            # through, or the field reports as dead for a reason that is about
+            # the fixture, not the code. Two traps, both met while writing this:
+            #   * the baseline builds a BACK pass, so the lead's LAST stroke
+            #     ends at the mandrel - an X the probe's exit leg never reaches;
+            #   * a full-length lead ends at the probe's own P3, leaving nothing
+            #     to cut.
+            # So: no back pass, and a short reach.
+            lead = [dict(base_op, name="lead", count=1, reach=12.0,
+                         back_pass_enabled=False)]
+            ga, gb = _gen(lead + [op_a], pov, recipe), _gen(lead + [op_b], pov, recipe)
+        elif tc_mode:
             first = dict(base_op, tool_id="T0101")
             a = dict(op_a, tool_id="T0202", tool_change_mode=tc_mode)
             b = dict(a)

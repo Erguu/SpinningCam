@@ -155,6 +155,7 @@ OP_PARAM_UNIVERSE = {
         "contact_zone_mm", "feed_contact", "feed_contact_end",
         "back_pass_enabled", "back_pass_swapped", "back_pass_feed",
         "back_pass_arc_x", "back_pass_arc_z", "stop_short_mm",
+        "start_from_last",
     ],
     "finishing": _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + [
         "name", "tool_id", "count", "direction",
@@ -164,7 +165,7 @@ OP_PARAM_UNIVERSE = {
         "clearance", "pass_shape", "straight_line_mode",
         # Only reachable on a REVERSE finishing pass, which travels inward
         # like any other reverse pass; the editor gates it (stop_short.op_can_use).
-        "stop_short_mm",
+        "stop_short_mm", "start_from_last",
     ],
     "cutting":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + _CUT_BEND_POINTS + ["name", "tool_id", "retract_x", "retract_z", "retract_motion"],
     "bending":  _UNIVERSE_COMMON + _TOOL_CHANGE_KEYS + _CUT_BEND_POINTS + ["name", "tool_id", "retract_x", "retract_z", "retract_motion"],
@@ -218,6 +219,7 @@ OP_PARAM_LABELS = {
     "reach_follow_blank": "lbl_reach_follow",
     "reach_blank_factor": "lbl_reach_factor",
     "stop_short_mm": "lbl_stop_short",
+    "start_from_last": "lbl_start_from_last",
     "reach_blank_offset": "lbl_reach_offset",
     "pass_angle": "lbl_pass_angle",
     "progressive_angle_enabled": "lbl_progressive",
@@ -987,6 +989,45 @@ class ProgramTab:
         f_note._pkey = _ss.OP_KEY
         f_note.pack(fill="x", padx=2)
         tk.Label(f_note, text=t("note_stop_short"),
+                 fg=self.helper.HINT_COLOR, font=self.helper.HINT_FONT,
+                 anchor="w").pack(side="left", padx=(17, 2))
+
+    def _add_start_from_last_field(self, idx, op):
+        """"Start from last" - begin the first pass where the last stroke stopped.
+
+        Out-of-universe gating like the mandrel link and stop_short: the rule
+        (start_from_last.op_can_use) is not something _apply_field_visibility
+        knows, so the gate is here.
+
+        The grey note says FIRST PASS ONLY out loud. An operator with a 3-pass
+        operation would otherwise reasonably expect all three to move.
+        """
+        import start_from_last as _sfl
+        if not _sfl.op_can_use(op):
+            return
+        f_sfl = ttk.Frame(self.f_prop_editor)
+        f_sfl._pkey = _sfl.OP_KEY
+        f_sfl.pack(fill="x", padx=2, pady=1)
+        ttk.Label(f_sfl, text=t("lbl_start_from_last"), width=15).pack(side="left")
+        _sfl_var = tk.BooleanVar(value=_sfl.enabled(op))
+
+        def _toggle_sfl(i=idx, v=_sfl_var):
+            self.app.params["operations"][i][_sfl.OP_KEY] = bool(v.get())
+            self._schedule_auto_calc()
+        ttk.Checkbutton(f_sfl, variable=_sfl_var, command=_toggle_sfl).pack(side="right")
+        self.helper.bind_tooltip(f_sfl,
+                        "Bu operasyonun İLK pasını, ÖNCEKİ strokun bittiği yerden başlatır. "
+                        "Pas normal kurulur (kol + P2 filetosu + çıkış kolu), sonra o X'ten "
+                        "ÖNCEKİ kısmı KESİLİR — kalan parça sacın içinden başlar ve P3'e gider.\n"
+                        "X'i sen yazmazsın: önceki kısa bitmiş geri/ters pasın ucundan okunur.\n"
+                        "SADECE İLK PAS. 3 paslı bir op'ta 2. ve 3. pas eskisi gibi mandrelden başlar.\n"
+                        "Kesilen pasın TAMAMI çıkış kolu sayılır → nokta sayısını "
+                        "\"Çıkış Maks. Nokta\" yönetir (P2 Maks. Nokta değil, köşe kesilip gitti).\n"
+                        "Önünde hiçbir şey yoksa ya da pas o X'e hiç ulaşmıyorsa UYGULANMAZ, bildirilir.")
+        f_note = ttk.Frame(self.f_prop_editor)
+        f_note._pkey = _sfl.OP_KEY
+        f_note.pack(fill="x", padx=2)
+        tk.Label(f_note, text=t("note_start_from_last"),
                  fg=self.helper.HINT_COLOR, font=self.helper.HINT_FONT,
                  anchor="w").pack(side="left", padx=(17, 2))
 
@@ -2909,6 +2950,7 @@ class ProgramTab:
         self._add_retract_motion_field(idx, op)
         self._add_mandrel_link_fields(idx, op, op_type)
         self._add_stop_short_field(idx, op)
+        self._add_start_from_last_field(idx, op)
 
         if op_type == "roughing":
             _hdr = self._add_section_header("path_shape", t("lbl_path_shape_hdr"))
