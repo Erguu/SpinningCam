@@ -17,6 +17,30 @@ characters (▸ ▦ ☑ are fine) — Tk 8.6 mishandles emoji such as 📍.
 """
 
 CHANGELOG = {
+    "1.037": [
+        ("Fixed: passes disappeared and the STEP was asked for every start",
+         "On a machine with the roller on the minus-X side, a Linear (full) "
+         "operation with a back pass stopped the whole calculation. No passes "
+         "were drawn, and at start-up the program asked for the STEP file again "
+         "even though it was there. This now calculates normally.",
+         "Nothing to switch on; open the program again"),
+        ("Stop short (mm): end the stroke toward the mandrel early",
+         "On a back pass or a reverse pass, the stroke that travels TOWARD the "
+         "mandrel now stops this many millimetres early, measured along the path. "
+         "Leave it at 0 and nothing changes.",
+         "Program List ▸ an operation with a back pass or reverse ▸ Stop short (mm)"),
+        ("Start from last: begin where the previous stroke stopped",
+         "Tick this and the first pass of the operation starts at the point "
+         "closest to where the roller stopped before, instead of at the mandrel. "
+         "The program moves the pass along the wall by itself so the two meet; "
+         "the move is shown at the top of the pass information. Off to start "
+         "with.",
+         "Program List ▸ an operation ▸ Start from last"),
+        ("Exit Max Points now also works on back passes",
+         "Before, the point limit was ignored on back passes, so they kept many "
+         "more points than asked. Programs without a limit are unchanged.",
+         "Program List ▸ an operation ▸ Exit Max Points"),
+    ],
     "1.036": [
         ("Moves that go nowhere are no longer written",
          "A program sometimes carried a fast move to the exact point the roller "

@@ -5,6 +5,38 @@ Sorun çıkarsa buraya bak — hangi satır değişti, neden, ne bekleniyor.
 
 ---
 
+> **v1.037 = 1.036'dan sonraki commit'ler (f6ddc77 … 7912ec6: Stop short, Start
+> from last + otomatik kaydırma, back pass'te Exit Max Points, takım değişimi
+> rapid'leri asla atılmaz) + 2026-09-24 saha düzeltmesi.** Operatöre görünen kısmı
+> `changelog.py`'deki `"1.037"` girdisi. Branch `feature/mandrel-end-link`,
+> master'a MERGE YOK, EXE YOK.
+
+## 2026-09-24 — −X makinede boş projeksiyon tüm hesabı çökertiyordu
+
+**Saha raporu:** `SoftSpinner_report_ID111-1_2026-09-24_2115.zip` (ID111-1, v1.036).
+Operatör: "program her açılışta aynı STEP'i soruyor; yükleyince sağdaki görünüm
+pasları göstermiyor."
+
+**Kök neden:** Op "Ro-Start 105" = `pass_shape: linear_full` + back pass. Back pass
+tamamen mandrel `top_z`'nin üstünde → `_compute_proj_and_devs` BOŞ dizi
+(`np.array([])`, 1-B) döner. `calculate_paths` sonundaki −X aynası
+`_mirror_pts` bunu `a[:, 0]` ile indeksliyordu → `IndexError: too many indices`.
+Hesap ölünce paslar çizilmedi; hesap `load_step_file` içinde koştuğu için
+başlangıçtaki otomatik STEP yüklemesi "başarısız" sayıldı → her açılışta soru.
++X makineler aynalamaz, o yüzden hiç görülmedi.
+
+**Düzeltme:** `path_generator.py` `_mirror_pts` — `ndim != 2` veya boş dizi
+değiştirilmeden geri döner (aşağıdaki control_points aynası zaten böyleydi).
+Boş olmayan her yol bayt-aynı.
+
+**Doğrulama:** müşterinin kendi .ssp + STEP'i: önce aynı hata, sonra 13 yol +
+.nc + reçete hatasız. Yeni `test_mirror_empty_projection.py` (düzeltmesiz
+aynı IndexError ile düşer). Tam süit / golden KOŞULMADI.
+
+**Geri alma:** `_mirror_pts` içindeki iki satırlık `if` bloğunu sil.
+
+---
+
 > **v1.036 = aşağıdaki 2026-09-16g / 2026-09-18 / 2026-09-19 girdileri**
 > ("No end retract" etiketinin 15 karakterlik sütuna sığdırılması, satır uzunluğu
 > uyarısının düz dille yeniden yazılması + eğri üzerindeki UZUN kiriş uyarısı, ve

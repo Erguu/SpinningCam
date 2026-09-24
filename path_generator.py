@@ -2313,8 +2313,16 @@ class PathGenerator:
         # Mirror all X coordinates if roller is on negative X side
         if side == -1.0:
             def _mirror_pts(arr):
-                """Mirror numpy array (N,3) in X around center_x."""
+                """Mirror numpy array (N,3) in X around center_x.
+
+                Empty in, empty out: a linear_full back pass has no forming
+                part, so its projection is np.array([]) (1-D). Indexing that
+                killed the whole calculation on every -X machine (field
+                report ID111-1, 2026-09-24) - the +X side never mirrors, so
+                everything downstream already takes the empty array."""
                 a = np.array(arr, dtype=float)
+                if a.ndim != 2 or a.size == 0:
+                    return a
                 a[:, 0] = 2.0 * center_x - a[:, 0]
                 return a
 
